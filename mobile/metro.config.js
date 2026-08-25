@@ -50,12 +50,42 @@ const FORCE_FROM_APP = ['react', 'react-native']
 
 const CORE_ALIAS = '@core/'
 
+/**
+ * On `expo start --web` Metro picks the plain `.js` platform files. For apiUrl
+ * that is wrong: `apiUrl.js` returns RELATIVE paths, which only work for the
+ * Vite app whose dev server proxies /api. Expo's web dev server has no such
+ * proxy, so those requests hit Expo itself and come back as 404s / index.html.
+ *
+ * This app is a standalone client on every target it builds for, so it always
+ * wants the absolute-URL implementation. Storage deliberately does NOT get the
+ * same treatment — MMKV is a native module, so the browser must keep using the
+ * localStorage variant.
+ *
+ * Matched on the RESOLVED path, not the specifier: core imports apiUrl
+ * relatively ('../platform/apiUrl'), so an alias-only rule would never fire.
+ */
+const API_URL_MODULE = path.join('platform', 'apiUrl')
+
+function forceAbsoluteApiUrlOnWeb(target, platform) {
+  return platform === 'web' && target.endsWith(API_URL_MODULE)
+    ? `${target}.native.js`
+    : target
+}
+
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   // `@core/x/y` -> <repo>/src/core/x/y, resolved as a path so that Metro still
   // applies its own extension order and picks `.native.js` over `.js`.
   if (moduleName.startsWith(CORE_ALIAS)) {
     const target = path.join(coreRoot, moduleName.slice(CORE_ALIAS.length))
-    return context.resolveRequest(context, target, platform)
+    return context.resolveRequest(context, forceAbsoluteApiUrlOnWeb(target, platform), platform)
+  }
+
+  // Relative imports from inside core (e.g. store.jsx -> './platform/apiUrl').
+  if (platform === 'web' && moduleName.startsWith('.') && context.originModulePath) {
+    const abs = path.resolve(path.dirname(context.originModulePath), moduleName)
+    if (abs.startsWith(coreRoot) && abs.endsWith(API_URL_MODULE)) {
+      return context.resolveRequest(context, `${abs}.native.js`, platform)
+    }
   }
 
   const forced = FORCE_FROM_APP.some(
