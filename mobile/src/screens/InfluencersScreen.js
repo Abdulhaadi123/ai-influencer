@@ -1,0 +1,119 @@
+/**
+ * Influencers — the native list of everyone in the shared store.
+ *
+ * Reads `useInfluencers()` from @core/store, the exact hook the web app's
+ * Influencers page uses, so both platforms show the same data from the same
+ * source. The per-influencer studio (Profile / Videos / Motion Copy) is ported
+ * in a later step; this screen is the list and navigation entry point.
+ */
+
+import { useMemo } from 'react'
+import { View, Text, Image, FlatList, Pressable, StyleSheet } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
+import { useInfluencers } from '@core/store'
+
+import { useTheme, space, radius } from '../theme'
+
+export default function InfluencersScreen({ navigation }) {
+  const { colors } = useTheme()
+  const insets = useSafeAreaInsets()
+  const [influencers] = useInfluencers()
+
+  // Stable ordering so the list doesn't reshuffle between renders.
+  const data = useMemo(
+    () => [...(influencers || [])].sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [influencers]
+  )
+
+  if (!data.length) {
+    return (
+      <View style={[styles.empty, { backgroundColor: colors.bg }]}>
+        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No influencers yet</Text>
+        <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>
+          Once you create one it will appear here, on this device and in the web app.
+        </Text>
+      </View>
+    )
+  }
+
+  return (
+    <FlatList
+      style={{ backgroundColor: colors.bg }}
+      contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + space.xxl }]}
+      data={data}
+      keyExtractor={item => String(item.id)}
+      renderItem={({ item }) => (
+        <InfluencerCard
+          influencer={item}
+          onPress={() => navigation?.navigate?.('InfluencerDetail', { id: item.id })}
+        />
+      )}
+    />
+  )
+}
+
+function InfluencerCard({ influencer, onPress }) {
+  const { colors } = useTheme()
+  const image = influencer.mainImage || influencer.image
+  const subtitle = influencer.niche || influencer.gender || '—'
+
+  return (
+    <Pressable
+      onPress={onPress}
+      android_ripple={{ color: colors.borderSubtle }}
+      style={({ pressed }) => [
+        styles.card,
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.borderSubtle,
+          opacity: pressed ? 0.9 : 1,
+        },
+      ]}
+    >
+      {image ? (
+        <Image source={{ uri: image }} style={styles.avatar} resizeMode="cover" />
+      ) : (
+        <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.accentSoft }]}>
+          <Text style={[styles.avatarLetter, { color: colors.accent }]}>
+            {(influencer.name || '?').charAt(0).toUpperCase()}
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.cardText}>
+        <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
+          {influencer.name || 'Unnamed'}
+        </Text>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      </View>
+
+      <Text style={[styles.chevron, { color: colors.textTertiary }]}>›</Text>
+    </Pressable>
+  )
+}
+
+const styles = StyleSheet.create({
+  list: { padding: space.lg, gap: space.md },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    padding: space.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  avatar: { width: 52, height: 52, borderRadius: radius.md },
+  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  avatarLetter: { fontSize: 20, fontWeight: '700' },
+  cardText: { flex: 1, gap: 2 },
+  name: { fontSize: 16, fontWeight: '600' },
+  subtitle: { fontSize: 13 },
+  chevron: { fontSize: 24, lineHeight: 26, paddingRight: space.xs },
+
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.sm },
+  emptyTitle: { fontSize: 18, fontWeight: '600' },
+  emptyBody: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
+})
