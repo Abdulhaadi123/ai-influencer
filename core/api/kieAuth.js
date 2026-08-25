@@ -1,9 +1,10 @@
-// ── KIE.AI Authentication helper ─────────────────────────────────────────────
-// The API key is stored SERVER-SIDE in .env (KIE_API_KEY).
-// On the client side we only expose a flag so UI can show connection status.
-// Users never need to connect/login — the company's key is used for everyone.
+// ── KIE.AI engine status ─────────────────────────────────────────────────────
+// Reports whether the configured KIE key works, so the UI can show it.
+// Where the key lives depends on the platform: on mobile it is bundled from
+// EXPO_PUBLIC_KIE_API_KEY, on web it stays server-side behind the /api/kie
+// proxy. Either way, users never log in — one account's credits serve everyone.
 
-import { getApiUrl } from '../platform/apiUrl'
+import { kieFetch } from '../platform/kieTransport'
 import * as storage from '../platform/storage'
 
 const KIE_CONNECTED_KEY = 'kie_connected'
@@ -11,15 +12,11 @@ const KIE_CONNECTED_KEY = 'kie_connected'
 // Called once at app start to confirm the backend key is configured.
 // Lightweight, read-only credit check — costs no credits.
 //
-// NOTE: the `__kiepath` param is REQUIRED. The proxy reads the upstream path
-// from it; without it the request is forwarded to the api.kie.ai root and 404s,
-// which would report a perfectly good key as "offline".
+// Goes through the platform transport: direct to api.kie.ai on mobile, via the
+// /api/kie proxy on web.
 export async function checkKieConnection() {
   try {
-    const res = await fetch(
-      getApiUrl('/api/kie/api/v1/chat/credit?__kiepath=/api/v1/chat/credit'),
-      { method: 'GET' }
-    )
+    const res = await kieFetch('/api/v1/chat/credit')
     if (!res.ok) {
       try { storage.setItem(KIE_CONNECTED_KEY, '0') } catch {}
       return false

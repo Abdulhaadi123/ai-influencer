@@ -23,9 +23,6 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "extra": {
-      "apiBase": "https://ai-influencer-eosin.vercel.app"
-    },
     "plugins": [
       "expo-sharing",
       "expo-video",

@@ -51,23 +51,25 @@ const FORCE_FROM_APP = ['react', 'react-native']
 const CORE_ALIAS = '@core/'
 
 /**
- * On `expo start --web` Metro picks the plain `.js` platform files. For apiUrl
- * that is wrong: `apiUrl.js` returns RELATIVE paths, which only work for the
- * Vite app whose dev server proxies /api. Expo's web dev server has no such
- * proxy, so those requests hit Expo itself and come back as 404s / index.html.
+ * On `expo start --web` Metro picks the plain `.js` platform files. For the KIE
+ * transport that is wrong: `kieTransport.js` routes through a server-side
+ * `/api/kie` proxy that belongs to the Vite app, and Expo's web dev server has
+ * no such proxy — those requests would hit Expo itself and 404.
  *
- * This app is a standalone client on every target it builds for, so it always
- * wants the absolute-URL implementation. Storage deliberately does NOT get the
- * same treatment — the native store is expo-sqlite, so the browser must keep
- * using the localStorage variant.
+ * This app talks to KIE directly on every target it builds for, and KIE sends
+ * CORS headers, so the browser can make the same direct calls the phone does.
+ * That keeps `expo start --web` usable as a way to try the app.
  *
- * Matched on the RESOLVED path, not the specifier: core imports apiUrl
- * relatively ('../platform/apiUrl'), so an alias-only rule would never fire.
+ * Storage deliberately does NOT get the same treatment — the native store is
+ * expo-sqlite, so the browser must keep using the localStorage variant.
+ *
+ * Matched on the RESOLVED path, not the specifier: core imports the transport
+ * relatively, so an alias-only rule would never fire.
  */
-const API_URL_MODULE = path.join('platform', 'apiUrl')
+const DIRECT_ON_WEB = path.join('platform', 'kieTransport')
 
-function forceAbsoluteApiUrlOnWeb(target, platform) {
-  return platform === 'web' && target.endsWith(API_URL_MODULE)
+function forceDirectTransportOnWeb(target, platform) {
+  return platform === 'web' && target.endsWith(DIRECT_ON_WEB)
     ? `${target}.native.js`
     : target
 }
@@ -77,13 +79,13 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   // applies its own extension order and picks `.native.js` over `.js`.
   if (moduleName.startsWith(CORE_ALIAS)) {
     const target = path.join(coreRoot, moduleName.slice(CORE_ALIAS.length))
-    return context.resolveRequest(context, forceAbsoluteApiUrlOnWeb(target, platform), platform)
+    return context.resolveRequest(context, forceDirectTransportOnWeb(target, platform), platform)
   }
 
-  // Relative imports from inside core (e.g. store.jsx -> './platform/apiUrl').
+  // Relative imports from inside core (e.g. kieAuth.js -> '../platform/kieTransport').
   if (platform === 'web' && moduleName.startsWith('.') && context.originModulePath) {
     const abs = path.resolve(path.dirname(context.originModulePath), moduleName)
-    if (abs.startsWith(coreRoot) && abs.endsWith(API_URL_MODULE)) {
+    if (abs.startsWith(coreRoot) && abs.endsWith(DIRECT_ON_WEB)) {
       return context.resolveRequest(context, `${abs}.native.js`, platform)
     }
   }

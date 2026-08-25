@@ -90,7 +90,7 @@ export default function SettingsScreen() {
 
       <Section
         title="KIE.AI Engine"
-        footer="The app uses a KIE.AI key configured on the server. You don't need to sign in or connect an account."
+        footer="The app calls KIE.AI directly using the key in mobile/.env. No sign-in, and no backend of our own."
       >
         <Row
           last

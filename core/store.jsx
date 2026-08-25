@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react'
 import * as storage from './platform/storage'
-import { getApiUrl } from './platform/apiUrl'
+import seedData from './data/seeds.json'
 import { reloadApp } from './platform/app'
 
 // Generic small-value localStorage hook (inspiration boards, brand deals, etc.)
@@ -435,12 +435,11 @@ export function StoreProvider({ children }) {
   const brandDealsState  = useLocalStorage('brand_deals', [])
   const [, setDealsData]         = brandDealsState
 
-  // Seed from /seeds.json when seed IDs are missing from storage.
-  // Routed through getApiUrl so non-web builds, which have no relative-path
-  // origin to resolve against, fetch it from the deployed base instead.
+  // Seed from the bundled seed data when those IDs are missing from storage.
+  // Bundled rather than fetched: the app must work with no backend of its own,
+  // and a network round-trip here would block first-run seeding offline.
   useEffect(() => {
-    fetch(getApiUrl('/seeds.json'))
-      .then(r => r.json())
+    Promise.resolve(seedData)
       .then(seeds => {
         const currentIds = new Set(readIds() || [])
         const missingSeedIds = seeds.influencer_ids.filter(id => !currentIds.has(id))

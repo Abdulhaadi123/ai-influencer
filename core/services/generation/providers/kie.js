@@ -1,4 +1,4 @@
-import { getApiUrl } from '../../../platform/apiUrl'
+import { kieFetch } from '../../../platform/kieTransport'
 import { IMAGE_MODEL_ID, VIDEO_MODEL_KLING, VIDEO_MODEL_VEO, MOTION_MODEL_KIE } from '../../../config/generation'
 import * as storage from '../../../platform/storage'
 
@@ -109,9 +109,8 @@ async function uploadRefImage(base64Data) {
   }
 
   try {
-    const res = await fetch(getApiUrl('/api/kie/api/file-base64-upload?__kiepath=/api/file-base64-upload'), {
+    const res = await kieFetch('/api/file-base64-upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         base64Data,
         uploadPath: 'images/base64',
@@ -167,9 +166,8 @@ async function uploadAudioFile(base64Data) {
     const ext = mime.includes('wav') ? 'wav' : mime.includes('m4a') || mime.includes('mp4') ? 'm4a' : 'mp3'
     const fileName = `audio_${Date.now()}.${ext}`
 
-    const res = await fetch(getApiUrl('/api/kie/api/file-base64-upload?__kiepath=/api/file-base64-upload'), {
+    const res = await kieFetch('/api/file-base64-upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         base64Data,
         uploadPath: 'audio/base64',
@@ -212,7 +210,7 @@ export async function pollAllJobs(jobIds, total, onProgress, _staleTolerance = 8
     for (const jobId of [...pending]) {
       if (isCancelled?.()) throw new Error('CANCELLED')
       try {
-        const res = await fetch(getApiUrl(`/api/kie/api/v1/jobs/recordInfo?__kiepath=/api/v1/jobs/recordInfo&taskId=${jobId}`))
+        const res = await kieFetch('/api/v1/jobs/recordInfo', { query: { taskId: jobId } })
         if (!res.ok) continue
 
         const json = await res.json()
@@ -270,7 +268,7 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
       
       try {
         if (job.isVeo) {
-          const res = await fetch(getApiUrl(`/api/kie/api/v1/veo/record-info?__kiepath=/api/v1/veo/record-info&taskId=${jobId}`))
+          const res = await kieFetch('/api/v1/veo/record-info', { query: { taskId: jobId } })
           if (!res.ok) continue
           const json = await res.json()
           if (json.code !== 200) continue
@@ -290,7 +288,7 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
             console.warn(`Veo video job ${jobId} failed`)
           }
         } else {
-          const res = await fetch(getApiUrl(`/api/kie/api/v1/jobs/recordInfo?__kiepath=/api/v1/jobs/recordInfo&taskId=${jobId}`))
+          const res = await kieFetch('/api/v1/jobs/recordInfo', { query: { taskId: jobId } })
           if (!res.ok) continue
           const json = await res.json()
           if (json.code !== 200) continue
@@ -351,9 +349,8 @@ async function launchImageJob(prompt, imageUrls, aspectRatio) {
   const refs = (imageUrls || []).filter(Boolean)
   if (refs.length) input.image_input = refs
 
-  const res = await fetch(getApiUrl('/api/kie/api/v1/jobs/createTask?__kiepath=/api/v1/jobs/createTask'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const res = await kieFetch('/api/v1/jobs/createTask', {
+      method: 'POST',
     body: JSON.stringify({ model: IMAGE_MODEL_ID, input }),
   })
   if (!res.ok) throw new Error(`Image generate failed: status ${res.status}`)
@@ -453,9 +450,8 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
         model: VIDEO_MODEL_VEO,
         imageUrls: imageUrls
       }
-      const res = await fetch(getApiUrl('/api/kie/api/v1/veo/generate?__kiepath=/api/v1/veo/generate'), {
+      const res = await kieFetch('/api/v1/veo/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       })
       if (!res.ok) throw new Error(`Veo generate failed: status ${res.status}`)
@@ -482,9 +478,8 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
         model: VIDEO_MODEL_KLING,
         input: klingInput
       }
-      const res = await fetch(getApiUrl('/api/kie/api/v1/jobs/createTask?__kiepath=/api/v1/jobs/createTask'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await kieFetch('/api/v1/jobs/createTask', {
+      method: 'POST',
         body: JSON.stringify(body)
       })
       if (!res.ok) throw new Error(`Kling generate failed: status ${res.status}`)
@@ -531,9 +526,8 @@ async function uploadRefVideo(base64Data) {
   }
 
   try {
-    const res = await fetch(getApiUrl('/api/kie/api/file-base64-upload?__kiepath=/api/file-base64-upload'), {
+    const res = await kieFetch('/api/file-base64-upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ base64Data, uploadPath: 'videos/base64', fileName: `drive_${Date.now()}.mp4` }),
     })
     if (!res.ok) { console.error(`[KIE Upload] video HTTP ${res.status}`); return null }
@@ -574,9 +568,8 @@ export async function generateMotionCopy({ characterImage, drivingVideo, prompt 
       background_source: 'input_video',
     },
   }
-  const res = await fetch(getApiUrl('/api/kie/api/v1/jobs/createTask?__kiepath=/api/v1/jobs/createTask'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const res = await kieFetch('/api/v1/jobs/createTask', {
+      method: 'POST',
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(`Motion Control failed: status ${res.status}`)
