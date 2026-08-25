@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "AI Influencer",
+    "slug": "ai-influencer",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "aiinfluencer",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aiinfluencer.app"
+    },
+    "android": {
+      "package": "com.aiinfluencer.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "apiBase": "https://ai-influencer-eosin.vercel.app"
+    }
+  }
+}
