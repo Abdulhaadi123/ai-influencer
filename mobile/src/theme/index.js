@@ -104,5 +104,7 @@ export function useTheme() {
 }
 
 /** Shared spacing/radius scale so screens stay consistent. */
-export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 }
+// Slightly looser than a dense settings app: the studio screens carry a lot
+// of controls, so the rhythm needs room to breathe on a phone.
+export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 22, xxl: 36 }
 export const radius = { sm: 8, md: 12, lg: 16, pill: 999 }

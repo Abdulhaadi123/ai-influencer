@@ -5,9 +5,15 @@
  * obvious and every screen ends up visually consistent.
  */
 
-import { View, Text, Pressable, StyleSheet } from 'react-native'
+import { useState } from 'react'
+import { View, Text, Pressable, StyleSheet, LayoutAnimation, Platform, UIManager } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useTheme, space, radius } from '../theme'
+
+// LayoutAnimation needs opting in on Android for the collapse to animate.
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true)
+}
 
 /** A grouped settings-style section, the standard iOS/Android list idiom. */
 export function Section({ title, footer, children }) {
@@ -99,6 +105,71 @@ export function Segmented({ options, value, onChange }) {
   )
 }
 
+/**
+ * A collapsed group of secondary settings.
+ *
+ * The studio has more knobs than fit comfortably on a phone, so only the
+ * essentials stay visible and the rest live behind this — the same call the
+ * web studio makes with its "Advanced Settings" disclosure.
+ */
+export function Collapsible({ title, subtitle, children, initiallyOpen = false }) {
+  const { colors } = useTheme()
+  const [open, setOpen] = useState(initiallyOpen)
+
+  const toggle = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut)
+    setOpen(o => !o)
+  }
+
+  return (
+    <View style={styles.sectionWrap}>
+      <Pressable
+        onPress={toggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => [
+          styles.collapsibleHead,
+          {
+            backgroundColor: colors.surface,
+            borderColor: colors.borderSubtle,
+            borderBottomLeftRadius: open ? 0 : radius.lg,
+            borderBottomRightRadius: open ? 0 : radius.lg,
+            opacity: pressed ? 0.9 : 1,
+          },
+        ]}
+      >
+        <View style={styles.flex}>
+          <Text style={[styles.collapsibleTitle, { color: colors.textPrimary }]}>{title}</Text>
+          {subtitle ? (
+            <Text style={[styles.collapsibleSub, { color: colors.textTertiary }]} numberOfLines={1}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+        <Text style={[styles.caret, { color: colors.textTertiary }]}>{open ? '⌄' : '›'}</Text>
+      </Pressable>
+
+      {open ? (
+        <View style={[styles.collapsibleBody, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          {children}
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
+/** A labelled row inside a Collapsible — keeps the groups visually even. */
+export function Field({ label, hint, children }) {
+  const { colors } = useTheme()
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>{label}</Text>
+      {hint ? <Text style={[styles.fieldHint, { color: colors.textTertiary }]}>{hint}</Text> : null}
+      <View style={styles.fieldBody}>{children}</View>
+    </View>
+  )
+}
+
 export function Button({ title, onPress, variant = 'primary', disabled }) {
   const { colors } = useTheme()
   const isPrimary = variant === 'primary'
@@ -171,4 +242,24 @@ const styles = StyleSheet.create({
 
   button: { paddingVertical: space.md, paddingHorizontal: space.xl, borderRadius: radius.md, alignItems: 'center' },
   buttonLabel: { fontSize: 15, fontWeight: '600' },
+
+  flex: { flex: 1 },
+  collapsibleHead: {
+    flexDirection: 'row', alignItems: 'center', gap: space.md,
+    paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: 54,
+    borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth,
+  },
+  collapsibleTitle: { fontSize: 15, fontWeight: '600' },
+  collapsibleSub: { fontSize: 12.5, marginTop: 2 },
+  caret: { fontSize: 18, lineHeight: 20 },
+  collapsibleBody: {
+    borderWidth: StyleSheet.hairlineWidth, borderTopWidth: 0,
+    borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg,
+    paddingHorizontal: space.lg, paddingBottom: space.lg,
+  },
+
+  field: { paddingTop: space.lg },
+  fieldLabel: { fontSize: 13, fontWeight: '600' },
+  fieldHint: { fontSize: 12, marginTop: 2, lineHeight: 16 },
+  fieldBody: { marginTop: space.sm },
 })

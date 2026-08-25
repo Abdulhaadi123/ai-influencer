@@ -26,7 +26,7 @@ import { regenerateMainImage, NO_CREATION_PARAMS } from '@core/regenerate'
 import { downloadImage } from '@core/platform/media'
 
 import { useTheme, space, radius } from '../theme'
-import { Section, Row, Button } from '../components/ui'
+import { Section, Row, Button, Collapsible, Field } from '../components/ui'
 import { pickImageWithPrompt } from '../lib/picker'
 
 export default function ProfileTab({ influencer }) {
@@ -178,8 +178,8 @@ export default function ProfileTab({ influencer }) {
         </Section>
       ) : null}
 
-      <Section title="Appearance" footer="Used as the description when regenerating images.">
-        <View style={styles.padded}>
+      <Collapsible title="Details" subtitle="Appearance, backstory and prompt">
+        <Field label="Appearance" hint="Used as the description when regenerating images.">
           <TextInput
             value={influencer.physicalDesc ?? ''}
             onChangeText={v => update({ physicalDesc: v })}
@@ -188,11 +188,9 @@ export default function ProfileTab({ influencer }) {
             multiline
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
           />
-        </View>
-      </Section>
+        </Field>
 
-      <Section title="Backstory" footer="Optional. Adds personality for scripts.">
-        <View style={styles.padded}>
+        <Field label="Backstory" hint="Optional. Adds personality for scripts.">
           <TextInput
             value={influencer.backstory ?? ''}
             onChangeText={v => update({ backstory: v })}
@@ -201,11 +199,9 @@ export default function ProfileTab({ influencer }) {
             multiline
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
           />
-        </View>
-      </Section>
+        </Field>
 
-      <Section title="Prompt" footer="The prompt this influencer's image was generated from.">
-        <View style={styles.padded}>
+        <Field label="Prompt" hint="What this influencer's image was generated from.">
           <TextInput
             value={influencer.prompt ?? ''}
             onChangeText={v => update({ prompt: v })}
@@ -214,8 +210,9 @@ export default function ProfileTab({ influencer }) {
             multiline
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
           />
-        </View>
-      </Section>
+        </Field>
+      </Collapsible>
+
     </ScrollView>
   )
 }

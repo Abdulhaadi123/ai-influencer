@@ -24,7 +24,7 @@ import { downloadImage } from '@core/platform/media'
 import { useInfluencers, generateId } from '@core/store'
 
 import { useTheme, space, radius } from '../theme'
-import { Section, Button, Segmented } from '../components/ui'
+import { Section, Button, Segmented, Collapsible, Field } from '../components/ui'
 import { pickImageWithPrompt, pickVideo } from '../lib/picker'
 
 export default function MotionCopyScreen({ influencer }) {
@@ -191,8 +191,11 @@ export default function MotionCopyScreen({ influencer }) {
         </View>
       </Section>
 
-      <Section title="Scene direction" footer="Optional.">
-        <View style={styles.padded}>
+      <Collapsible
+        title="Options"
+        subtitle={`${mode === 'std' ? 'Standard · 720p' : 'Pro · 1080p'}${prompt ? ' · scene set' : ''}`}
+      >
+        <Field label="Scene direction" hint="Optional.">
           <TextInput
             value={prompt}
             onChangeText={setPrompt}
@@ -200,11 +203,9 @@ export default function MotionCopyScreen({ influencer }) {
             placeholderTextColor={colors.textTertiary}
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
           />
-        </View>
-      </Section>
+        </Field>
 
-      <Section title="Quality" footer="The output follows the motion video's shape.">
-        <View style={styles.padded}>
+        <Field label="Quality" hint="The output follows the motion video's shape.">
           <Segmented
             value={mode}
             onChange={setMode}
@@ -213,8 +214,8 @@ export default function MotionCopyScreen({ influencer }) {
               { label: 'Pro · 1080p', value: 'pro' },
             ]}
           />
-        </View>
-      </Section>
+        </Field>
+      </Collapsible>
 
       {error ? (
         <View style={[styles.errorBox, { borderColor: colors.danger, backgroundColor: colors.brandSoft }]}>

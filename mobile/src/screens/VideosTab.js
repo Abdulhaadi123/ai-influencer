@@ -30,7 +30,7 @@ import { downloadImage } from '@core/platform/media'
 import { useInfluencers, generateId } from '@core/store'
 
 import { useTheme, space, radius } from '../theme'
-import { Section, Button, Segmented } from '../components/ui'
+import { Section, Button, Segmented, Collapsible, Field } from '../components/ui'
 import { pickImageWithPrompt } from '../lib/picker'
 
 const MAX_PRODUCTS = 3
@@ -178,78 +178,79 @@ export default function VideosTab({ influencer }) {
         </View>
       </Section>
 
-      <Section title="Camera">
-        <View style={[styles.padded, styles.chipWrap]}>
-          {CAMERAS.map(c => (
-            <Chip key={c} label={c} active={settings.camera === c} onPress={() => set('camera', c)} />
-          ))}
-        </View>
-      </Section>
+      <Collapsible
+        title="Style &amp; delivery"
+        subtitle={`${settings.camera} · ${settings.duration}s · ${settings.vibe || 'default mood'}${settings.envKey ? ' · ' + settings.envKey : ''}`}
+      >
+        <Field label="Camera">
+          <View style={styles.chipWrap}>
+            {CAMERAS.map(c => (
+              <Chip key={c} label={c} active={settings.camera === c} onPress={() => set('camera', c)} />
+            ))}
+          </View>
+        </Field>
 
-      <Section title="Length">
-        <View style={styles.padded}>
+        <Field label="Length">
           <Segmented
             value={settings.duration}
             onChange={v => set('duration', v)}
             options={DURATIONS.map(d => ({ label: `${d}s`, value: d }))}
           />
-        </View>
-      </Section>
+        </Field>
 
-      <Section title="Shots" footer="A oner is one continuous take. Multi cuts between shots.">
-        <View style={styles.padded}>
+        <Field label="Shots" hint="A oner is one continuous take.">
           <Segmented
             value={settings.shotMode}
             onChange={v => set('shotMode', v)}
             options={[{ label: 'Oner', value: 'oner' }, { label: 'Multi-shot', value: 'multi' }]}
           />
-        </View>
-      </Section>
+        </Field>
 
-      <Section title="Location" footer="Sets the scene, and the colour grade that goes with it.">
-        <View style={[styles.padded, styles.chipWrap]}>
-          <Chip label="Any" active={!settings.envKey} onPress={() => set('envKey', '')} />
-          {ENV_KEYS.map(k => (
-            <Chip key={k} label={k} active={settings.envKey === k} onPress={() => set('envKey', k)} />
-          ))}
-        </View>
-      </Section>
+        <Field label="Location" hint="Sets the scene and its colour grade.">
+          <View style={styles.chipWrap}>
+            <Chip label="Any" active={!settings.envKey} onPress={() => set('envKey', '')} />
+            {ENV_KEYS.map(k => (
+              <Chip key={k} label={k} active={settings.envKey === k} onPress={() => set('envKey', k)} />
+            ))}
+          </View>
+        </Field>
 
-      <Section title="Time of day">
-        <View style={[styles.padded, styles.chipWrap]}>
-          {TIMES_OF_DAY.map(t => (
-            <Chip
-              key={t}
-              label={t.charAt(0).toUpperCase() + t.slice(1)}
-              active={settings.videoTimeOfDay === t}
-              onPress={() => set('videoTimeOfDay', t)}
-            />
-          ))}
-        </View>
-      </Section>
+        <Field label="Time of day">
+          <View style={styles.chipWrap}>
+            {TIMES_OF_DAY.map(t => (
+              <Chip
+                key={t}
+                label={t.charAt(0).toUpperCase() + t.slice(1)}
+                active={settings.videoTimeOfDay === t}
+                onPress={() => set('videoTimeOfDay', t)}
+              />
+            ))}
+          </View>
+        </Field>
 
-      <Section title="Mood" footer="Changes how the delivery is performed.">
-        <View style={[styles.padded, styles.chipWrap]}>
-          <Chip label="Default" active={!settings.vibe} onPress={() => set('vibe', '')} />
-          {VIBES.map(v => (
-            <Chip key={v} label={v} active={settings.vibe === v} onPress={() => set('vibe', v)} />
-          ))}
-        </View>
-      </Section>
+        <Field label="Mood" hint="Changes how the delivery is performed.">
+          <View style={styles.chipWrap}>
+            <Chip label="Default" active={!settings.vibe} onPress={() => set('vibe', '')} />
+            {VIBES.map(v => (
+              <Chip key={v} label={v} active={settings.vibe === v} onPress={() => set('vibe', v)} />
+            ))}
+          </View>
+        </Field>
 
-      <Section title="Voice" footer="Picking a voice turns on the model's native audio.">
-        <View style={[styles.padded, styles.chipWrap]}>
-          <Chip label="None" active={!settings.voicePreset} onPress={() => set('voicePreset', '')} />
-          {(voicePresets || []).map(v => (
-            <Chip
-              key={v.id}
-              label={v.label}
-              active={settings.voicePreset === v.id}
-              onPress={() => set('voicePreset', v.id)}
-            />
-          ))}
-        </View>
-      </Section>
+        <Field label="Voice" hint="Picking a voice turns on the model's native audio.">
+          <View style={styles.chipWrap}>
+            <Chip label="None" active={!settings.voicePreset} onPress={() => set('voicePreset', '')} />
+            {(voicePresets || []).map(v => (
+              <Chip
+                key={v.id}
+                label={v.label}
+                active={settings.voicePreset === v.id}
+                onPress={() => set('voicePreset', v.id)}
+              />
+            ))}
+          </View>
+        </Field>
+      </Collapsible>
 
       {error ? (
         <View style={[styles.errorBox, { borderColor: colors.danger }]}>
