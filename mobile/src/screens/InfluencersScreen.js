@@ -46,7 +46,7 @@ export default function InfluencersScreen({ navigation }) {
       renderItem={({ item }) => (
         <InfluencerCard
           influencer={item}
-          onPress={() => navigation?.navigate?.('InfluencerDetail', { id: item.id })}
+          onPress={() => navigation?.navigate?.('InfluencerDetail', { id: item.id, name: item.name })}
         />
       )}
     />

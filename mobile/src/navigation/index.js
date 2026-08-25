@@ -15,6 +15,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { Text } from 'react-native'
 
 import InfluencersScreen from '../screens/InfluencersScreen'
+import InfluencerDetailScreen from '../screens/InfluencerDetailScreen'
 import CreateScreen from '../screens/CreateScreen'
 import SettingsScreen from '../screens/SettingsScreen'
 import { useTheme } from '../theme'
@@ -42,6 +43,11 @@ function InfluencersStack() {
       }}
     >
       <Stack.Screen name="InfluencersList" component={InfluencersScreen} options={{ title: 'Influencers' }} />
+      <Stack.Screen
+        name="InfluencerDetail"
+        component={InfluencerDetailScreen}
+        options={({ route }) => ({ title: route.params?.name || 'Studio' })}
+      />
     </Stack.Navigator>
   )
 }

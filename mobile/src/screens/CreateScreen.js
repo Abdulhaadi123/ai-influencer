@@ -26,7 +26,7 @@ import { saveCreationParams } from '@core/creationParams'
 
 import { useTheme, space, radius } from '../theme'
 import { Section, Button } from '../components/ui'
-import { pickImageWithPrompt } from '../lib/pickImage'
+import { pickImageWithPrompt } from '../lib/picker'
 
 const STEPS = ['Basics', 'Reference', 'Generate']
 const ASPECT_RATIO = '9:16'
