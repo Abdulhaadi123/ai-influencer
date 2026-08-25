@@ -9,7 +9,8 @@ import { compressImage, downloadImage } from '../core/platform/media'
 import { generateSingleImage, generateThreeImages, generateVideo, initSession, pollAllJobs, getPendingGens, clearPendingGen, getPendingVideo, clearPendingVideo, resumeVideoJob } from '../core/services/generation'
 import { buildThreeVariationPrompts } from '../core/prompts/systemPrompt'
 import { gColor, pLabel } from '../core/utils/influencerUtils'
-import { getCreationParams } from '../core/creationParams'
+import { getNiches } from '../core/niches'
+import { regenerateMainImage, NO_CREATION_PARAMS } from '../core/regenerate'
 import { useTheme } from '../context/theme'
 import { buildCharSheetPrompt, buildCharSheetPromptWithClaude } from '../core/prompts/charSheetPrompt'
 import WardrobeDrawer from '../components/WardrobeDrawer'
@@ -39,9 +40,6 @@ const SD = {
 
 // ─────────────────────────────────────────────
 // Niche lists
-const NICHES_F   = ['Fashion','Beauty','Lifestyle','Wellness','Fitness','Travel','Food & Dining','Home & Decor','Parenting','Entertainment','Other']
-const NICHES_M   = ['Fitness','Gaming','Tech','Sports','Finance','Cars & Motors','Travel','Outdoor & Adventure','Food & Dining','Entertainment','Other']
-const NICHES_ALL = ['Fashion','Fitness','Lifestyle','Beauty','Tech','Gaming','Travel','Food & Dining','Finance','Entertainment','Wellness','Sports','Other']
 
 const SHEET_RATIOS = [
   { id: '16:9', label: '16:9', sub: 'Recommended', rec: true  },
@@ -115,7 +113,6 @@ function getGenParams(influencerId, slot) {
 
 // ─────────────────────────────────────────────
 // Helpers
-function getNiches(g)  { return g==='Female'?NICHES_F:g==='Male'?NICHES_M:NICHES_ALL }
 function pColor(v) {
   const l=(a,b,t)=>Math.round(a+(b-a)*t)
   if(v<=50){const t=v/50;return`rgb(${l(251,249,t)},${l(191,115,t)},${l(36,22,t)})`}
@@ -762,34 +759,16 @@ function MainImageSlot({ influencer, onChange, onLightbox }) {
   }, [loading])
 
   async function regenerate() {
-    const params = getCreationParams(influencer.id)
-    if (!params) {
-      alert('No creation data found — this influencer was created before regeneration was supported. Try replacing the image manually.')
-      return
-    }
     setLoading(true)
     try {
-      const prompts = buildThreeVariationPrompts(
-        { ...params, name: influencer.name },
-        params.aspectRatio || '9:16',
-        params.model || 'gpt_image_2'
-      )
-      const onePrompt = prompts[Math.floor(Math.random() * prompts.length)]
-      const urls = await generateThreeImages({
-        prompts: [onePrompt],
-        aspectRatio: params.aspectRatio || '9:16',
-        model: params.model || 'gpt_image_2',
-        faceRef: params.faceRef || null,
-        styleRef: params.styleRef || null,
-        physicalDesc: params.physicalDesc || '',
-        faceRefNote: params.faceRefNote || '',
-        styleRefNote: params.styleRefNote || '',
-        onProgress: () => {},
-      })
-      if (urls[0]) onChange(urls[0])
-      else alert('No image returned — please try again')
+      const url = await regenerateMainImage(influencer)
+      onChange(url)
     } catch (e) {
-      alert('Regeneration failed: ' + (e.message || 'Unknown error'))
+      if (e.message === NO_CREATION_PARAMS) {
+        alert('No creation data found — this influencer was created before regeneration was supported. Try replacing the image manually.')
+      } else {
+        alert('Regeneration failed: ' + (e.message || 'Unknown error'))
+      }
     } finally {
       setLoading(false)
     }

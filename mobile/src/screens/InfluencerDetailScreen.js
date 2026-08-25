@@ -5,7 +5,7 @@
  * page. Same structure here, using a segmented control, which is the native
  * idiom for switching between sibling views.
  *
- * Motion Copy is live. Profile and Videos are ported in the next step, and say
+ * Profile and Motion Copy are live. Videos is ported in the next step, and says
  * so plainly rather than showing controls that do nothing.
  */
 
@@ -17,6 +17,7 @@ import { useInfluencers } from '@core/store'
 import { useTheme, space, radius } from '../theme'
 import { Segmented } from '../components/ui'
 import MotionCopyScreen from './MotionCopyScreen'
+import ProfileTab from './ProfileTab'
 
 const TABS = [
   { label: 'Profile', value: 'profile' },
@@ -27,7 +28,7 @@ const TABS = [
 export default function InfluencerDetailScreen({ route }) {
   const { colors } = useTheme()
   const [influencers] = useInfluencers()
-  const [tab, setTab] = useState('motion')
+  const [tab, setTab] = useState('profile')
 
   const id = route?.params?.id
   // Read live from the store so edits elsewhere show up here.
@@ -52,10 +53,12 @@ export default function InfluencerDetailScreen({ route }) {
         <Segmented options={TABS} value={tab} onChange={setTab} />
       </View>
 
-      {tab === 'motion' ? (
+      {tab === 'profile' ? (
+        <ProfileTab influencer={influencer} />
+      ) : tab === 'motion' ? (
         <MotionCopyScreen influencer={influencer} />
       ) : (
-        <ComingNext tab={tab} influencer={influencer} />
+        <ComingNext influencer={influencer} />
       )}
     </View>
   )
@@ -65,9 +68,9 @@ export default function InfluencerDetailScreen({ route }) {
  * Honest placeholder: states what is not built yet instead of rendering
  * controls that would do nothing.
  */
-function ComingNext({ tab, influencer }) {
+function ComingNext({ influencer }) {
   const { colors } = useTheme()
-  const label = tab === 'profile' ? 'Profile' : 'Videos'
+  const label = 'Videos'
 
   return (
     <ScrollView contentContainerStyle={styles.comingWrap}>
