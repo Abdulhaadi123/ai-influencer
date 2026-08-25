@@ -21,8 +21,7 @@ import { useVideoPlayer, VideoView } from 'expo-video'
 
 import { generateMotionCopy } from '@core/services/generation'
 import { downloadImage } from '@core/platform/media'
-import { useInfluencers } from '@core/store'
-import { generateId } from '@core/store'
+import { useInfluencers, generateId } from '@core/store'
 
 import { useTheme, space, radius } from '../theme'
 import { Section, Button, Segmented } from '../components/ui'

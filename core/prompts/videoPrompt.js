@@ -288,10 +288,18 @@ export function buildVideoPrompt(influencer, settings) {
     // Defaults deliberately mirror the web studio's useState initialisers, so
     // an omitted setting produces the same prompt on both platforms.
     shotMode = 'oner', duration = 15, camera = 'Handheld',
-    videoTimeOfDay = 'afternoon', environment = '', envKey = '', vibe = '',
-    dialogue = '', additionalNotes = '',
-    audioDataUrl = null, voicePreset = '', voiceCustom = '',
+    videoTimeOfDay = 'afternoon', envKey = '',
+    audioDataUrl = null, voicePreset = '',
   } = settings || {}
+
+  // These four are read with .trim(), and a default only fills in `undefined`
+  // — NOT `null`. Settings restored from storage can legitimately hold null,
+  // which would otherwise throw here and take the whole studio down.
+  const environment = settings?.environment ?? ''
+  const vibe = settings?.vibe ?? ''
+  const dialogue = settings?.dialogue ?? ''
+  const additionalNotes = settings?.additionalNotes ?? ''
+  const voiceCustom = settings?.voiceCustom ?? ''
 
   const name = influencer.name
   const phys = influencer.physicalDesc || `${name}, natural confident energy`

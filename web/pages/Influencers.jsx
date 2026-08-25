@@ -12,6 +12,7 @@ import { gColor, pLabel } from '../../core/utils/influencerUtils'
 import { getNiches } from '../../core/niches'
 import { buildVideoPrompt, VOICE_PRESETS } from '../../core/prompts/videoPrompt'
 import { loadStudioSettings, saveStudioSettings } from '../../core/studioSettings'
+import { ENV_PRESETS as CS_ENV_PRESETS, VIBES as CS_VIBES, CAMERAS as CS_CAMERAS } from '../../core/studioOptions'
 import { regenerateMainImage, NO_CREATION_PARAMS } from '../../core/regenerate'
 import { useTheme } from '../context/theme'
 import { buildCharSheetPrompt, buildCharSheetPromptWithClaude } from '../../core/prompts/charSheetPrompt'
@@ -2056,16 +2057,6 @@ const CS_ENVIRONMENTS = [
   { key: 'Gym',         label: 'At the gym' },
   { key: 'Studio',      label: 'In a studio' },
 ]
-const CS_ENV_PRESETS = {
-  'Bedroom':     'in the bedroom',
-  'Bathroom':    'in the bathroom',
-  'Kitchen':     'in the kitchen',
-  'Coffee Shop': 'in a coffee shop',
-  'Mall / Store':'in a mall or store',
-  'Street':      'on the street outside',
-  'Gym':         'in the gym',
-  'Studio':      'in a studio',
-}
 const AMBIENT_SOUND = {
   'Bedroom':     'Quiet room tone — soft, near-silent background.',
   'Bathroom':    'Subtle bathroom reverb — clean, minimal background.',
@@ -2077,12 +2068,6 @@ const AMBIENT_SOUND = {
   'Studio':      'Clean studio silence — minimal room tone, no background noise.',
 }
 
-const CS_CAMERAS = [
-  'Handheld','Tripod','Talking Head',
-]
-const CS_VIBES = [
-  'Natural','Energetic','Luxury','Playful','Tutorial','Dramatic','Cozy','Confident',
-]
 
 
 const VIDEO_TEMPLATES = [

@@ -25,6 +25,7 @@ import { useVideoPlayer, VideoView } from 'expo-video'
 import { generateVideo } from '@core/services/generation'
 import { buildVideoPrompt, VOICE_PRESETS } from '@core/prompts/videoPrompt'
 import { loadStudioSettings, saveStudioSettings } from '@core/studioSettings'
+import { ENV_PRESETS, ENV_KEYS, VIBES, CAMERAS, TIMES_OF_DAY, DURATIONS } from '@core/studioOptions'
 import { downloadImage } from '@core/platform/media'
 import { useInfluencers, generateId } from '@core/store'
 
@@ -32,8 +33,6 @@ import { useTheme, space, radius } from '../theme'
 import { Section, Button, Segmented } from '../components/ui'
 import { pickImageWithPrompt } from '../lib/picker'
 
-const CAMERAS = ['Handheld', 'Tripod', 'Talking Head', 'Wide', 'Overhead']
-const DURATIONS = [5, 8, 10, 15]
 const MAX_PRODUCTS = 3
 
 export default function VideosTab({ influencer }) {
@@ -65,7 +64,7 @@ export default function VideosTab({ influencer }) {
   }, [products.length])
 
   const canGenerate = !generating && (
-    settings.dialogue.trim().length > 0 || products.length > 0 || !!influencer.mainImage
+    (settings.dialogue || '').trim().length > 0 || products.length > 0 || !!influencer.mainImage
   )
 
   const generate = useCallback(async () => {
@@ -88,7 +87,7 @@ export default function VideosTab({ influencer }) {
         productRef1: products[0] || null,
         productRef2: products[1] || null,
         productRef3: products[2] || null,
-        environment: settings.envCustom || '',
+        environment: ENV_PRESETS[settings.envKey] || settings.envCustom || '',
       })
 
       const { urls } = await generateVideo({
@@ -97,7 +96,7 @@ export default function VideosTab({ influencer }) {
         duration: settings.duration,
         count: 1,
         referenceImages,
-        hasVoice: !!(settings.voicePreset || settings.voiceCustom.trim()),
+        hasVoice: !!(settings.voicePreset || (settings.voiceCustom || '').trim()),
         onProgress: setProgress,
         onPartialResults: partial => { if (!cancelRef.current) setResults([...partial]) },
         isCancelled: () => cancelRef.current,
@@ -135,7 +134,7 @@ export default function VideosTab({ influencer }) {
       <Section title="Script" footer={`What should ${influencer.name} say? Leave empty for a silent clip.`}>
         <View style={styles.padded}>
           <TextInput
-            value={settings.dialogue}
+            value={settings.dialogue || ''}
             onChangeText={v => set('dialogue', v)}
             placeholder={`e.g. I've been using this for a month and honestly…`}
             placeholderTextColor={colors.textTertiary}
@@ -167,6 +166,15 @@ export default function VideosTab({ influencer }) {
               <Button title="Add a product image" variant="secondary" onPress={addProduct} />
             </View>
           ) : null}
+          {products.length ? (
+            <View style={{ marginTop: space.md }}>
+              <Segmented
+                value={settings.productWorn ? 'worn' : 'held'}
+                onChange={v => set('productWorn', v === 'worn')}
+                options={[{ label: 'Held', value: 'held' }, { label: 'Worn', value: 'worn' }]}
+              />
+            </View>
+          ) : null}
         </View>
       </Section>
 
@@ -195,6 +203,37 @@ export default function VideosTab({ influencer }) {
             onChange={v => set('shotMode', v)}
             options={[{ label: 'Oner', value: 'oner' }, { label: 'Multi-shot', value: 'multi' }]}
           />
+        </View>
+      </Section>
+
+      <Section title="Location" footer="Sets the scene, and the colour grade that goes with it.">
+        <View style={[styles.padded, styles.chipWrap]}>
+          <Chip label="Any" active={!settings.envKey} onPress={() => set('envKey', '')} />
+          {ENV_KEYS.map(k => (
+            <Chip key={k} label={k} active={settings.envKey === k} onPress={() => set('envKey', k)} />
+          ))}
+        </View>
+      </Section>
+
+      <Section title="Time of day">
+        <View style={[styles.padded, styles.chipWrap]}>
+          {TIMES_OF_DAY.map(t => (
+            <Chip
+              key={t}
+              label={t.charAt(0).toUpperCase() + t.slice(1)}
+              active={settings.videoTimeOfDay === t}
+              onPress={() => set('videoTimeOfDay', t)}
+            />
+          ))}
+        </View>
+      </Section>
+
+      <Section title="Mood" footer="Changes how the delivery is performed.">
+        <View style={[styles.padded, styles.chipWrap]}>
+          <Chip label="Default" active={!settings.vibe} onPress={() => set('vibe', '')} />
+          {VIBES.map(v => (
+            <Chip key={v} label={v} active={settings.vibe === v} onPress={() => set('vibe', v)} />
+          ))}
         </View>
       </Section>
 
