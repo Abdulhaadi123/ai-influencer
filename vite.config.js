@@ -1,44 +1,6 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Local dev search proxy — mirrors api/search.js for Vercel production
-const searchPlugin = {
-  name: 'search-proxy',
-  configureServer(server) {
-    server.middlewares.use('/api/search', async (req, res) => {
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-      if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return }
-
-      const q = new URLSearchParams(req.url.split('?')[1] || '').get('q')
-      if (!q) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing q' })); return }
-
-      try {
-        const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`
-        const r = await fetch(url, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
-        })
-        const xml = await r.text()
-        const items = []
-        for (const match of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
-          const block = match[1]
-          const title = (block.match(/<title><!\[CDATA\[(.*?)\]\]>/)?.[1] || block.match(/<title>(.*?)<\/title>/)?.[1] || '').trim()
-          const desc = (block.match(/<description><!\[CDATA\[(.*?)\]\]>/)?.[1] || block.match(/<description>(.*?)<\/description>/)?.[1] || '')
-            .replace(/<[^>]+>/g, '').trim().slice(0, 300)
-          const date = (block.match(/<pubDate>(.*?)<\/pubDate>/)?.[1] || '').trim()
-          if (title) items.push({ title, description: desc, date })
-          if (items.length >= 8) break
-        }
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ items }))
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: e.message, items: [] }))
-      }
-    })
-  },
-}
-
 // Local dev image proxy — mirrors api/img-proxy.js for Vercel production
 const imgProxyPlugin = {
   name: 'img-proxy',
@@ -161,7 +123,7 @@ export default defineConfig(({ mode }) => {
   process.env.KIE_API_KEY = env.KIE_API_KEY || ''
 
   return {
-    plugins: [react(), searchPlugin, imgProxyPlugin, claudePlugin, kiePlugin],
+    plugins: [react(), imgProxyPlugin, claudePlugin, kiePlugin],
     server: {
       proxy: {},
     },

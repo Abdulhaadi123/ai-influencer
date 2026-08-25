@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { generateSingleImage, initSession, pollAllJobs } from '../utils/kieGenerate'
+import { generateSingleImage, initSession, pollAllJobs } from '../services/generation'
 import { generateId } from '../store'
 
 export function buildWardrobePrompt(influencer, { outfit, hair, customText }) {

@@ -1,11 +1,11 @@
-// Allowlisted domains — only proxy images from known trusted sources
+// Allowlisted domains — only proxy media from known trusted sources.
+// These are KIE's two CDNs: generated results are served from aiquickdraw,
+// and files we upload (reference images, driving videos) from redpandaai.
+// Matched by exact host or subdomain (see isSafeUrl).
 const ALLOWED_HOSTS = [
-  'cdn.higgsfield.ai',
-  'media.higgsfield.ai',
-  'storage.higgsfield.ai',
-  'files.higgsfield.ai',
-  'oaidalleapiprodscus.blob.core.windows.net',
-  'oaidallexprodscus.blob.core.windows.net',
+  'aiquickdraw.com',  // generation results — tempfile.aiquickdraw.com
+  'redpandaai.co',    // uploaded media   — tempfile./kieai.redpandaai.co
+  'kie.ai',           // KIE-hosted files
 ]
 
 function isSafeUrl(raw) {

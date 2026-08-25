@@ -4,16 +4,30 @@
 // Users never need to connect/login — the company's key is used for everyone.
 
 import { getApiUrl } from './apiUrl'
+import * as storage from '../lib/storage'
 
 const KIE_CONNECTED_KEY = 'kie_connected'
 
 // Called once at app start to confirm the backend key is configured.
-// We do a lightweight credit-check ping; if it succeeds we cache the flag.
+// Lightweight, read-only credit check — costs no credits.
+//
+// NOTE: the `__kiepath` param is REQUIRED. The proxy reads the upstream path
+// from it; without it the request is forwarded to the api.kie.ai root and 404s,
+// which would report a perfectly good key as "offline".
 export async function checkKieConnection() {
   try {
-    const res = await fetch(getApiUrl('/api/kie/api/v1/chat/credit'), { method: 'GET' })
-    const connected = res.ok
-    try { localStorage.setItem(KIE_CONNECTED_KEY, connected ? '1' : '0') } catch {}
+    const res = await fetch(
+      getApiUrl('/api/kie/api/v1/chat/credit?__kiepath=/api/v1/chat/credit'),
+      { method: 'GET' }
+    )
+    if (!res.ok) {
+      try { storage.setItem(KIE_CONNECTED_KEY, '0') } catch {}
+      return false
+    }
+    // KIE answers 200 with a body-level code; only code 200 means the key worked.
+    const json = await res.json().catch(() => null)
+    const connected = json?.code === 200
+    try { storage.setItem(KIE_CONNECTED_KEY, connected ? '1' : '0') } catch {}
     return connected
   } catch {
     return false
@@ -21,15 +35,5 @@ export async function checkKieConnection() {
 }
 
 export function isKieConnected() {
-  try { return localStorage.getItem(KIE_CONNECTED_KEY) === '1' } catch { return false }
+  try { return storage.getItem(KIE_CONNECTED_KEY) === '1' } catch { return false }
 }
-
-// ── Legacy stubs so old imports from higgsfieldAuth don't crash ──────────────
-// Pages that still reference the old auth functions get these no-ops.
-export const isHFConnected           = () => true   // always "connected" — company key
-export const startHiggsfieldOAuthPopup = async () => {}  // no-op
-export const disconnectHF            = () => {}          // no-op
-export const handleOAuthCallback     = async () => {}    // no-op
-export const silentRefreshHFToken    = async () => {}    // no-op
-export const getHFToken              = () => ''          // unused
-export const refreshHFToken          = async () => {}    // unused

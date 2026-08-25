@@ -1,10 +1,11 @@
 import { useState, useEffect, createContext, useContext } from 'react'
+import * as storage from './lib/storage'
 
 // Generic small-value localStorage hook (inspiration boards, brand deals, etc.)
 function useLocalStorage(key, initial) {
   const [value, setValue] = useState(() => {
     try {
-      const stored = localStorage.getItem(key)
+      const stored = storage.getItem(key)
       return stored ? JSON.parse(stored) : initial
     } catch {
       return initial
@@ -13,7 +14,7 @@ function useLocalStorage(key, initial) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(key, JSON.stringify(value))
+      storage.setItem(key, JSON.stringify(value))
     } catch (e) {
       console.warn('localStorage quota exceeded — data not saved', e)
     }
@@ -31,12 +32,12 @@ const INF_PREFIX = 'hf_influencer_'
 const IDS_KEY    = 'influencer_ids'
 
 function readInfluencer(id) {
-  try { return JSON.parse(localStorage.getItem(`${INF_PREFIX}${id}`)) } catch { return null }
+  try { return JSON.parse(storage.getItem(`${INF_PREFIX}${id}`)) } catch { return null }
 }
 
 function writeInfluencer(inf) {
   try {
-    localStorage.setItem(`${INF_PREFIX}${inf.id}`, JSON.stringify(inf))
+    storage.setItem(`${INF_PREFIX}${inf.id}`, JSON.stringify(inf))
     return true
   } catch (e) {
     console.warn(`localStorage quota exceeded — influencer "${inf.name}" not saved`, e)
@@ -45,17 +46,17 @@ function writeInfluencer(inf) {
 }
 
 function readIds() {
-  try { return JSON.parse(localStorage.getItem(IDS_KEY) || 'null') } catch { return null }
+  try { return JSON.parse(storage.getItem(IDS_KEY) || 'null') } catch { return null }
 }
 
 function writeIds(ids) {
-  try { localStorage.setItem(IDS_KEY, JSON.stringify(ids)) } catch {}
+  try { storage.setItem(IDS_KEY, JSON.stringify(ids)) } catch {}
 }
 
 // Read the legacy single-key list (may still have data even after migration attempt)
 function readLegacyList() {
   try {
-    const raw = localStorage.getItem('influencers')
+    const raw = storage.getItem('influencers')
     if (!raw) return []
     return JSON.parse(raw) || []
   } catch { return [] }
@@ -103,10 +104,10 @@ function useInfluencerStore(initial) {
     for (const inf of influencers) writeInfluencer(inf)
     // Remove keys for deleted influencers
     const idSet = new Set(ids)
-    for (const key of Object.keys(localStorage)) {
+    for (const key of storage.getAllKeys()) {
       if (key.startsWith(INF_PREFIX)) {
         const id = key.slice(INF_PREFIX.length)
-        if (!idSet.has(id)) try { localStorage.removeItem(key) } catch {}
+        if (!idSet.has(id)) try { storage.removeItem(key) } catch {}
       }
     }
   }, [influencers])
@@ -116,7 +117,6 @@ function useInfluencerStore(initial) {
 
 // ── Shared contexts — one source of truth across all pages ──
 const InfluencersCtx = createContext(null)
-const InspirationCtx = createContext(null)
 const BrandDealsCtx  = createContext(null)
 
 const KAYLA_SEED = {
@@ -237,12 +237,12 @@ const CAMILA_SEED = {
 
 // Step 1: Free quota by stripping base64 product refs from video history
 try {
-  const histKeys = Object.keys(localStorage).filter(k => k.startsWith('hf_video_history_'))
+  const histKeys = storage.getAllKeys().filter(k => k.startsWith('hf_video_history_'))
   for (const key of histKeys) {
-    const raw = JSON.parse(localStorage.getItem(key) || '[]')
+    const raw = JSON.parse(storage.getItem(key) || '[]')
     if (raw.some(e => e.productRef1 || e.productRef2 || e.productRef3)) {
       const cleaned = raw.map(e => { const c = { ...e }; delete c.productRef1; delete c.productRef2; delete c.productRef3; return c })
-      try { localStorage.setItem(key, JSON.stringify(cleaned)) } catch { localStorage.removeItem(key) }
+      try { storage.setItem(key, JSON.stringify(cleaned)) } catch { storage.removeItem(key) }
     }
   }
 } catch (_) {}
@@ -362,7 +362,7 @@ try {
   for (const id of ids) {
     try { const inf = readInfluencer(id); if (inf?.name) nameToId[inf.name] = id } catch {}
   }
-  const existing = JSON.parse(localStorage.getItem('photo_studio_history') || '[]')
+  const existing = JSON.parse(storage.getItem('photo_studio_history') || '[]')
   const existingUrls = new Set(existing.map(e => e.url))
   const toAdd = RESTORE
     .filter(r => nameToId[r.name] && !existingUrls.has(r.url))
@@ -370,7 +370,7 @@ try {
   if (toAdd.length) {
     // Merge by inserting at correct chronological position — never overwrites existing entries
     const merged = [...existing, ...toAdd].sort((a, b) => b.createdAt - a.createdAt)
-    try { localStorage.setItem('photo_studio_history', JSON.stringify(merged)) } catch {}
+    try { storage.setItem('photo_studio_history', JSON.stringify(merged)) } catch {}
   }
 } catch (_) {}
 
@@ -410,7 +410,7 @@ try {
     '/camila/photos/p10.png', '/camila/photos/p11.png',
     '/camila/photos/p12.png', '/camila/photos/p13.png',
   ]
-  const existing = JSON.parse(localStorage.getItem('photo_studio_history') || '[]')
+  const existing = JSON.parse(storage.getItem('photo_studio_history') || '[]')
   const existingUrls = new Set(existing.map(e => e.url))
   const toAdd = CAMILA_PHOTO_URLS.filter(url => !existingUrls.has(url)).map(url => ({
     influencerId: 'camila-template',
@@ -422,7 +422,7 @@ try {
     settings: null,
   }))
   if (toAdd.length) {
-    try { localStorage.setItem('photo_studio_history', JSON.stringify([...existing, ...toAdd])) } catch {}
+    try { storage.setItem('photo_studio_history', JSON.stringify([...existing, ...toAdd])) } catch {}
   }
 } catch (_) {}
 
@@ -430,9 +430,7 @@ const TEMPLATE_IDS = new Set(['kayla-template', 'camila-template', 'marcus-templ
 
 export function StoreProvider({ children }) {
   const influencerStore = useInfluencerStore([KAYLA_SEED, CAMILA_SEED, MARCUS_SEED])
-  const inspirationState = useLocalStorage('inspiration_boards', [])
   const brandDealsState  = useLocalStorage('brand_deals', [])
-  const [, setInspirationBoards] = inspirationState
   const [, setDealsData]         = brandDealsState
 
   // Seed from /seeds.json when seed IDs are missing from localStorage
@@ -457,12 +455,12 @@ export function StoreProvider({ children }) {
           }
 
           // Merge photo history — add seed photos that aren't already there
-          const existingPhotos = JSON.parse(localStorage.getItem('photo_studio_history') || '[]')
+          const existingPhotos = JSON.parse(storage.getItem('photo_studio_history') || '[]')
           const existingPhotoUrls = new Set(existingPhotos.map(p => p.url))
           const newPhotos = (seeds.photo_studio_history || []).filter(p => !existingPhotoUrls.has(p.url))
           if (newPhotos.length) {
             const merged = [...existingPhotos, ...newPhotos].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-            try { localStorage.setItem('photo_studio_history', JSON.stringify(merged)) } catch {}
+            try { storage.setItem('photo_studio_history', JSON.stringify(merged)) } catch {}
           }
 
           didWrite = true
@@ -484,20 +482,8 @@ export function StoreProvider({ children }) {
           }
         }
 
-        // Always merge inspiration boards via React state setter — no reload needed
-        const existingBoards = JSON.parse(localStorage.getItem('inspiration_boards') || '[]')
-        const existingBoardIds = new Set(existingBoards.map(b => b.id))
-        const newBoards = (seeds.inspiration_boards || []).filter(b => b.id && !existingBoardIds.has(b.id))
-        if (newBoards.length) {
-          setInspirationBoards(prev => {
-            const prevIds = new Set(prev.map(b => b.id))
-            const toAdd = newBoards.filter(b => !prevIds.has(b.id))
-            return toAdd.length ? [...toAdd, ...prev] : prev
-          })
-        }
-
         // Always merge global brand deals via React state setter — no reload needed
-        const existingDeals = JSON.parse(localStorage.getItem('brand_deals') || '[]')
+        const existingDeals = JSON.parse(storage.getItem('brand_deals') || '[]')
         const existingDealMap = new Map(existingDeals.map(d => [d.id, d]))
         const newDeals = (seeds.brand_deals || []).filter(d => d.id && !existingDealMap.has(d.id))
         const patchedDeals = existingDeals.map(d => {
@@ -520,17 +506,14 @@ export function StoreProvider({ children }) {
 
   return (
     <InfluencersCtx.Provider value={influencerStore}>
-      <InspirationCtx.Provider value={inspirationState}>
-        <BrandDealsCtx.Provider value={brandDealsState}>
-          {children}
-        </BrandDealsCtx.Provider>
-      </InspirationCtx.Provider>
+      <BrandDealsCtx.Provider value={brandDealsState}>
+        {children}
+      </BrandDealsCtx.Provider>
     </InfluencersCtx.Provider>
   )
 }
 
 export function useInfluencers()       { return useContext(InfluencersCtx) }
-export function useInspirationBoards() { return useContext(InspirationCtx) }
 export function useBrandDeals()        { return useContext(BrandDealsCtx) }
 
 export function generateId() {

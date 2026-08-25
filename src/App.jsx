@@ -1,17 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import { ThemeProvider, useTheme } from './context/theme'
 import { StoreProvider } from './store'
-import { silentRefreshHFToken } from './utils/kieAuth'
 import Nav from './components/Nav'
-import Landing from './pages/Landing'
 import Influencers from './pages/Influencers'
-import Inspiration from './pages/Inspiration'
-import BrandDeals from './pages/BrandDeals'
 import Create from './pages/Create'
 import Settings from './pages/Settings'
-import AuthCallback from './pages/AuthCallback'
 
 const FEEDBACK_FORM_URL = 'https://forms.gle/p5cBXw4sYaHPdcANA'
 
@@ -51,29 +46,17 @@ function FeedbackButton() {
 }
 
 export default function App() {
-  useEffect(() => {
-    silentRefreshHFToken()
-    function onVisible() {
-      if (document.visibilityState === 'visible') silentRefreshHFToken()
-    }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [])
-
   return (
     <ThemeProvider>
     <StoreProvider>
     <BrowserRouter>
       <Nav />
       <Routes>
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<Navigate to="/influencers" replace />} />
         <Route path="/influencers" element={<Influencers />} />
-        <Route path="/inspiration" element={<Inspiration />} />
-        <Route path="/brand-deals" element={<BrandDeals />} />
         <Route path="/create" element={<Create />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="/auth/callback" element={<AuthCallback />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/influencers" replace />} />
       </Routes>
       <FeedbackButton />
       <Analytics />

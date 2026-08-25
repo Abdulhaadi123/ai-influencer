@@ -6,14 +6,13 @@ import ImageGrid from '../components/ImageGrid'
 import MasonryGrid from '../components/MasonryGrid'
 import Lightbox from '../components/Lightbox'
 import { compressImage, downloadImage } from '../utils/imageUtils'
-import { generateSingleImage, generateThreeImages, generateVideo, initSession, pollAllJobs, getPendingGens, clearPendingGen, getPendingVideo, clearPendingVideo, resumeVideoJob } from '../utils/kieGenerate'
+import { generateSingleImage, generateThreeImages, generateVideo, initSession, pollAllJobs, getPendingGens, clearPendingGen, getPendingVideo, clearPendingVideo, resumeVideoJob } from '../services/generation'
 import { buildThreeVariationPrompts } from '../utils/systemPrompt'
 import { gColor, pLabel } from '../utils/influencerUtils'
 import { useTheme } from '../context/theme'
-import { isHFConnected } from '../utils/kieAuth'
 import { buildCharSheetPrompt, buildCharSheetPromptWithClaude } from '../utils/charSheetPrompt'
-import PhotoStudioPanel from './PhotoStudio'
 import WardrobeDrawer from '../components/WardrobeDrawer'
+import MotionCopyStudio from '../components/MotionCopyStudio'
 
 function useMobile() {
   const [m, setM] = useState(() => window.innerWidth < 768)
@@ -122,12 +121,6 @@ function getCreationParams(influencerId) {
 // ─────────────────────────────────────────────
 // Helpers
 function getNiches(g)  { return g==='Female'?NICHES_F:g==='Male'?NICHES_M:NICHES_ALL }
-function audiencePh(g,n) {
-  const nl = n && n!=='Other' ? n.toLowerCase() : null
-  if (g==='Female') return `e.g. a woman, 18–34, interested in ${nl||'fashion & beauty'}`
-  if (g==='Male')   return `e.g. a man, 20–35, interested in ${nl||'fitness & gaming'}`
-  return `e.g. adults, 18–30, interested in ${nl||'lifestyle & entertainment'}`
-}
 function pColor(v) {
   const l=(a,b,t)=>Math.round(a+(b-a)*t)
   if(v<=50){const t=v/50;return`rgb(${l(251,249,t)},${l(191,115,t)},${l(36,22,t)})`}
@@ -149,11 +142,8 @@ function completeness(inf) {
     inf.niche,
     inf.location?.trim(),
     inf.backstory?.trim(),
-    inf.audience?.trim(),
     inf.physicalDesc?.trim(),
-    inf.hobbies?.trim(),
     inf.clothingStyle?.trim(),
-    inf.dreamBrands?.trim(),
   ]
   return Math.round(c.filter(Boolean).length / c.length * 100)
 }
@@ -948,31 +938,6 @@ function GenderButtons({ value, onChange }) {
 }
 
 // ─────────────────────────────────────────────
-// Color palette
-const DEFAULT_PALETTES = {
-  Female:['#F9A8D4','#FBCFE8','#E879F9','#BE185D'],
-  Male:['#93C5FD','#BFDBFE','#3B82F6','#1E3A8A'],
-}
-function ColorPalette({ palette=[], onChange, gender }) {
-  const defs = DEFAULT_PALETTES[gender]||['#E5E7EB','#D1D5DB','#9CA3AF','#6B7280']
-  const cols = palette.length===4?palette:defs
-  return (
-    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-      {[0,1,2,3].map(i=>(
-        <label key={i} style={{cursor:'pointer',position:'relative'}}>
-          <div style={{width:30,height:30,borderRadius:8,background:cols[i],border:'2px solid rgba(0,0,0,0.1)',boxShadow:'0 1px 4px rgba(0,0,0,0.12)',transition:'transform 0.15s'}}
-            onMouseEnter={e=>{e.currentTarget.style.transform='scale(1.15)'}}
-            onMouseLeave={e=>{e.currentTarget.style.transform='scale(1)'}}/>
-          <input type="color" value={cols[i]} onChange={e=>{const n=[...cols];n[i]=e.target.value;onChange(n)}}
-            style={{position:'absolute',inset:0,width:'100%',height:'100%',opacity:0,cursor:'pointer',border:'none',padding:0}}/>
-        </label>
-      ))}
-      <button onClick={()=>onChange(defs)} style={{padding:'4px 9px',borderRadius:7,border:'1px solid var(--border)',fontSize:11,fontWeight:500,color:'var(--text-tertiary)',background:'transparent',cursor:'pointer'}}>Reset</button>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
 // Video URL helpers (used in scripts)
 function ytId(u){ return u?.match(/(?:youtu\.be\/|youtube\.com\/watch\?v=)([\w-]+)/)?.[1]??null }
 function domain(u){ try{return new URL(u).hostname.replace('www.','')}catch{return'link'} }
@@ -1379,7 +1344,7 @@ function ScriptsSection({ scripts=[], influencerPrompt='', onChange, initialExpa
                   </div>
                 </div>
                 <textarea value={s.prompt||''} onChange={e=>upd(s.id,'prompt',e.target.value)}
-                  placeholder="Paste the Higgsfield prompt for this video…"
+                  placeholder="Paste the video prompt for this shot…"
                   rows={8} style={{...fieldStyle,resize:'vertical',fontSize:12,lineHeight:1.65}}/>
               </div>
 
@@ -1490,7 +1455,6 @@ function BareInput({ value, onChange, placeholder, multiline, rows = 3 }) {
 function DescriptionForm({ influencer, onUpdate }) {
   const u = (k, v) => onUpdate(influencer.id, { [k]: v })
   const niches = getNiches(influencer.gender)
-  const aPh = audiencePh(influencer.gender, influencer.niche)
   const pv = influencer.introExtrovert ?? 50
 
   return (
@@ -1548,11 +1512,6 @@ function DescriptionForm({ influencer, onUpdate }) {
         </div>
       </div>
 
-      {/* ── Target Audience ── */}
-      <InfoCell label="Target Audience" icon="👥">
-        <BareInput value={influencer.audience ?? ''} onChange={e => u('audience', e.target.value)} placeholder={aPh}/>
-      </InfoCell>
-
       {/* ── Physical ── */}
       {influencer.physicalDesc && (
         <InfoCell label="Physical Description" icon="✧">
@@ -1560,35 +1519,10 @@ function DescriptionForm({ influencer, onUpdate }) {
         </InfoCell>
       )}
 
-      {/* ── Lifestyle ── */}
-      <div className="desc-grid-2">
-        <InfoCell label="Hobbies & Interests" icon="🎯">
-          <BareInput value={influencer.hobbies ?? ''} onChange={e => u('hobbies', e.target.value)} placeholder="e.g. Yoga, travel, photography…" multiline rows={2}/>
-        </InfoCell>
-        <InfoCell label="Aesthetic / Style Vibe" icon="✨">
-          <BareInput value={influencer.clothingStyle ?? ''} onChange={e => u('clothingStyle', e.target.value)} placeholder="e.g. Minimalist, Old Money…" multiline rows={2}/>
-        </InfoCell>
-      </div>
-
-      {/* ── Brand ── */}
-      <div className="desc-grid-2">
-        <InfoCell label="Dream Brands" icon="💎">
-          <BareInput value={influencer.dreamBrands ?? ''} onChange={e => u('dreamBrands', e.target.value)} placeholder="e.g. Nike, Glossier, Loewe…"/>
-        </InfoCell>
-        <InfoCell label="Content Pillars" icon="📌">
-          <BareInput value={(influencer.contentPillars ?? []).join(', ')} onChange={e => u('contentPillars', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} placeholder="e.g. Fitness, Mindset, Style…"/>
-        </InfoCell>
-      </div>
-
-      {/* ── Color Palette + Voice ── */}
-      <div className="desc-grid-2">
-        <InfoCell label="Brand Colors" icon="🎨">
-          <ColorPalette palette={influencer.palette ?? []} onChange={v => u('palette', v)} gender={influencer.gender}/>
-        </InfoCell>
-        <InfoCell label="Voice / TTS" icon="🎙">
-          <BareInput value={influencer.voice ?? ''} onChange={e => u('voice', e.target.value)} placeholder="e.g. Higgsfield, ElevenLabs…"/>
-        </InfoCell>
-      </div>
+      {/* ── Aesthetic / Style Vibe ── */}
+      <InfoCell label="Aesthetic / Style Vibe" icon="✨">
+        <BareInput value={influencer.clothingStyle ?? ''} onChange={e => u('clothingStyle', e.target.value)} placeholder="e.g. Minimalist, Old Money…" multiline rows={2}/>
+      </InfoCell>
 
     </div>
   )
@@ -1627,466 +1561,6 @@ const WARDROBE_STYLES_M = [
   { id: 'party',       label: 'Party Night',  icon: '🪩', outfit: 'black satin shirt open two buttons, slim-fit black tailored trousers, sleek black loafers, silver watch',                                  hair: 'slicked back, polished' },
 ]
 
-const HAIR_PRESETS_F = ['Sleek bun', 'High ponytail', 'Beach waves', 'Blowout', 'Space buns', 'Braids', 'Half-up', 'Curtain bangs', 'Slicked back', 'Natural curls', 'Pixie cut', 'Bob']
-const HAIR_PRESETS_M = ['Low fade', 'Side part', 'Buzz cut', 'Slicked back', 'Textured crop', 'Tousled', 'Undercut', 'Man bun', 'Cornrows', 'Afro', 'Shaved sides', 'French crop']
-
-function buildWardrobePrompt(influencer, { outfit, hair, customText }) {
-  const phys = influencer.physicalDesc ? `The subject: ${influencer.physicalDesc}. ` : ''
-  const identity = `IDENTITY LOCK — replicate exactly from reference: facial bone structure, face shape, jaw, nose bridge and tip, lip shape, eye shape and color, eyebrow arch and thickness, skin tone, skin texture and pores, all freckles, moles, marks, scars, natural asymmetries. Zero facial drift — this must be unmistakably the same person.`
-  const layout = `Output must be the exact same 4-panel character turnaround sheet as the reference image. Single row of four equally sized full-body panels with these labels in clean sans-serif capitals above each: "FRONT VIEW" | "SIDE VIEW" | "BACK VIEW" | "THREE-QUARTER VIEW". Keep identical body poses, stance, arm positions, proportions, and panel layout from the reference. Do NOT change poses, labels, panel structure, background (pure white seamless), or lighting.`
-
-  const changeParts = [
-    outfit && `outfit — ${outfit}`,
-    hair && `hairstyle — ${hair}`,
-    customText?.trim() || '',
-  ].filter(Boolean)
-  const changes = `Change only: ${changeParts.join('; ') || 'casual stylish outfit, natural hairstyle'}.`
-
-  return `Professional full-body character turnaround sheet. ${phys}Pure white seamless background throughout. Soft neutral studio lighting, perfectly flat and even across all four panels — no shadows, no color cast.
-
-${layout}
-
-${identity}
-
-${changes}
-
-Photorealistic RAW photograph quality, ultra-sharp micro detail. Shot on Hasselblad X2D 100C.`
-}
-
-function saveWardrobePending(influencerId, data) {
-  try { localStorage.setItem(`hf_wardrobe_pending_${influencerId}`, JSON.stringify({ ...data, startedAt: Date.now() })) } catch {}
-}
-function getWardrobePending(influencerId) {
-  try {
-    const d = JSON.parse(localStorage.getItem(`hf_wardrobe_pending_${influencerId}`) || 'null')
-    if (!d) return null
-    if (Date.now() - d.startedAt > 15 * 60 * 1000) { clearWardrobePending(influencerId); return null }
-    return d
-  } catch { return null }
-}
-function clearWardrobePending(influencerId) {
-  try { localStorage.removeItem(`hf_wardrobe_pending_${influencerId}`) } catch {}
-}
-
-function WardrobeGenerator({ influencer, onAdd }) {
-  const [top, setTop] = useState('')
-  const [bottom, setBottom] = useState('')
-  const [hair, setHair] = useState('')
-  const [customText, setCustomText] = useState('')
-  const [generating, setGenerating] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [error, setError] = useState(null)
-  const [result, setResult] = useState(null) // { url, name } — waiting to be saved
-  const [saveName, setSaveName] = useState('')
-  const [lightboxOpen, setLightboxOpen] = useState(false)
-  const cancelRef = useRef(false)
-  const genStartRef = useRef(null)
-
-  // Time-based progress — fills 0→95% over 180s, only moves forward
-  useEffect(() => {
-    if (!generating) return
-    genStartRef.current = Date.now()
-    const timer = setInterval(() => {
-      const elapsed = Date.now() - genStartRef.current
-      setProgress(prev => Math.max(prev, Math.min(95, (elapsed / 180000) * 95)))
-    }, 500)
-    return () => clearInterval(timer)
-  }, [generating])
-
-  const refImage = influencer.characterSheetImage || null
-
-  // Resume any generation that was running when the user navigated away
-  useEffect(() => {
-    // Restore a completed result that was never saved/discarded
-    const savedResult = (() => { try { return JSON.parse(localStorage.getItem(`wd_gen_result_${influencer.id}`) || 'null') } catch { return null } })()
-    if (savedResult?.url) { setResult(savedResult); setSaveName(savedResult.name || 'Custom Look'); return }
-
-    const pending = getWardrobePending(influencer.id)
-    if (!pending) return
-    cancelRef.current = false
-    setGenerating(true); setProgress(30)
-    initSession()
-      .then(() => pollAllJobs(pending.jobIds, 1, setProgress, 16, () => cancelRef.current))
-      .then(urls => {
-        if (!cancelRef.current && urls[0]) {
-          const r = { url: urls[0], name: pending.label }
-          try { localStorage.setItem(`wd_gen_result_${influencer.id}`, JSON.stringify(r)) } catch {}
-          setResult(r); setSaveName(pending.label)
-        }
-      })
-      .catch(e => { if (!cancelRef.current) setError(e.message) })
-      .finally(() => { clearWardrobePending(influencer.id); if (!cancelRef.current) { setGenerating(false); setProgress(0) } })
-  }, [influencer.id])
-
-  const canGenerate = refImage && !generating && !result && (
-    customText.trim() || top.trim() || bottom.trim() || hair.trim()
-  )
-
-  function cancelGeneration() {
-    cancelRef.current = true
-    clearWardrobePending(influencer.id)
-    setGenerating(false); setProgress(0)
-  }
-
-  async function generate() {
-    if (!canGenerate) return
-    cancelRef.current = false
-    setGenerating(true); setProgress(0); setError(null)
-    try {
-      const outfitText = [top, bottom].filter(Boolean).join(', ')
-      const label = 'Custom Look'
-      const prompt = buildWardrobePrompt(influencer, {
-        outfit: outfitText, hair,
-        customText: customText || null,
-      })
-      const url = await generateSingleImage({
-        prompt, aspectRatio: '16:9', referenceImage: refImage, onProgress: setProgress,
-        onJobIds: jobIds => saveWardrobePending(influencer.id, { jobIds, label }),
-        isCancelled: () => cancelRef.current,
-      })
-      clearWardrobePending(influencer.id)
-      if (!cancelRef.current && url) {
-        const r = { url, name: label }
-        try { localStorage.setItem(`wd_gen_result_${influencer.id}`, JSON.stringify(r)) } catch {}
-        setResult(r); setSaveName(label)
-      }
-    } catch (e) {
-      clearWardrobePending(influencer.id)
-      if (!cancelRef.current && e.message !== 'CANCELLED') setError(e.message)
-    } finally {
-      if (!cancelRef.current) { setGenerating(false); setProgress(0) }
-    }
-  }
-
-  function saveToWardrobe() {
-    if (!result) return
-    onAdd({ id: generateId(), name: saveName.trim() || result.name, image: result.url })
-    try { localStorage.removeItem(`wd_gen_result_${influencer.id}`) } catch {}
-    setResult(null); setSaveName(''); setTop(''); setBottom(''); setHair(''); setCustomText('')
-  }
-
-  function discardResult() {
-    try { localStorage.removeItem(`wd_gen_result_${influencer.id}`) } catch {}
-    setResult(null); setSaveName('')
-  }
-
-  const iS = { padding: '9px 12px', borderRadius: 8, fontSize: 13, border: '1.5px solid var(--border)', background: 'var(--bg)', color: 'var(--text-primary)', outline: 'none', width: '100%', boxSizing: 'border-box', fontFamily: 'inherit' }
-  const lS = { fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }
-
-  return (
-    <div style={{ background: 'var(--surface)', borderRadius: 16, border: '1px solid var(--border-subtle)', padding: 20, marginBottom: 20 }}>
-
-      {/* Header */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 15, fontWeight: 700 }}>Generate Look</div>
-      </div>
-
-      {/* Result preview */}
-      {result && (<>
-        {lightboxOpen && (
-          <Lightbox images={[result.url]} startIndex={0} onClose={() => setLightboxOpen(false)} />
-        )}
-        <div
-          onClick={() => setLightboxOpen(true)}
-          style={{ position: 'relative', cursor: 'zoom-in', marginBottom: 14, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}
-          onMouseEnter={e => { e.currentTarget.querySelector('img').style.transform = 'scale(1.03)' }}
-          onMouseLeave={e => { e.currentTarget.querySelector('img').style.transform = 'scale(1)' }}
-        >
-          <img src={result.url} alt="" style={{ width: '100%', display: 'block', aspectRatio: '16/9', objectFit: 'cover', transition: 'transform 0.3s ease' }} />
-          <button
-            onClick={e => { e.stopPropagation(); downloadImage(result.url, `${(result.name || 'look').replace(/\s+/g, '-')}.jpg`) }}
-            style={{
-              position: 'absolute', bottom: 10, right: 10,
-              padding: '5px 12px', borderRadius: 980, fontSize: 12, fontWeight: 600,
-              background: 'rgba(0,0,0,0.55)', color: '#fff',
-              backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
-              border: '1px solid rgba(255,255,255,0.15)',
-            }}
-          >↓ Download</button>
-        </div>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Ready to save</div>
-        <div style={lS}>Name this look</div>
-        <input value={saveName} onChange={e => setSaveName(e.target.value)} style={{ ...iS, marginBottom: 12 }} />
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={saveToWardrobe} style={{
-            flex: 1, padding: '10px', borderRadius: 9, fontSize: 13, fontWeight: 700,
-            background: 'linear-gradient(135deg,#EC4899,#8B5CF6)', color: '#fff',
-            boxShadow: '0 2px 10px rgba(139,92,246,0.3)',
-          }}>Save to Wardrobe</button>
-          <button onClick={discardResult} style={{
-            padding: '10px 14px', borderRadius: 9, fontSize: 13, fontWeight: 600,
-            background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
-          }}>Discard</button>
-        </div>
-      </>)}
-
-      {/* Generating state */}
-      {generating && !result && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Generating look…</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
-                {progress > 0 ? `${Math.round(progress)}%` : 'Starting…'}
-              </span>
-              <button onClick={cancelGeneration} style={{
-                padding: '3px 10px', borderRadius: 980, fontSize: 11, fontWeight: 600,
-                background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)',
-                border: '1px solid var(--border)',
-              }}>Cancel</button>
-            </div>
-          </div>
-          <div style={{ height: 6, borderRadius: 980, background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
-            <div style={{
-              height: '100%',
-              width: `${Math.max(3, progress)}%`,
-              background: 'linear-gradient(90deg,#EC4899,#8B5CF6)',
-              borderRadius: 980,
-              transition: 'width 0.5s ease',
-              boxShadow: '0 0 10px rgba(139,92,246,0.5)',
-            }}/>
-          </div>
-        </div>
-      )}
-
-      {/* Form */}
-      {!result && !generating && (<>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <div style={lS}>Top</div>
-              <input value={top} onChange={e => setTop(e.target.value)} placeholder={influencer.gender === 'Male' ? 'e.g. white oxford shirt' : 'e.g. white crop top'} style={iS} />
-            </div>
-            <div>
-              <div style={lS}>Bottom</div>
-              <input value={bottom} onChange={e => setBottom(e.target.value)} placeholder={influencer.gender === 'Male' ? 'e.g. dark chinos' : 'e.g. baggy jeans'} style={iS} />
-            </div>
-          </div>
-          <div>
-            <div style={lS}>Hairstyle</div>
-            <input value={hair} onChange={e => setHair(e.target.value)} placeholder={influencer.gender === 'Male' ? 'e.g. slicked back, low fade' : 'e.g. sleek low bun'} style={iS} />
-          </div>
-          <div>
-            <div style={lS}>Full look description</div>
-            <textarea value={customText} onChange={e => setCustomText(e.target.value)} placeholder="e.g. vintage leather jacket over a white tee, dark slim jeans, white sneakers, hair pushed back naturally" rows={3} style={{ ...iS, resize: 'vertical' }} />
-          </div>
-        </div>
-
-        {!refImage && (
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 14, padding: '9px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-            No character sheet — generate one in the Overview tab first.
-          </div>
-        )}
-        {error && <div style={{ fontSize: 12, color: '#FF3B30', marginTop: 10 }}>{error}</div>}
-
-        <button onClick={generate} disabled={!canGenerate} style={{
-          width: '100%', marginTop: 16, padding: '12px', borderRadius: 10, fontSize: 14, fontWeight: 700,
-          background: canGenerate ? 'linear-gradient(135deg,#EC4899,#8B5CF6)' : 'var(--bg-tertiary)',
-          color: canGenerate ? '#fff' : 'var(--text-tertiary)',
-          cursor: canGenerate ? 'pointer' : 'not-allowed',
-          boxShadow: canGenerate ? '0 2px 12px rgba(139,92,246,0.32)' : 'none',
-          transition: 'all 0.15s',
-        }}>Generate Look</button>
-      </>)}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
-// World Drops
-function WorldDropCard({ drop, editing, editName, onEditName, onStartEdit, onCommitEdit, onCancelEdit, onImageChange, onDelete, onLightbox }) {
-  const fileRef = useRef()
-  const [hovered, setHovered] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
-
-  function handleFile(f) {
-    if (!f || !f.type.startsWith('image/')) return
-    const r = new FileReader()
-    r.onload = ev => compressImage(ev.target.result).then(onImageChange).catch(console.error)
-    r.readAsDataURL(f)
-  }
-
-  return (
-    <div
-      style={{ background:'var(--bg)', borderRadius:12, border:`1.5px solid ${dragOver?'#8B5CF6':hovered?'var(--accent)':'var(--border)'}`, overflow:'hidden', boxShadow:hovered?'var(--shadow-md)':'none', transition:'border-color 0.15s, box-shadow 0.15s' }}
-      onMouseEnter={()=>setHovered(true)}
-      onMouseLeave={()=>setHovered(false)}
-    >
-      {/* Image slot */}
-      <div
-        style={{ aspectRatio:'4/3', background: dragOver ? 'rgba(139,92,246,0.07)' : 'var(--bg-tertiary)', overflow:'hidden', cursor:'pointer', position:'relative', transition:'background 0.15s' }}
-        onClick={() => drop.image ? onLightbox?.() : fileRef.current.click()}
-        onDragOver={e=>{e.preventDefault();setDragOver(true)}}
-        onDragLeave={()=>setDragOver(false)}
-        onDrop={e=>{e.preventDefault();setDragOver(false);handleFile(e.dataTransfer.files[0])}}
-      >
-        {drop.image
-          ? <>
-              <img src={drop.image} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }}/>
-              <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0)', transition:'background 0.15s' }}
-                onMouseEnter={e=>{e.currentTarget.style.background='rgba(0,0,0,0.2)'}}
-                onMouseLeave={e=>{e.currentTarget.style.background='rgba(0,0,0,0)'}}
-              >
-                <button onClick={e=>{e.stopPropagation();onImageChange(null)}} style={{
-                  position:'absolute', top:6, right:6, width:22, height:22, borderRadius:'50%',
-                  background:'rgba(0,0,0,0.55)', color:'#fff', fontSize:13,
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  backdropFilter:'blur(4px)', border:'1px solid rgba(255,255,255,0.15)',
-                }}>×</button>
-              </div>
-            </>
-          : <div style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6 }}>
-              <span style={{ fontSize:22, opacity: dragOver ? 0.6 : 0.22 }}>+</span>
-              <span style={{ fontSize:11, color:'var(--text-tertiary)', fontWeight:500 }}>{dragOver ? 'Drop to upload' : 'Upload or drag & drop'}</span>
-            </div>
-        }
-        <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }}
-          onChange={e=>{handleFile(e.target.files[0]);e.target.value=''}}/>
-      </div>
-
-      {/* Name + hover-reveal actions */}
-      <div style={{ padding:'10px 12px', display:'flex', alignItems:'center', gap:6, minHeight:42 }}>
-        {editing
-          ? <input autoFocus value={editName} onChange={e=>onEditName(e.target.value)}
-              onBlur={onCommitEdit}
-              onKeyDown={e=>{if(e.key==='Enter')onCommitEdit();if(e.key==='Escape')onCancelEdit()}}
-              style={{ flex:1, fontSize:13, fontWeight:600, border:'none', background:'transparent', color:'var(--text-primary)', outline:'none' }}/>
-          : <span style={{ flex:1, fontSize:13, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{drop.name}</span>
-        }
-        <div style={{ display:'flex', gap:3, flexShrink:0, opacity: hovered ? 1 : 0, transition:'opacity 0.15s' }}>
-          {drop.image && (
-            <button onClick={e=>{e.stopPropagation();downloadImage(drop.image,`${drop.name||'wardrobe'}.jpg`)}} title="Download" style={{
-              width:26, height:26, borderRadius:7, border:'none', cursor:'pointer',
-              background:'var(--bg-tertiary)', color:'var(--text-secondary)',
-              display:'flex', alignItems:'center', justifyContent:'center', fontSize:13,
-            }}>↓</button>
-          )}
-          <button onClick={e=>{e.stopPropagation();onStartEdit()}} title="Rename" style={{
-            width:26, height:26, borderRadius:7, border:'none', cursor:'pointer',
-            background:'var(--bg-tertiary)', color:'var(--text-secondary)',
-            display:'flex', alignItems:'center', justifyContent:'center', fontSize:13,
-          }}>✎</button>
-          <button onClick={e=>{e.stopPropagation();onDelete()}} title="Delete" style={{
-            width:26, height:26, borderRadius:7, border:'none', cursor:'pointer',
-            background:'rgba(255,59,48,0.08)', color:'#FF3B30',
-            display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, lineHeight:1,
-          }}>×</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function WorldDropSection({ drops=[], onChange }) {
-  const [editId,setEditId]=useState(null)
-  const [editName,setEditName]=useState('')
-  const [lightboxUrl,setLightboxUrl]=useState(null)
-
-  function addDrop() {
-    onChange([...drops, { id:generateId(), name:`Wardrobe ${drops.length+1}`, image:null }])
-  }
-  function updateDrop(id,updates){ onChange(drops.map(d=>d.id===id?{...d,...updates}:d)) }
-  function deleteDrop(id){ onChange(drops.filter(d=>d.id!==id)) }
-  function commitRename(){ if(editName.trim()) updateDrop(editId,{name:editName.trim()}); setEditId(null); setEditName('') }
-
-  return (
-    <div>
-      {lightboxUrl&&<Lightbox images={[lightboxUrl]} startIndex={0} onClose={()=>setLightboxUrl(null)}/>}
-      {drops.length===0&&(
-        <div style={{ textAlign:'center', padding:'52px 0', color:'var(--text-tertiary)' }}>
-          <div style={{ fontSize:36, marginBottom:10, opacity:.2 }}>👗</div>
-          <div style={{ fontSize:14, fontWeight:600, color:'var(--text-secondary)', marginBottom:6 }}>No wardrobe slots yet</div>
-          <div style={{ fontSize:13 }}>Add wardrobe slots to organize your influencer's looks.</div>
-        </div>
-      )}
-      {drops.length>0&&(
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))', gap:14, marginBottom:16 }}>
-          {drops.map(drop=>(
-            <WorldDropCard
-              key={drop.id} drop={drop}
-              editing={editId===drop.id} editName={editName}
-              onEditName={setEditName}
-              onStartEdit={()=>{setEditId(drop.id);setEditName(drop.name)}}
-              onCommitEdit={commitRename}
-              onCancelEdit={()=>{setEditId(null);setEditName('')}}
-              onImageChange={img=>updateDrop(drop.id,{image:img})}
-              onDelete={()=>deleteDrop(drop.id)}
-              onLightbox={()=>setLightboxUrl(drop.image)}
-            />
-          ))}
-        </div>
-      )}
-      <button onClick={addDrop} style={{
-        display:'flex', alignItems:'center', gap:6,
-        padding:'8px 16px', borderRadius:8,
-        border:'1.5px dashed var(--border)',
-        background:'transparent', color:'var(--text-secondary)',
-        fontSize:13, fontWeight:500, cursor:'pointer',
-        transition:'border-color 0.15s, color 0.15s',
-      }}
-        onMouseEnter={e=>{e.currentTarget.style.borderColor='var(--accent)';e.currentTarget.style.color='var(--accent)'}}
-        onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--text-secondary)'}}
-      >+ Add Wardrobe</button>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
-// Home section — same WorldDropCard design for home/room photos
-function HomeSection({ slots=[], onChange }) {
-  const [editId,setEditId]=useState(null)
-  const [editName,setEditName]=useState('')
-  const [lightboxUrl,setLightboxUrl]=useState(null)
-
-  function addSlot() { onChange([...slots,{id:generateId(),name:`Room ${slots.length+1}`,image:null}]) }
-  function updateSlot(id,updates){ onChange(slots.map(s=>s.id===id?{...s,...updates}:s)) }
-  function deleteSlot(id){ onChange(slots.filter(s=>s.id!==id)) }
-  function commitRename(){ if(editName.trim()) updateSlot(editId,{name:editName.trim()}); setEditId(null); setEditName('') }
-
-  return (
-    <div>
-      {lightboxUrl&&<Lightbox images={[lightboxUrl]} startIndex={0} onClose={()=>setLightboxUrl(null)}/>}
-      {slots.length===0&&(
-        <div style={{textAlign:'center',padding:'52px 0',color:'var(--text-tertiary)'}}>
-          <div style={{fontSize:36,marginBottom:10,opacity:.2}}>🏠</div>
-          <div style={{fontSize:14,fontWeight:600,color:'var(--text-secondary)',marginBottom:6}}>No home photos yet</div>
-          <div style={{fontSize:13}}>Add room and home photos for your influencer.</div>
-        </div>
-      )}
-      {slots.length>0&&(
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))',gap:14,marginBottom:16}}>
-          {slots.map(slot=>(
-            <WorldDropCard
-              key={slot.id} drop={slot}
-              editing={editId===slot.id} editName={editName}
-              onEditName={setEditName}
-              onStartEdit={()=>{setEditId(slot.id);setEditName(slot.name)}}
-              onCommitEdit={commitRename}
-              onCancelEdit={()=>{setEditId(null);setEditName('')}}
-              onImageChange={img=>updateSlot(slot.id,{image:img})}
-              onDelete={()=>deleteSlot(slot.id)}
-              onLightbox={()=>setLightboxUrl(slot.image)}
-            />
-          ))}
-        </div>
-      )}
-      <button onClick={addSlot} style={{
-        display:'flex',alignItems:'center',gap:6,
-        padding:'8px 16px',borderRadius:8,
-        border:'1.5px dashed var(--border)',
-        background:'transparent',color:'var(--text-secondary)',
-        fontSize:13,fontWeight:500,cursor:'pointer',
-        transition:'border-color 0.15s, color 0.15s',
-      }}
-        onMouseEnter={e=>{e.currentTarget.style.borderColor='var(--accent)';e.currentTarget.style.color='var(--accent)'}}
-        onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--text-secondary)'}}
-      >+ Add Room</button>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
 // Brand deal card — WorldDropCard style with brand + category fields
 const GEN_DURATION_MS = 150000 // ~2m30s estimated total
 
@@ -2437,7 +1911,6 @@ function BrandDealSection({ deals=[], onChange }) {
   function commitRename(){ if(editBrand.trim()) updateDeal(editId,{brand:editBrand.trim()}); setEditId(null); setEditBrand('') }
 
   async function handleGenerate(deal) {
-    if (!isHFConnected()) { alert('Connect Higgsfield in Settings first'); return }
     if (!deal.image) { alert('Upload a product image first'); return }
 
     setGenerating(g=>({...g,[deal.id]:true}))
@@ -2471,7 +1944,7 @@ function BrandDealSection({ deals=[], onChange }) {
       })
       if (sheetUrl) updateDeal(deal.id,{characterSheet:sheetUrl})
     } catch(e) {
-      console.error('[CharSheet] Higgsfield error:', e)
+      console.error('[CharSheet] generation error:', e)
       if (!e.message?.includes('CANCELLED')) alert('Image generation step failed: '+e.message)
     } finally {
       setGenerating(g=>({...g,[deal.id]:false}))
@@ -2576,7 +2049,7 @@ function Sec({ children, style }) {
 
 // ─────────────────────────────────────────────
 // Detail tabs with palette-tinted active state
-const DETAIL_TABS = ['Overview','Scripts','Wardrobe','Home','Brand Deals','History']
+const DETAIL_TABS = ['Overview','Scripts','Brand Deals','History']
 
 function Tabs({ active, onChange, ac }) {
   const tc = accentText(ac)
@@ -3795,7 +3268,6 @@ function ContentStudio({ influencer, onUpdate, onSaveToScripts, onGenerated, res
   const [duration, setDuration] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').duration ?? 15 } catch { return 15 } })
   const [aspect, setAspect] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').aspect ?? '9:16' } catch { return '9:16' } })
   const [outputs, setOutputs] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').outputs ?? 1 } catch { return 1 } })
-  const [resolution, setResolution] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').resolution ?? '1080p' } catch { return '1080p' } })
   const [shotMode, setShotMode] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').shotMode ?? 'oner' } catch { return 'oner' } })
   const [saved, setSaved] = useState(false)
   const [saveModal, setSaveModal] = useState(null)
@@ -3842,7 +3314,7 @@ function ContentStudio({ influencer, onUpdate, onSaveToScripts, onGenerated, res
   const [confirmVidClear, setConfirmVidClear] = useState(null)
   const restoringRef = useRef(false)
 
-  const CS_DEFAULTS = { vibe: '', duration: 15, aspect: '9:16', outputs: 1, resolution: '1080p', shotMode: 'oner', camera: 'Handheld', envKey: '', envCustom: '', voicePreset: '', voiceCustom: '' }
+  const CS_DEFAULTS = { vibe: '', duration: 15, aspect: '9:16', outputs: 1, shotMode: 'oner', camera: 'Handheld', envKey: '', envCustom: '', voicePreset: '', voiceCustom: '' }
   function loadCsSettings(id) { try { return JSON.parse(localStorage.getItem(`cs_settings_${id}`) || '{}') } catch { return {} } }
 
   useEffect(() => {
@@ -3854,7 +3326,6 @@ function ContentStudio({ influencer, onUpdate, onSaveToScripts, onGenerated, res
     setDuration(s.duration    ?? CS_DEFAULTS.duration)
     setAspect(s.aspect        ?? CS_DEFAULTS.aspect)
     setOutputs(s.outputs      ?? CS_DEFAULTS.outputs)
-    setResolution(s.resolution ?? CS_DEFAULTS.resolution)
     setShotMode(s.shotMode    ?? CS_DEFAULTS.shotMode)
     setCamera(s.camera        ?? CS_DEFAULTS.camera)
     const ek = s.envKey ?? CS_DEFAULTS.envKey
@@ -4030,9 +3501,9 @@ function ContentStudio({ influencer, onUpdate, onSaveToScripts, onGenerated, res
   useEffect(() => {
     if (restoringRef.current) return
     try {
-      localStorage.setItem(`cs_settings_${influencer.id}`, JSON.stringify({ vibe, duration, aspect, outputs, resolution, shotMode, camera, envKey, envCustom: CS_ENV_PRESETS[envKey] ? '' : environment, voicePreset, voiceCustom, dialogue, videoTimeOfDay, productWorn }))
+      localStorage.setItem(`cs_settings_${influencer.id}`, JSON.stringify({ vibe, duration, aspect, outputs, shotMode, camera, envKey, envCustom: CS_ENV_PRESETS[envKey] ? '' : environment, voicePreset, voiceCustom, dialogue, videoTimeOfDay, productWorn }))
     } catch {}
-  }, [influencer.id, vibe, duration, aspect, outputs, resolution, shotMode, camera, envKey, environment, voicePreset, voiceCustom, dialogue, videoTimeOfDay, productWorn])
+  }, [influencer.id, vibe, duration, aspect, outputs, shotMode, camera, envKey, environment, voicePreset, voiceCustom, dialogue, videoTimeOfDay, productWorn])
 
   // Persist last prompt per influencer
   useEffect(() => {
@@ -4062,7 +3533,7 @@ function ContentStudio({ influencer, onUpdate, onSaveToScripts, onGenerated, res
     const his = isMale ? 'his' : 'her'
 
     // Build ordered image tag map — influencer refs first, then products
-    // Higgsfield assigns @image_N in the order refs are passed to generate_video
+    // @image_N is assigned in the order refs are passed to generateVideo
     const prodImgs = [
       productRef1 && { role: 'product1', url: productRef1 },
       productRef2 && { role: 'product2', url: productRef2 },
@@ -4455,7 +3926,6 @@ ${shotsWithBeats.join('\n\n')}`
         audioRef: audioDataUrl || null,
         hasVoice: !!(audioDataUrl || voicePreset || voiceCustom.trim()),
         model: videoModel,
-        resolution,
         onProgress: setGenProgress,
         onPartialResults: partials => { if (!cancelRef.current && genEpochRef.current === myEpoch) persistGenResults([...partials]) },
         isCancelled: () => cancelRef.current || genEpochRef.current !== myEpoch,
@@ -4488,7 +3958,6 @@ ${shotsWithBeats.join('\n\n')}`
         audioRef: audioDataUrl || null,
         hasVoice: !!(audioDataUrl || voicePreset || voiceCustom.trim()),
         model: videoModel,
-        resolution,
         onProgress: () => {},
         isCancelled: () => false,
       })
@@ -5209,21 +4678,6 @@ ${shotsWithBeats.join('\n\n')}`
             </div>
 
             <div>
-              <div style={{fontSize:11,fontWeight:600,color:'var(--text-tertiary)',marginBottom:8}}>Resolution</div>
-              <div style={{display:'flex',gap:6}}>
-                {['480p','720p','1080p'].map(r => (
-                  <button key={r} onClick={()=>{setResolution(r);localStorage.setItem('hf_resolution',r)}} style={{
-                    padding:'7px 12px',borderRadius:9,fontSize:11,fontWeight:600,
-                    background: resolution===r ? 'linear-gradient(135deg,rgba(236,72,153,0.15),rgba(139,92,246,0.15))' : 'var(--bg-tertiary)',
-                    color: resolution===r ? '#8B5CF6' : 'var(--text-secondary)',
-                    border: resolution===r ? '1.5px solid rgba(139,92,246,0.4)' : '1.5px solid transparent',
-                    transition:'all 0.15s',whiteSpace:'nowrap',
-                  }}>{r}</button>
-                ))}
-              </div>
-            </div>
-
-            <div>
               <div style={{fontSize:11,fontWeight:600,color:'var(--text-tertiary)',marginBottom:8}}>Outputs</div>
               <div style={{display:'flex',gap:6}}>
                 {[1,2,3].map(n=>(
@@ -5251,8 +4705,8 @@ ${shotsWithBeats.join('\n\n')}`
           fontSize:13,color:'#FF3B30',lineHeight:1.5,
         }}>
           <strong>Generation failed:</strong> {genError}
-          {/session|expired|reconnect|timed out|copyrighted|protected likeness/i.test(genError) && (
-            <span style={{marginLeft:8,fontWeight:600}}>→ Go to Settings and reconnect Higgsfield.</span>
+          {/session|expired|timed out|timeout|invalid|unauthorized|copyrighted|protected likeness/i.test(genError) && (
+            <span style={{marginLeft:8,fontWeight:600}}>→ Check the engine status in Settings, then try again.</span>
           )}
         </div>
       )}
@@ -5780,8 +5234,6 @@ export default function Influencers() {
   const [studioTab,setStudioTab]=useState('influencer')
   const [activeTab,setActiveTab]=useState('Overview')
   const [videoRestoreKey, setVideoRestoreKey] = useState(0)
-  const [photoRestoreKey, setPhotoRestoreKey] = useState(0)
-  const [pendingStartFrame, setPendingStartFrame] = useState(null)
   const [showNew,setShowNew]=useState(false)
   const [lightbox,setLightbox]=useState(null)
   const [ctxMenu,setCtxMenu]=useState(null)
@@ -6176,13 +5628,6 @@ export default function Influencers() {
                 boxShadow: studioTab==='influencer' ? '0 1px 6px rgba(0,0,0,0.10), 0 0 0 1px var(--border-subtle)' : 'none',
                 transition:'all 0.18s',
               }}>Profile</button>
-              <button onClick={()=>{ setStudioTab('photo'); localStorage.setItem('inf_studio_tab','photo') }} style={{
-                padding:'9px 22px',borderRadius:10,fontSize:13,fontWeight:600,border:'none',
-                background: studioTab==='photo' ? 'var(--surface)' : 'transparent',
-                color: studioTab==='photo' ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                boxShadow: studioTab==='photo' ? '0 1px 6px rgba(0,0,0,0.10), 0 0 0 1px var(--border-subtle)' : 'none',
-                transition:'all 0.18s',
-              }}>Photos</button>
               <button onClick={()=>{ setStudioTab('content'); localStorage.setItem('inf_studio_tab','content') }} style={{
                 padding:'9px 22px',borderRadius:10,fontSize:13,fontWeight:600,border:'none',
                 background: studioTab==='content' ? 'linear-gradient(135deg,#EC4899,#8B5CF6)' : 'transparent',
@@ -6190,6 +5635,13 @@ export default function Influencers() {
                 boxShadow: studioTab==='content' ? '0 2px 14px rgba(139,92,246,0.35)' : 'none',
                 transition:'all 0.18s',
               }}>Videos</button>
+              <button onClick={()=>{ setStudioTab('motion'); localStorage.setItem('inf_studio_tab','motion') }} style={{
+                padding:'9px 22px',borderRadius:10,fontSize:13,fontWeight:600,border:'none',
+                background: studioTab==='motion' ? 'var(--surface)' : 'transparent',
+                color: studioTab==='motion' ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                boxShadow: studioTab==='motion' ? '0 1px 6px rgba(0,0,0,0.10), 0 0 0 1px var(--border-subtle)' : 'none',
+                transition:'all 0.18s',
+              }}>Motion Copy</button>
             </div>
           </div>
 
@@ -6197,7 +5649,6 @@ export default function Influencers() {
 
           <div style={{ display: studioTab==='content' ? 'block' : 'none' }}>
             <ContentStudio key={influencer.id} influencer={influencer} onUpdate={v=>upd(influencer.id,v)} onSaveToScripts={handleSaveToScripts} restoreKey={videoRestoreKey}
-              pendingStartFrame={pendingStartFrame} onStartFrameConsumed={()=>setPendingStartFrame(null)}
               onGenerated={(urls, settings)=>{
                 const now = Date.now()
                 const unique = [...new Set(urls.filter(Boolean))]
@@ -6214,18 +5665,16 @@ export default function Influencers() {
               }}/>
           </div>
 
-          <div style={{ display: studioTab==='photo' ? 'block' : 'none' }}>
-            <PhotoStudioPanel influencer={influencer} restoreKey={photoRestoreKey} onGoToWardrobe={() => {
-              setStudioTab('influencer')
-              localStorage.setItem('inf_studio_tab', 'influencer')
-              setActiveTab('Wardrobe')
-              setTimeout(() => tabSecRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
-            }} onUseAsStartFrame={url => {
-              setPendingStartFrame(url)
-              setStudioTab('content')
-              localStorage.setItem('inf_studio_tab', 'content')
-              setTimeout(() => mainPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 50)
-            }} />
+          <div style={{ display: studioTab==='motion' ? 'block' : 'none' }}>
+            <MotionCopyStudio key={influencer.id} influencer={influencer} onGenerated={(url)=>{
+              const now = Date.now()
+              setInfluencers(prev => prev.map(inf => {
+                if (inf.id !== influencer.id) return inf
+                const existing = inf.generationHistory || []
+                if (existing.some(e => e.url === url && now - e.date < 30000)) return inf
+                return { ...inf, generationHistory: [{ id: generateId(), type: 'video', label: 'Motion Copy', url, date: now }, ...existing].slice(0, 300) }
+              }))
+            }}/>
           </div>
 
           {studioTab==='influencer' && <>
@@ -6326,37 +5775,24 @@ export default function Influencers() {
                 initialExpanded={scriptsHighlightId}
               />
             )}
-            {activeTab==='Wardrobe' && (<>
-              <WardrobeGenerator
-                influencer={influencer}
-                onAdd={slot => {
-                  upd(influencer.id, { wardrobeSlots: [...(influencer.wardrobeSlots??[]), slot] })
-                  if (slot.image) addToHistory(influencer.id, { type: 'image', label: `Wardrobe – ${slot.name}`, url: slot.image, date: Date.now() })
-                }}
-              />
-              <WorldDropSection drops={influencer.wardrobeSlots??[]} onChange={slots=>upd(influencer.id,{wardrobeSlots:slots})}/>
-            </>)}
-            {activeTab==='Home' && (
-              <HomeSection slots={influencer.homeSlots??[]} onChange={slots=>upd(influencer.id,{homeSlots:slots})}/>
-            )}
             <div style={{ display: activeTab==='Brand Deals' ? 'block' : 'none' }}>
               <BrandDealSection deals={influencer.brandDeals??[]} onChange={deals=>upd(influencer.id,{brandDeals:deals})}/>
             </div>
             {activeTab==='History' && (
               <HistoryTab influencer={influencer} onUpdate={v=>upd(influencer.id,v)}
-                onReuseSettings={(seg)=>{ if (seg === 'videos') { setStudioTab('content'); localStorage.setItem('inf_studio_tab','content'); setVideoRestoreKey(k => k+1) } else { setStudioTab('photo'); localStorage.setItem('inf_studio_tab','photo'); setPhotoRestoreKey(k => k+1) } }}/>
+                onReuseSettings={(seg)=>{ if (seg === 'videos') { setStudioTab('content'); localStorage.setItem('inf_studio_tab','content'); setVideoRestoreKey(k => k+1) } }}/>
             )}
 
           </Sec></div>
           </>}
         </main>
       ) : isDark ? (
-        <main style={{flex:1,position:'relative',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',background:'#07070E'}}>
+        <main style={{flex:1,position:'relative',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',background:'var(--bg)'}}>
           <div style={{position:'absolute',width:700,height:700,top:'-20%',left:'-15%',borderRadius:'50%',pointerEvents:'none',background:'radial-gradient(circle, rgba(236,72,153,0.22) 0%, transparent 65%)',animation:'orb1 14s ease-in-out infinite'}}/>
           <div style={{position:'absolute',width:580,height:580,top:'-12%',right:'-10%',borderRadius:'50%',pointerEvents:'none',background:'radial-gradient(circle, rgba(0,113,227,0.18) 0%, transparent 65%)',animation:'orb2 19s ease-in-out infinite'}}/>
           <div style={{position:'absolute',width:700,height:700,bottom:'-28%',left:'20%',borderRadius:'50%',pointerEvents:'none',background:'radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 65%)',animation:'orb3 23s ease-in-out infinite'}}/>
           <div style={{position:'absolute',inset:0,pointerEvents:'none',backgroundImage:'radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px)',backgroundSize:'32px 32px'}}/>
-          <div style={{position:'absolute',inset:0,pointerEvents:'none',background:'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(7,7,14,0.75) 100%)'}}/>
+          <div style={{position:'absolute',inset:0,pointerEvents:'none',background:'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(11,15,25,0.75) 100%)'}}/>
           <div style={{position:'relative',zIndex:1,textAlign:'center'}}>
             <div style={{width:72,height:72,borderRadius:20,margin:'0 auto 24px',background:'linear-gradient(135deg,#EC4899,#8B5CF6)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 8px 40px rgba(139,92,246,0.45)'}}>
               <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="11" r="5.5" stroke="white" strokeWidth="2"/><path d="M4 28c0-6.6 5.4-12 12-12s12 5.4 12 12" stroke="white" strokeWidth="2" strokeLinecap="round"/></svg>

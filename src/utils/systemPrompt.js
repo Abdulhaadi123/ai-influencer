@@ -34,7 +34,7 @@ function getTimesForNiche() {
 }
 
 // ── Soul-safe poses — simple natural descriptions Soul can follow ─
-// Higgsfield Soul struggles with detailed spatial pose instructions,
+// Some image models struggle with detailed spatial pose instructions,
 // so these strip body-angle / weight / hand geometry down to a natural feel cue.
 const POSES_SOUL = {
   facing: prop => `standing upright facing the camera, body straight and balanced, shoulders level, ${prop ? `${prop} held loosely at the side in one hand` : 'arms relaxed at the sides'} — calm and simple, not leaning, not posed`,

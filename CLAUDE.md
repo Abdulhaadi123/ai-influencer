@@ -5,34 +5,102 @@ immediately. Read this first before making changes.
 
 ## What this app is
 
-A React+Vite single-page app for designing and generating AI influencers.
-Local-first: every user's data lives in their own browser localStorage.
-Image and video generation happens through the user's own Higgsfield
-account (OAuth, PKCE).
+A React+Vite single-page app for creating AI influencers and generating
+content with them. Local-first: every user's data lives in their own
+browser localStorage.
 
-## Tech stack
+Three core features — everything else has been deliberately removed:
 
-- **React 18** + **Vite 5** + **React Router 6**
-- **No build-time API keys** — Higgsfield is OAuthed per-user; the optional
-  Claude features call through a serverless proxy that expects an
-  `x-api-key` header from the browser.
-- **Vercel** is the intended host: `api/*.js` are Vercel serverless
-  functions, and `vite.config.js` mirrors them as local dev proxies so
-  the dev server behaves the same as production.
+1. **Influencer creation** — describe an influencer by prompt and/or upload a
+   reference image and pick which attributes to copy → generated images.
+2. **Brand promotion** — product image + influencer + profile + script →
+   a promo video where the influencer presents the product, with voice.
+3. **Motion copy** — a character image + a driving video → the influencer
+   performs that same motion.
+
+## Generation stack
+
+All generation runs through **KIE** (`api.kie.ai`) using a **single
+server-side API key** (`KIE_API_KEY`). Users never log in or connect an
+account of their own.
+
+| Feature | Model id | Set in |
+|---|---|---|
+| Images | `nano-banana-pro` | `src/config/generation.js` |
+| Video (with native audio) | `kling-3.0/video` + `sound: true` | same |
+| Motion copy | `kling-3.0/motion-control` | same |
+
+**Never hard-code a model id in UI or feature code.** Model ids live only in
+`src/config/generation.js`; feature code calls the generation functions.
+
+### Architecture (important)
+
+```
+UI / pages  →  src/services/generation/index.js   (facade — import from HERE only)
+                 └─ providers/kie.js              (the only provider today)
+                      └─ /api/kie  →  api.kie.ai  (server-side key)
+```
+
+`index.js` is a bare `export * from './providers/kie'`. To add a provider,
+add a file under `providers/` with the same exports and switch that line —
+UI code never changes.
+
+### React Native safety (hard constraint)
+
+The generation layer is written so it can move to a React Native app
+unchanged. When editing anything under `src/services/`, `src/lib/`, or
+`src/config/`:
+
+- **Server-side keys only.** No per-user OAuth, no `window.open` popups —
+  neither exists in RN. (This is why Higgsfield was dropped for KIE.)
+- **No DOM.** Plain `fetch` only in the service layer.
+- **Use `src/lib/storage.js`**, not `localStorage` directly. It is a
+  synchronous abstraction (web → localStorage, RN → react-native-mmkv;
+  deliberately *not* AsyncStorage, which is async).
 
 ## Key files to know
 
 | Path | What it does |
 |---|---|
-| `src/App.jsx` | Routes + `<ThemeProvider>` + `<StoreProvider>` |
-| `src/store.jsx` | localStorage-backed contexts (`useInfluencers`, etc.) and the `Kayla` seed |
-| `src/utils/higgsfieldAuth.js` | OAuth PKCE flow against `mcp.higgsfield.ai` |
-| `src/utils/higgsfieldGenerate.js` | MCP-style image/video generation, polling, media uploads |
-| `src/utils/systemPrompt.js` | Prompt templates — poses, wardrobe library, vibe palettes, Soul vs GPT Image 2 variants |
-| `src/pages/Create.jsx` | Multi-step influencer creation wizard |
-| `src/pages/Influencers.jsx` | Influencer profile + Content Studio + Video Studio (very large — known structural debt) |
-| `api/hf/[...path].js` | Edge function that proxies all Higgsfield MCP traffic and forwards SSE streams |
-| `api/claude.js` | Anthropic API proxy — caller supplies their own `x-api-key` |
+| `src/App.jsx` | Routes (`/influencers`, `/create`, `/settings`) + providers |
+| `src/store.jsx` | localStorage-backed contexts (`useInfluencers`, etc.) + seed data |
+| `src/config/generation.js` | **All model ids** — the one place to switch a model |
+| `src/services/generation/index.js` | Generation facade — the only import point for UI |
+| `src/services/generation/providers/kie.js` | KIE adapter: uploads, job launch, polling |
+| `src/lib/storage.js` | RN-safe synchronous storage abstraction |
+| `src/utils/systemPrompt.js` | Prompt templates — poses, wardrobe, vibes |
+| `src/utils/kieAuth.js` | Engine health check (is the server key working) |
+| `src/pages/Create.jsx` | 3-step creation wizard (Basics / Reference / Generate) |
+| `src/pages/Influencers.jsx` | Profile + Videos + Motion Copy studio (5,800+ lines — known debt) |
+| `src/components/MotionCopyStudio.jsx` | Motion copy UI, self-contained |
+| `api/kie.js` | Edge proxy that attaches `KIE_API_KEY` server-side |
+| `api/img-proxy.js` | Download proxy — **allowlisted hosts** (see below) |
+| `api/claude.js` | Anthropic proxy — caller supplies its own `x-api-key` |
+
+### The KIE proxy path convention
+
+Browser code never calls `api.kie.ai` directly. It calls `/api/kie/...` and
+passes the upstream path in a `__kiepath` query param, e.g.:
+
+```
+/api/kie/api/v1/jobs/createTask?__kiepath=/api/v1/jobs/createTask
+```
+
+`api/kie.js` (production) and `kiePlugin` in `vite.config.js` (dev) both read
+`__kiepath`, strip it, and forward to `api.kie.ai` — or to
+`kieai.redpandaai.co` for `/api/file-*` upload routes.
+
+### api/img-proxy.js allowlist
+
+Downloads of generated media are proxied to bypass CORS. `ALLOWED_HOSTS`
+must contain the CDNs KIE actually serves from, or **every download 403s**:
+
+- `aiquickdraw.com` — generation results (`tempfile.aiquickdraw.com`)
+- `redpandaai.co` — uploaded media (`tempfile.`/`kieai.redpandaai.co`)
+
+If a model is swapped and results start coming from a new CDN, add it here.
+Note the dev proxy in `vite.config.js` does **not** enforce this allowlist,
+so an allowlist bug only shows up in production.
 
 ## Conventions
 
@@ -40,21 +108,17 @@ account (OAuth, PKCE).
   Theme tokens are set on `<html data-theme="dark|light">` from
   `src/context/theme.jsx`.
 - IDs use `generateId()` from `store.jsx` (`Date.now() + random`).
-- Higgsfield models supported: `soul_2`, `gpt_image_2`, `nano_banana_2`,
-  `nano_banana_flash`, `seedance_2_0`. Soul has its own simplified
-  pose set (`POSES_SOUL`) because it struggles with detailed spatial pose
-  instructions.
 
 ## Things not to do
 
 - **Never kill the Vite dev server** (port 5173). The owner wants it
   running at all times.
-- Don't trust the comment in `modelBaseParams` saying resolution and
-  quality conflict for `gpt_image_2` — they don't, the working code
-  intentionally passes both.
-- Don't refactor `Influencers.jsx` casually. It's 4,700+ lines and the
-  state is tangled; any split needs its own dedicated session with
-  in-browser verification of every flow.
+- **Don't add UI that isn't actually wired.** A recurring cleanup theme in
+  this project has been removing controls that looked functional but did
+  nothing. If a control can't be implemented, don't ship it.
+- Don't refactor `Influencers.jsx` casually. It's 5,800+ lines and the state
+  is tangled; any split needs its own dedicated session with in-browser
+  verification of every flow.
 
 ## Dev workflow
 
@@ -65,5 +129,6 @@ npm run build        # production build
 npm run preview      # preview the production build locally
 ```
 
-To diagnose Higgsfield issues, flip `HF_DEBUG = true` at the top of
-`src/utils/higgsfieldGenerate.js` for verbose request/response logs.
+`KIE_API_KEY` goes in `.env` (server-side, never `VITE_`-prefixed — a
+`VITE_` prefix would ship the key to the browser). Settings → *KIE.AI
+Engine* shows whether the key is live.

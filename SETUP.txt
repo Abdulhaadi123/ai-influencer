@@ -63,12 +63,24 @@ STEP 5 — START IT
 Done! The app loads with everything ready.
 
 
-STEP 6 — CONNECT HIGGSFIELD (for images & videos)
+STEP 6 — CHECK THE ENGINE (for images & videos)
 --------------------------------------------------
 1. In the app, click the gear icon (top right) → Settings
-2. Click "Connect Higgsfield"
-3. Log in with your Higgsfield account
-4. Done — it uses your own Higgsfield credits
+2. Look at the "KIE.AI Engine" box
+
+   If it says "Engine ready" — you're done. There is nothing to
+   log into; the app uses the company API key.
+
+   If it says the key is missing or invalid:
+     a. In the project folder, open the file named  .env
+        (if it isn't there, create it)
+     b. Put this one line in it, using your real key:
+
+           KIE_API_KEY=your-key-here
+
+     c. Stop the app (click the terminal, press Ctrl+C) and
+        start it again
+     d. Reload Settings — it should now say "Engine ready"
 
 
 USING IT LATER

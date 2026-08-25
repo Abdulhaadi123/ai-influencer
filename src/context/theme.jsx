@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { flushSync } from 'react-dom'
+import * as storage from '../lib/storage'
 
 const ThemeContext = createContext()
 
@@ -25,17 +26,17 @@ let busy = false
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
-    if (!localStorage.getItem('theme_default_v2')) {
-      localStorage.setItem('theme_default_v2', '1')
-      localStorage.setItem('theme', 'dark')
+    if (!storage.getItem('theme_default_v2')) {
+      storage.setItem('theme_default_v2', '1')
+      storage.setItem('theme', 'dark')
       return 'dark'
     }
-    return localStorage.getItem('theme') || 'dark'
+    return storage.getItem('theme') || 'dark'
   })
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('theme', theme)
+    storage.setItem('theme', theme)
   }, [theme])
 
   function toggle(x, y) {

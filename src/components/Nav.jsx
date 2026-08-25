@@ -3,8 +3,6 @@ import { useTheme } from '../context/theme'
 
 const links = [
   { to: '/influencers', label: 'Influencers' },
-  { to: '/inspiration', label: 'Inspiration' },
-  { to: '/brand-deals', label: 'Brand Deals' },
 ]
 
 export default function Nav() {
@@ -16,7 +14,7 @@ export default function Nav() {
   const navBg = landing
     ? 'transparent'
     : isDark
-    ? 'rgba(7,7,14,0.88)'
+    ? 'rgba(11,15,25,0.88)'
     : 'rgba(255,255,255,0.80)'
 
   const navBorder = landing
