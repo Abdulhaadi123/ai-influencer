@@ -7,44 +7,41 @@
  * web build is untouched. The exported interface must stay identical to the
  * web module's — every call site in core depends on it.
  *
- * Backed by react-native-mmkv, which is SYNCHRONOUS, matching the web's
- * localStorage semantics. This is the whole reason the abstraction is sync:
- * the app reads storage inside `useState` initialisers, and AsyncStorage would
- * force every one of those call sites to be rewritten as async.
+ * Backed by expo-sqlite's key/value store, used through its SYNCHRONOUS API.
+ * Sync is the whole reason this abstraction exists: the app reads storage
+ * inside `useState` initialisers, and an async store would force every one of
+ * those call sites to be rewritten.
  *
- * NOTE: react-native-mmkv is a native module, so it needs a development build
- * (`npx expo run:android`) — it does not run in Expo Go.
+ * Why not react-native-mmkv: MMKV is faster, but it is a third-party native
+ * module, so it cannot run in Expo Go — the app would need a development build
+ * before anyone could try it on a phone. expo-sqlite ships with Expo Go and is
+ * far quicker than this app's data volume needs (a handful of influencer
+ * records and some form settings). If the app later moves to a custom dev
+ * build and storage ever becomes a bottleneck, swapping back is this one file.
  */
 
-import { MMKV } from 'react-native-mmkv'
+import Storage from 'expo-sqlite/kv-store'
 
-const mmkv = new MMKV()
-
-/**
- * MMKV returns `undefined` for a missing key; the web contract is `null`.
- * Normalise here so callers behave identically on both platforms.
- */
+/** expo-sqlite returns null for a missing key, matching the web contract. */
 export function getItem(key) {
-  const v = mmkv.getString(key)
-  return v === undefined ? null : v
+  return Storage.getItemSync(key)
 }
 
 /**
  * Mirrors the web module, which lets localStorage's quota error propagate so
- * callers' existing try/catch quota handling still runs. MMKV has no quota,
- * but any underlying failure is likewise left to propagate rather than
- * silently swallowed.
+ * callers' existing try/catch quota handling still runs. Any underlying failure
+ * here is likewise left to propagate rather than silently swallowed.
  */
 export function setItem(key, value) {
-  mmkv.set(key, value)
+  Storage.setItemSync(key, value)
 }
 
 export function removeItem(key) {
-  mmkv.delete(key)
+  Storage.removeItemSync(key)
 }
 
 export function getAllKeys() {
-  return mmkv.getAllKeys()
+  return Storage.getAllKeysSync()
 }
 
 // ── JSON convenience helpers — identical semantics to the web module ─────────

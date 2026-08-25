@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { flushSync } from 'react-dom'
-import * as storage from '../core/platform/storage'
+import * as storage from '../../core/platform/storage'
 
 const ThemeContext = createContext()
 

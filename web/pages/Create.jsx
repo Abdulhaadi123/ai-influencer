@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { flushSync } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useInfluencers, generateId } from '../core/store'
-import { generateThreeImages } from '../core/services/generation'
-import { compressImage } from '../core/platform/media'
-import { gColor } from '../core/utils/influencerUtils'
-import { COPY_ATTRIBUTES, buildImagePrompts } from '../core/prompts/influencerPrompts'
-import { saveCreationParams } from '../core/creationParams'
-import { buildNewInfluencer, buildCreationParams } from '../core/newInfluencer'
+import { useInfluencers, generateId } from '../../core/store'
+import { generateThreeImages } from '../../core/services/generation'
+import { compressImage } from '../../core/platform/media'
+import { gColor } from '../../core/utils/influencerUtils'
+import { COPY_ATTRIBUTES, buildImagePrompts } from '../../core/prompts/influencerPrompts'
+import { saveCreationParams } from '../../core/creationParams'
+import { buildNewInfluencer, buildCreationParams } from '../../core/newInfluencer'
 
 const STEPS = ['Basics', 'Reference', 'Generate']
 

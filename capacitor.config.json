@@ -1,8 +1,0 @@
-{
-  "appId": "com.aiinfluencer.app",
-  "appName": "AI Influencer",
-  "webDir": "dist",
-  "server": {
-    "androidScheme": "https"
-  }
-}

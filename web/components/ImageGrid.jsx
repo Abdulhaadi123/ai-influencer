@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import Lightbox from './Lightbox'
-import { compressImage, downloadImage } from '../core/platform/media'
+import { compressImage, downloadImage } from '../../core/platform/media'
 
 export default function ImageGrid({ images = [], onChange, emptyLabel = 'Add images', columns = 3 }) {
   const fileRef = useRef()

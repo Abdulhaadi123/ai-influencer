@@ -28,7 +28,8 @@
     },
     "plugins": [
       "expo-sharing",
-      "expo-video"
+      "expo-video",
+      "expo-sqlite"
     ]
   }
 }

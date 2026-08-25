@@ -18,6 +18,24 @@ Three core features — everything else has been deliberately removed:
 3. **Motion copy** — a character image + a driving video → the influencer
    performs that same motion.
 
+## Repository layout
+
+The mobile app is the product going forward; the web app still runs and is
+kept working, but new feature work targets `mobile/`.
+
+```
+core/      shared, platform-agnostic logic — used by BOTH apps
+mobile/    the React Native (Expo) app          ← primary
+web/       the Vite web UI                      ← still works, still deployed
+api/       Vercel serverless functions          ← the mobile app's BACKEND
+public/    static assets, incl. seeds.json      ← also served to mobile
+```
+
+**`api/` and `public/` are not web-only.** The mobile app has no API key of
+its own: it calls the deployed `/api/kie` proxy, which attaches the
+server-side key, and fetches `/seeds.json` from the same deployment.
+Breaking the web deployment breaks the mobile app.
+
 ## Generation stack
 
 All generation runs through **KIE** (`api.kie.ai`) using a **single
@@ -26,17 +44,17 @@ account of their own.
 
 | Feature | Model id | Set in |
 |---|---|---|
-| Images | `nano-banana-pro` | `src/config/generation.js` |
+| Images | `nano-banana-pro` | `core/config/generation.js` |
 | Video (with native audio) | `kling-3.0/video` + `sound: true` | same |
 | Motion copy | `kling-3.0/motion-control` | same |
 
 **Never hard-code a model id in UI or feature code.** Model ids live only in
-`src/config/generation.js`; feature code calls the generation functions.
+`core/config/generation.js`; feature code calls the generation functions.
 
 ### Architecture (important)
 
 ```
-UI / pages  →  src/core/services/generation/index.js  (facade — import from HERE only)
+UI / pages  →  core/services/generation/index.js  (facade — import from HERE only)
                  └─ providers/kie.js                  (the only provider today)
                       └─ /api/kie  →  api.kie.ai      (server-side key)
 ```
@@ -45,13 +63,13 @@ UI / pages  →  src/core/services/generation/index.js  (facade — import from 
 add a file under `providers/` with the same exports and switch that line —
 UI code never changes.
 
-### `src/core/` — the shared, platform-agnostic layer
+### `core/` — the shared, platform-agnostic layer
 
-`src/core/` is being prepared for a React Native port: it holds everything
+`core/` is being prepared for a React Native port: it holds everything
 that is NOT web-specific, so a mobile app can import it unchanged.
 
 ```
-src/core/
+core/
   config/generation.js     model ids
   services/generation/     the generation facade + KIE provider
   prompts/                 systemPrompt, charSheetPrompt
@@ -61,7 +79,7 @@ src/core/
   platform/                ← the ONLY place web APIs may appear
 ```
 
-**The rule: nothing in `src/core/` outside `core/platform/` may touch
+**The rule: nothing in `core/` outside `core/platform/` may touch
 `window`, `document`, `localStorage`, `FileReader`, or any DOM API.**
 This is currently true and is worth re-checking after edits — a single
 stray `window.` reference breaks the mobile port.
@@ -70,7 +88,7 @@ stray `window.` reference breaks the mobile port.
 
 | File | Capability | React Native equivalent |
 |---|---|---|
-| `storage.js` | synchronous key-value | react-native-mmkv (**not** AsyncStorage — that's async) |
+| `storage.js` | synchronous key-value | expo-sqlite/kv-store, used synchronously (**not** AsyncStorage) |
 | `apiUrl.js` | resolve an API base URL | always absolute; RN has no relative origin |
 | `app.js` | restart the app | Expo Updates `reloadAsync()` |
 | `media.js` | compress / download media | expo-image-manipulator, expo-file-system |
@@ -78,8 +96,8 @@ stray `window.` reference breaks the mobile port.
 Metro resolves `foo.native.js` ahead of `foo.js` automatically, so the RN
 implementations go in sibling `.native.js` files with no web changes.
 
-Web-only by design and NOT in core: `src/context/theme.jsx` (uses the DOM
-view-transition API), all of `src/pages/` and `src/components/`.
+Web-only by design and NOT in core: `web/context/theme.jsx` (uses the DOM
+view-transition API), all of `web/pages/` and `web/components/`.
 
 ### React Native safety (hard constraint)
 
@@ -92,17 +110,17 @@ view-transition API), all of `src/pages/` and `src/components/`.
 
 | Path | What it does |
 |---|---|
-| `src/App.jsx` | Routes (`/influencers`, `/create`, `/settings`) + providers |
-| `src/core/store.jsx` | storage-backed contexts (`useInfluencers`, etc.) + seed data |
-| `src/core/config/generation.js` | **All model ids** — the one place to switch a model |
-| `src/core/services/generation/index.js` | Generation facade — the only import point for UI |
-| `src/core/services/generation/providers/kie.js` | KIE adapter: uploads, job launch, polling |
-| `src/core/platform/` | Web impls of storage / apiUrl / app-reload / media |
-| `src/core/prompts/systemPrompt.js` | Prompt templates — poses, wardrobe, vibes |
-| `src/core/api/kieAuth.js` | Engine health check (is the server key working) |
-| `src/pages/Create.jsx` | 3-step creation wizard (Basics / Reference / Generate) |
-| `src/pages/Influencers.jsx` | Profile + Videos + Motion Copy studio (5,800+ lines — known debt) |
-| `src/components/MotionCopyStudio.jsx` | Motion copy UI, self-contained |
+| `web/App.jsx` | Routes (`/influencers`, `/create`, `/settings`) + providers |
+| `core/store.jsx` | storage-backed contexts (`useInfluencers`, etc.) + seed data |
+| `core/config/generation.js` | **All model ids** — the one place to switch a model |
+| `core/services/generation/index.js` | Generation facade — the only import point for UI |
+| `core/services/generation/providers/kie.js` | KIE adapter: uploads, job launch, polling |
+| `core/platform/` | Web impls of storage / apiUrl / app-reload / media |
+| `core/prompts/systemPrompt.js` | Prompt templates — poses, wardrobe, vibes |
+| `core/api/kieAuth.js` | Engine health check (is the server key working) |
+| `web/pages/Create.jsx` | 3-step creation wizard (Basics / Reference / Generate) |
+| `web/pages/Influencers.jsx` | Profile + Videos + Motion Copy studio (5,800+ lines — known debt) |
+| `web/components/MotionCopyStudio.jsx` | Motion copy UI, self-contained |
 | `api/kie.js` | Edge proxy that attaches `KIE_API_KEY` server-side |
 | `api/img-proxy.js` | Download proxy — **allowlisted hosts** (see below) |
 | `api/claude.js` | Anthropic proxy — caller supplies its own `x-api-key` |
@@ -136,7 +154,7 @@ so an allowlist bug only shows up in production.
 
 - Inline styles with CSS variables (`var(--bg)`, `var(--text-primary)`).
   Theme tokens are set on `<html data-theme="dark|light">` from
-  `src/context/theme.jsx`.
+  `web/context/theme.jsx`.
 - IDs use `generateId()` from `store.jsx` (`Date.now() + random`).
 
 ## Things not to do
