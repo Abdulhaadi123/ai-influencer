@@ -6,7 +6,8 @@
  * a tab bar for the top-level destinations, with a native stack inside the
  * Influencers tab for drilling into one influencer.
  *
- * Tabs are added as their screens are actually built — no placeholder tabs.
+ * Home is the landing tab: opening straight onto a list gives no sense of what
+ * the app is for, so Home explains the three features and routes into them.
  */
 
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native'
@@ -14,6 +15,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { Text } from 'react-native'
 
+import HomeScreen from '../screens/HomeScreen'
 import InfluencersScreen from '../screens/InfluencersScreen'
 import InfluencerDetailScreen from '../screens/InfluencerDetailScreen'
 import CreateScreen from '../screens/CreateScreen'
@@ -61,7 +63,7 @@ export default function RootNavigator() {
     ...base,
     colors: {
       ...base.colors,
-      primary: colors.accent,
+      primary: colors.brand,
       background: colors.bg,
       card: colors.bgSecondary,
       text: colors.textPrimary,
@@ -76,12 +78,23 @@ export default function RootNavigator() {
           headerStyle: { backgroundColor: colors.bg },
           headerTintColor: colors.textPrimary,
           headerTitleStyle: { fontWeight: '600' },
-          tabBarActiveTintColor: colors.accent,
+          tabBarActiveTintColor: colors.brand,
           tabBarInactiveTintColor: colors.textTertiary,
           tabBarStyle: { backgroundColor: colors.bgSecondary, borderTopColor: colors.borderSubtle },
           sceneStyle: { backgroundColor: colors.bg },
         }}
       >
+        <Tab.Screen
+          name="Home"
+          component={HomeScreen}
+          options={{
+            // Full name in the header, short label in the tab bar — the full
+            // one is wider than a quarter of a 375px screen and gets clipped.
+            title: 'AI Influencer Studio',
+            tabBarLabel: 'Home',
+            tabBarIcon: ({ color }) => <TabIcon glyph="🏠" color={color} />,
+          }}
+        />
         <Tab.Screen
           name="Influencers"
           component={InfluencersStack}

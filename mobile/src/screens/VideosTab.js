@@ -261,13 +261,13 @@ export default function VideosTab({ influencer }) {
         <Section title="Generating">
           <View style={[styles.padded, { gap: space.md }]}>
             <View style={styles.progressRow}>
-              <ActivityIndicator size="small" color={colors.accent} />
+              <ActivityIndicator size="small" color={colors.brand} />
               <Text style={[styles.progressText, { color: colors.textSecondary }]}>
                 {progress > 0 ? `${Math.round(progress)}%` : 'Starting…'}
               </Text>
             </View>
             <View style={[styles.track, { backgroundColor: colors.surfaceAlt }]}>
-              <View style={[styles.fill, { width: `${Math.max(3, progress)}%`, backgroundColor: colors.accent }]} />
+              <View style={[styles.fill, { width: `${Math.max(3, progress)}%`, backgroundColor: colors.brand }]} />
             </View>
             <Button title="Cancel" variant="secondary"
               onPress={() => { cancelRef.current = true; setGenerating(false); setProgress(0) }} />
@@ -305,11 +305,11 @@ function Chip({ label, active, onPress }) {
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       style={[styles.chip, {
-        borderColor: active ? colors.accent : colors.border,
-        backgroundColor: active ? colors.accentSoft : 'transparent',
+        borderColor: active ? colors.brand : colors.border,
+        backgroundColor: active ? colors.brandSoft : 'transparent',
       }]}
     >
-      <Text style={[styles.chipText, { color: active ? colors.accent : colors.textSecondary }]}>{label}</Text>
+      <Text style={[styles.chipText, { color: active ? colors.brand : colors.textSecondary }]}>{label}</Text>
     </Pressable>
   )
 }

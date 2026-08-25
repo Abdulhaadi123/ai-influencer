@@ -145,11 +145,11 @@ export default function MotionCopyScreen({ influencer }) {
                             key={opt.key}
                             onPress={() => setCharacterImage(opt.url)}
                             style={[styles.chip, {
-                              borderColor: on ? colors.accent : colors.border,
-                              backgroundColor: on ? colors.accentSoft : 'transparent',
+                              borderColor: on ? colors.brand : colors.border,
+                              backgroundColor: on ? colors.brandSoft : 'transparent',
                             }]}
                           >
-                            <Text style={[styles.chipText, { color: on ? colors.accent : colors.textSecondary }]}>
+                            <Text style={[styles.chipText, { color: on ? colors.brand : colors.textSecondary }]}>
                               {opt.label}
                             </Text>
                           </Pressable>
@@ -217,7 +217,7 @@ export default function MotionCopyScreen({ influencer }) {
       </Section>
 
       {error ? (
-        <View style={[styles.errorBox, { borderColor: colors.danger, backgroundColor: colors.accentSoft }]}>
+        <View style={[styles.errorBox, { borderColor: colors.danger, backgroundColor: colors.brandSoft }]}>
           <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
         </View>
       ) : null}
@@ -226,13 +226,13 @@ export default function MotionCopyScreen({ influencer }) {
         <Section title="Working">
           <View style={[styles.padded, { gap: space.md }]}>
             <View style={styles.progressRow}>
-              <ActivityIndicator size="small" color={colors.accent} />
+              <ActivityIndicator size="small" color={colors.brand} />
               <Text style={[styles.progressText, { color: colors.textSecondary }]}>
                 {progress > 0 ? `${Math.round(progress)}%` : 'Starting…'}
               </Text>
             </View>
             <View style={[styles.track, { backgroundColor: colors.surfaceAlt }]}>
-              <View style={[styles.fill, { width: `${Math.max(3, progress)}%`, backgroundColor: colors.accent }]} />
+              <View style={[styles.fill, { width: `${Math.max(3, progress)}%`, backgroundColor: colors.brand }]} />
             </View>
             <Button title="Cancel" variant="secondary" onPress={cancel} />
           </View>

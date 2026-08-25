@@ -32,6 +32,15 @@ const light = {
   accentSoft: 'rgba(37, 99, 235, 0.10)',
   success: '#16A34A',
   danger: '#DC2626',
+
+  // Brand — the web app's identity. Violet is used 109 times across its UI,
+  // pink 52, and the violet/pink gradient on 36 primary CTAs.
+  brand: '#8B5CF6',
+  brandDeep: '#7C3AED',
+  brandAlt: '#EC4899',
+  brandSoft: 'rgba(139,92,246,0.09)',
+  brandGradient: ['#EC4899', '#8B5CF6'],
+
   isDark: false,
 }
 
@@ -49,6 +58,14 @@ const dark = {
   accentSoft: 'rgba(56, 189, 248, 0.16)',
   success: '#4ADE80',
   danger: '#F87171',
+
+  // Same brand hues on dark — the web keeps these constant across themes.
+  brand: '#8B5CF6',
+  brandDeep: '#A78BFA',
+  brandAlt: '#EC4899',
+  brandSoft: 'rgba(139,92,246,0.18)',
+  brandGradient: ['#EC4899', '#8B5CF6'],
+
   isDark: true,
 }
 

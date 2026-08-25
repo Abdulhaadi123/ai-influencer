@@ -74,8 +74,8 @@ function InfluencerCard({ influencer, onPress }) {
       {image ? (
         <Image source={{ uri: image }} style={styles.avatar} resizeMode="cover" />
       ) : (
-        <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.accentSoft }]}>
-          <Text style={[styles.avatarLetter, { color: colors.accent }]}>
+        <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.brandSoft }]}>
+          <Text style={[styles.avatarLetter, { color: colors.brand }]}>
             {(influencer.name || '?').charAt(0).toUpperCase()}
           </Text>
         </View>

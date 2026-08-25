@@ -9,7 +9,7 @@
  * same records in the same shape.
  *
  * They do NOT see each other's data: storage is per-installation — the browser
- * keeps its own localStorage per origin, the app keeps its own MMKV. Sharing an
+ * keeps its own localStorage per origin, the app keeps its own expo-sqlite store. Sharing an
  * influencer across devices would need a backend, which this app does not have.
  */
 
@@ -124,11 +124,11 @@ export default function ProfileTab({ influencer }) {
                     key={g}
                     onPress={() => update({ gender: g })}
                     style={[styles.chip, {
-                      borderColor: on ? colors.accent : colors.border,
-                      backgroundColor: on ? colors.accentSoft : 'transparent',
+                      borderColor: on ? colors.brand : colors.border,
+                      backgroundColor: on ? colors.brandSoft : 'transparent',
                     }]}
                   >
-                    <Text style={[styles.chipText, { color: on ? colors.accent : colors.textSecondary }]}>{g}</Text>
+                    <Text style={[styles.chipText, { color: on ? colors.brand : colors.textSecondary }]}>{g}</Text>
                   </Pressable>
                 )
               })}
@@ -166,11 +166,11 @@ export default function ProfileTab({ influencer }) {
                   key={n}
                   onPress={() => { update({ niche: n }); setNicheOpen(false) }}
                   style={[styles.chip, {
-                    borderColor: on ? colors.accent : colors.border,
-                    backgroundColor: on ? colors.accentSoft : 'transparent',
+                    borderColor: on ? colors.brand : colors.border,
+                    backgroundColor: on ? colors.brandSoft : 'transparent',
                   }]}
                 >
-                  <Text style={[styles.chipText, { color: on ? colors.accent : colors.textSecondary }]}>{n}</Text>
+                  <Text style={[styles.chipText, { color: on ? colors.brand : colors.textSecondary }]}>{n}</Text>
                 </Pressable>
               )
             })}

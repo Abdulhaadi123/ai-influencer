@@ -267,12 +267,12 @@ function ReferenceStep({ data, set, onAddReference, onToggleAttribute }) {
                   style={[
                     styles.attr,
                     {
-                      borderColor: on ? colors.accent : colors.borderSubtle,
-                      backgroundColor: on ? colors.accentSoft : 'transparent',
+                      borderColor: on ? colors.brand : colors.borderSubtle,
+                      backgroundColor: on ? colors.brandSoft : 'transparent',
                     },
                   ]}
                 >
-                  <View style={[styles.checkbox, { borderColor: on ? colors.accent : colors.border, backgroundColor: on ? colors.accent : 'transparent' }]}>
+                  <View style={[styles.checkbox, { borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent' }]}>
                     {on ? <Text style={styles.checkmark}>✓</Text> : null}
                   </View>
                   <View style={styles.flex}>
@@ -295,7 +295,7 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
   if (generating) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={colors.accent} />
+        <ActivityIndicator size="large" color={colors.brand} />
         <Text style={[styles.heading, { color: colors.textPrimary }]}>Generating…</Text>
         <Text style={[styles.sub, { color: colors.textSecondary }]}>{progress}%</Text>
         {variations.length ? (
@@ -334,7 +334,7 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
             onPress={() => onSelect(i)}
             style={[
               styles.variation,
-              { borderColor: i === selectedIdx ? colors.accent : colors.borderSubtle, borderWidth: i === selectedIdx ? 2.5 : StyleSheet.hairlineWidth },
+              { borderColor: i === selectedIdx ? colors.brand : colors.borderSubtle, borderWidth: i === selectedIdx ? 2.5 : StyleSheet.hairlineWidth },
             ]}
           >
             <Image source={{ uri: url }} style={styles.variationImage} resizeMode="cover" />
@@ -359,8 +359,8 @@ function StepBar({ step }) {
         return (
           <View key={label} style={styles.stepItem}>
             <View style={[styles.stepDot, {
-              backgroundColor: done || active ? colors.accent : 'transparent',
-              borderColor: done || active ? colors.accent : colors.border,
+              backgroundColor: done || active ? colors.brand : 'transparent',
+              borderColor: done || active ? colors.brand : colors.border,
             }]}>
               <Text style={[styles.stepDotText, { color: done || active ? '#FFFFFF' : colors.textTertiary }]}>
                 {done ? '✓' : i + 1}
@@ -427,11 +427,11 @@ function Choice({ label, active, onPress }) {
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       style={[styles.choice, {
-        borderColor: active ? colors.accent : colors.border,
-        backgroundColor: active ? colors.accentSoft : 'transparent',
+        borderColor: active ? colors.brand : colors.border,
+        backgroundColor: active ? colors.brandSoft : 'transparent',
       }]}
     >
-      <Text style={[styles.choiceLabel, { color: active ? colors.accent : colors.textSecondary }]}>
+      <Text style={[styles.choiceLabel, { color: active ? colors.brand : colors.textSecondary }]}>
         {label}
       </Text>
     </Pressable>

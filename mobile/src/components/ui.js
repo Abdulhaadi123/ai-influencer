@@ -6,6 +6,7 @@
  */
 
 import { View, Text, Pressable, StyleSheet } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useTheme, space, radius } from '../theme'
 
 /** A grouped settings-style section, the standard iOS/Android list idiom. */
@@ -79,13 +80,13 @@ export function Segmented({ options, value, onChange }) {
             accessibilityState={{ selected: active }}
             style={[
               styles.segmentItem,
-              active && { backgroundColor: colors.surface, borderColor: colors.border },
+              active && { backgroundColor: colors.surface, borderColor: colors.brand },
             ]}
           >
             <Text
               style={[
                 styles.segmentLabel,
-                { color: active ? colors.accent : colors.textSecondary },
+                { color: active ? colors.brandDeep : colors.textSecondary },
                 active && styles.segmentLabelActive,
               ]}
             >
@@ -102,6 +103,32 @@ export function Button({ title, onPress, variant = 'primary', disabled }) {
   const { colors } = useTheme()
   const isPrimary = variant === 'primary'
   const isDanger = variant === 'danger'
+
+  const label = (
+    <Text style={[styles.buttonLabel, {
+      color: isPrimary ? '#FFFFFF' : isDanger ? colors.danger : colors.textPrimary,
+    }]}>
+      {title}
+    </Text>
+  )
+
+  // Primary actions carry the brand gradient the web uses on its CTAs.
+  if (isPrimary) {
+    return (
+      <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button"
+        style={({ pressed }) => ({ opacity: disabled ? 0.45 : pressed ? 0.85 : 1 })}>
+        <LinearGradient
+          colors={colors.brandGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.button}
+        >
+          {label}
+        </LinearGradient>
+      </Pressable>
+    )
+  }
+
   return (
     <Pressable
       onPress={onPress}
@@ -110,16 +137,14 @@ export function Button({ title, onPress, variant = 'primary', disabled }) {
       style={({ pressed }) => [
         styles.button,
         {
-          backgroundColor: isPrimary ? colors.accent : isDanger ? 'transparent' : colors.surfaceAlt,
+          backgroundColor: isDanger ? 'transparent' : colors.surfaceAlt,
           borderColor: isDanger ? colors.danger : 'transparent',
           borderWidth: isDanger ? StyleSheet.hairlineWidth : 0,
-          opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+          opacity: disabled ? 0.45 : pressed ? 0.85 : 1,
         },
       ]}
     >
-      <Text style={[styles.buttonLabel, { color: isPrimary ? '#FFFFFF' : isDanger ? colors.danger : colors.textPrimary }]}>
-        {title}
-      </Text>
+      {label}
     </Pressable>
   )
 }
