@@ -15,6 +15,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { Text } from 'react-native'
 
 import InfluencersScreen from '../screens/InfluencersScreen'
+import CreateScreen from '../screens/CreateScreen'
 import SettingsScreen from '../screens/SettingsScreen'
 import { useTheme } from '../theme'
 
@@ -81,6 +82,13 @@ export default function RootNavigator() {
           options={{
             headerShown: false,
             tabBarIcon: ({ color }) => <TabIcon glyph="👥" color={color} />,
+          }}
+        />
+        <Tab.Screen
+          name="Create"
+          component={CreateScreen}
+          options={{
+            tabBarIcon: ({ color }) => <TabIcon glyph="✨" color={color} />,
           }}
         />
         <Tab.Screen

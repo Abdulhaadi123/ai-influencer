@@ -25,6 +25,9 @@
     },
     "extra": {
       "apiBase": "https://ai-influencer-eosin.vercel.app"
-    }
+    },
+    "plugins": [
+      "expo-sharing"
+    ]
   }
 }

@@ -9,6 +9,7 @@ import { compressImage, downloadImage } from '../core/platform/media'
 import { generateSingleImage, generateThreeImages, generateVideo, initSession, pollAllJobs, getPendingGens, clearPendingGen, getPendingVideo, clearPendingVideo, resumeVideoJob } from '../core/services/generation'
 import { buildThreeVariationPrompts } from '../core/prompts/systemPrompt'
 import { gColor, pLabel } from '../core/utils/influencerUtils'
+import { getCreationParams } from '../core/creationParams'
 import { useTheme } from '../context/theme'
 import { buildCharSheetPrompt, buildCharSheetPromptWithClaude } from '../core/prompts/charSheetPrompt'
 import WardrobeDrawer from '../components/WardrobeDrawer'
@@ -111,12 +112,6 @@ function getGenParams(influencerId, slot) {
   return d[`${influencerId}::${slot}`] || null
 }
 
-// Creation params — stores faceRef/styleRef/model/etc. saved when influencer was first created
-const CREATION_PARAMS_KEY = 'hf_creation_params'
-function getCreationParams(influencerId) {
-  const d = JSON.parse(localStorage.getItem(CREATION_PARAMS_KEY) || '{}')
-  return d[influencerId] || null
-}
 
 // ─────────────────────────────────────────────
 // Helpers

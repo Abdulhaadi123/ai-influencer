@@ -5,65 +5,11 @@ import { useInfluencers, generateId } from '../core/store'
 import { generateThreeImages } from '../core/services/generation'
 import { compressImage } from '../core/platform/media'
 import { gColor } from '../core/utils/influencerUtils'
+import { COPY_ATTRIBUTES, buildImagePrompts } from '../core/prompts/influencerPrompts'
+import { saveCreationParams } from '../core/creationParams'
+import { buildNewInfluencer, buildCreationParams } from '../core/newInfluencer'
 
 const STEPS = ['Basics', 'Reference', 'Generate']
-
-// ── What to copy — the selected attributes drive the generation prompt ──
-const COPY_ATTRIBUTES = [
-  { id: 'face',       label: 'Face & identity', desc: 'Facial structure & features' },
-  { id: 'hair',       label: 'Hair',            desc: 'Style, colour, length' },
-  { id: 'skin',       label: 'Skin tone',       desc: 'Complexion & texture' },
-  { id: 'eyes',       label: 'Eyes',            desc: 'Colour & shape' },
-  { id: 'build',      label: 'Body & build',    desc: 'Physique & proportions' },
-  { id: 'outfit',     label: 'Outfit',          desc: 'Clothing & accessories' },
-  { id: 'expression', label: 'Expression',      desc: 'Mood & emotion' },
-  { id: 'background',  label: 'Background',      desc: 'Setting & scene' },
-]
-const ATTR_PHRASE = {
-  face: 'the exact facial structure and features',
-  hair: 'the hairstyle, colour and length',
-  skin: 'the skin tone and texture',
-  eyes: 'the eye colour and shape',
-  build: 'the body type and build',
-  outfit: 'the outfit, clothing and accessories',
-  expression: 'the facial expression and mood',
-  background: 'the background and setting',
-}
-
-// Build 3 generation prompts. Two paths, and they can combine:
-//  • Reference image → passed separately as the reference; the prompt says which
-//    attributes to preserve ("what to copy") and folds in any typed description.
-//  • Description only → straight text-to-image from what the user typed.
-function buildImagePrompts(d) {
-  const gender = d.gender === 'Male' ? 'man' : d.gender === 'Female' ? 'woman' : 'person'
-  const hasRef = !!d.referenceImage
-  const desc = d.description?.trim()
-  const realism = 'Photorealistic, natural lighting, sharp real detail. No beauty retouching, no stylization, no CGI or 3D-render look.'
-
-  let base
-  if (hasRef) {
-    const selected = d.copyAttributes || []
-    const keep = selected.map(id => ATTR_PHRASE[id]).filter(Boolean)
-    const preserve = keep.length
-      ? `Preserve exactly from the reference image: ${keep.join(', ')}.`
-      : `Recreate this exact ${gender} from the reference image — unmistakably the same person.`
-    const note = d.copyNote?.trim() ? ` Also keep: ${d.copyNote.trim()}.` : ''
-    const descLine = desc ? ` Additional direction: ${desc}.` : ''
-    base = `Ultra-realistic photograph of the ${gender} in the reference image. ${preserve}${note}${descLine} ${realism} True-to-reference identity.`
-  } else {
-    base = `Ultra-realistic photograph of a ${gender}. ${desc}. ${realism}`
-  }
-
-  // If expression + background are both being copied, keep variation minimal.
-  const selected = d.copyAttributes || []
-  const locked = hasRef && selected.includes('expression') && selected.includes('background')
-  const variants = [
-    'Natural relaxed pose, looking toward the camera.',
-    'Soft three-quarter angle, natural expression.',
-    'Candid natural posture.',
-  ]
-  return variants.map(v => (locked ? base : `${base} ${v}`))
-}
 
 // Floating background cards
 const ALL_IMGS = ['/inf/i1.png', '/inf/i2.png', '/inf/i3.jpg', '/inf/i4.jpg', '/inf/i5.png', '/inf/i6.jpg', '/inf/i7.png', '/inf/i8.png', '/inf/i9.png', '/inf/i10.png', '/inf/i11.png', '/inf/i12.png', '/inf/i13.png', '/inf/i14.png', '/inf/i15.png', '/inf/i16.png']
@@ -85,17 +31,6 @@ const L = {
   textFaint: 'var(--text-tertiary)',
   card: 'var(--shadow-md)',
   cardHover: 'var(--shadow-lg)',
-}
-
-const CREATION_PARAMS_KEY = 'hf_creation_params'
-function saveCreationParams(influencerId, params) {
-  try {
-    const d = JSON.parse(localStorage.getItem(CREATION_PARAMS_KEY) || '{}')
-    d[influencerId] = params
-    localStorage.setItem(CREATION_PARAMS_KEY, JSON.stringify(d))
-  } catch (e) {
-    console.warn('saveCreationParams failed (quota?), skipping:', e)
-  }
 }
 
 const inputCls = 'create-input'
@@ -847,47 +782,12 @@ export default function Create() {
   function finish(variations, selectedIdx, genAspectRatio, genPrompts = []) {
     try {
       const prompts = Array.isArray(genPrompts) ? genPrompts : [genPrompts]
-      const genPrompt = prompts[selectedIdx] || ''
       const replaceId = prefill.replaceId || null
-      const now = Date.now()
 
-      const newInf = {
-        id: replaceId || generateId(), name: data.name.trim(), gender: data.gender, age: data.age,
-        type: 'Influencer', createdAt: now,
-        niche: '', niches: [], nicheCustom: '',
-        backstory: '', introExtrovert: 50,
-        physicalDesc: (data.description || '').trim(), vibeWords: [],
-        mainImage: variations[selectedIdx] || null,
-        prompt: genPrompt,
-        referenceImage: data.referenceImage || null,
-        copyAttributes: data.copyAttributes || [],
-        characterSheetImage: null, closeUpImage1: null, closeUpImage2: null,
-        audience: '', clothingStyle: '', hobbies: '', location: '',
-        palette: [], voice: '', dreamBrands: '', contentPillars: [],
-        videoUrls: [], scripts: [], homeImages: [],
-        wardrobeSlots: [
-          { id: generateId(), name: 'Wardrobe 1', image: null },
-          { id: generateId(), name: 'Wardrobe 2', image: null },
-          { id: generateId(), name: 'Wardrobe 3', image: null },
-        ],
-        brandDealImages: [],
-        generationHistory: variations.map(url => ({ id: generateId(), type: 'image', label: 'Generated Look', url, date: now })),
-      }
-      saveCreationParams(newInf.id, {
-        faceRef: data.referenceImage || null,
-        styleRef: null,
-        faceRefNote: '',
-        styleRefNote: '',
-        model: 'flux-kontext-pro',
-        aspectRatio: genAspectRatio || '9:16',
-        physicalDesc: (data.description || '').trim(),
-        gender: data.gender,
-        age: data.age,
-        vibeWords: [],
-        personality: 50,
-        backstory: '',
-        copyAttributes: data.copyAttributes || [],
+      const newInf = buildNewInfluencer({
+        data, variations, selectedIdx, prompts, replaceId,
       })
+      saveCreationParams(newInf.id, buildCreationParams({ data, aspectRatio: genAspectRatio }))
       flushSync(() => {
         if (replaceId) {
           setInfluencers(prev => prev.map(inf => inf.id === replaceId ? { ...inf, ...newInf } : inf))
