@@ -3,8 +3,8 @@
 // On the client side we only expose a flag so UI can show connection status.
 // Users never need to connect/login — the company's key is used for everyone.
 
-import { getApiUrl } from './apiUrl'
-import * as storage from '../lib/storage'
+import { getApiUrl } from '../platform/apiUrl'
+import * as storage from '../platform/storage'
 
 const KIE_CONNECTED_KEY = 'kie_connected'
 

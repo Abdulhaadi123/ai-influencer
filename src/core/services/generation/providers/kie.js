@@ -1,6 +1,6 @@
-import { getApiUrl } from '../../../utils/apiUrl'
+import { getApiUrl } from '../../../platform/apiUrl'
 import { IMAGE_MODEL_ID, VIDEO_MODEL_KLING, VIDEO_MODEL_VEO, MOTION_MODEL_KIE } from '../../../config/generation'
-import * as storage from '../../../lib/storage'
+import * as storage from '../../../platform/storage'
 
 // KIE.AI enforces a 3000-character prompt limit — trim with a small safety margin
 const KIE_PROMPT_MAX = 2900

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import Lightbox from './Lightbox'
-import { compressImage, downloadImage } from '../utils/imageUtils'
+import { compressImage, downloadImage } from '../core/platform/media'
 
 export default function MasonryGrid({ images = [], onChange, emptyLabel = 'Add images', cols = 3 }) {
   const fileRef = useRef()

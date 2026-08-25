@@ -1,5 +1,7 @@
 import { useState, useEffect, createContext, useContext } from 'react'
-import * as storage from './lib/storage'
+import * as storage from './platform/storage'
+import { getApiUrl } from './platform/apiUrl'
+import { reloadApp } from './platform/app'
 
 // Generic small-value localStorage hook (inspiration boards, brand deals, etc.)
 function useLocalStorage(key, initial) {
@@ -433,9 +435,11 @@ export function StoreProvider({ children }) {
   const brandDealsState  = useLocalStorage('brand_deals', [])
   const [, setDealsData]         = brandDealsState
 
-  // Seed from /seeds.json when seed IDs are missing from localStorage
+  // Seed from /seeds.json when seed IDs are missing from storage.
+  // Routed through getApiUrl so non-web builds, which have no relative-path
+  // origin to resolve against, fetch it from the deployed base instead.
   useEffect(() => {
-    fetch('/seeds.json')
+    fetch(getApiUrl('/seeds.json'))
       .then(r => r.json())
       .then(seeds => {
         const currentIds = new Set(readIds() || [])
@@ -499,7 +503,7 @@ export function StoreProvider({ children }) {
         }
 
         // Only reload when influencer data or photo history changed — boards/deals are handled above via state
-        if (didWrite) window.location.reload()
+        if (didWrite) reloadApp()
       })
       .catch(e => console.warn('[seeds] failed to load:', e))
   }, []) // eslint-disable-line

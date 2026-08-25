@@ -36,40 +36,70 @@ account of their own.
 ### Architecture (important)
 
 ```
-UI / pages  →  src/services/generation/index.js   (facade — import from HERE only)
-                 └─ providers/kie.js              (the only provider today)
-                      └─ /api/kie  →  api.kie.ai  (server-side key)
+UI / pages  →  src/core/services/generation/index.js  (facade — import from HERE only)
+                 └─ providers/kie.js                  (the only provider today)
+                      └─ /api/kie  →  api.kie.ai      (server-side key)
 ```
 
 `index.js` is a bare `export * from './providers/kie'`. To add a provider,
 add a file under `providers/` with the same exports and switch that line —
 UI code never changes.
 
-### React Native safety (hard constraint)
+### `src/core/` — the shared, platform-agnostic layer
 
-The generation layer is written so it can move to a React Native app
-unchanged. When editing anything under `src/services/`, `src/lib/`, or
-`src/config/`:
+`src/core/` is being prepared for a React Native port: it holds everything
+that is NOT web-specific, so a mobile app can import it unchanged.
+
+```
+src/core/
+  config/generation.js     model ids
+  services/generation/     the generation facade + KIE provider
+  prompts/                 systemPrompt, charSheetPrompt
+  utils/influencerUtils.js
+  api/kieAuth.js           engine health check
+  store.jsx                app state (React context — no DOM)
+  platform/                ← the ONLY place web APIs may appear
+```
+
+**The rule: nothing in `src/core/` outside `core/platform/` may touch
+`window`, `document`, `localStorage`, `FileReader`, or any DOM API.**
+This is currently true and is worth re-checking after edits — a single
+stray `window.` reference breaks the mobile port.
+
+`core/platform/` holds the web implementations of four capabilities:
+
+| File | Capability | React Native equivalent |
+|---|---|---|
+| `storage.js` | synchronous key-value | react-native-mmkv (**not** AsyncStorage — that's async) |
+| `apiUrl.js` | resolve an API base URL | always absolute; RN has no relative origin |
+| `app.js` | restart the app | Expo Updates `reloadAsync()` |
+| `media.js` | compress / download media | expo-image-manipulator, expo-file-system |
+
+Metro resolves `foo.native.js` ahead of `foo.js` automatically, so the RN
+implementations go in sibling `.native.js` files with no web changes.
+
+Web-only by design and NOT in core: `src/context/theme.jsx` (uses the DOM
+view-transition API), all of `src/pages/` and `src/components/`.
+
+### React Native safety (hard constraint)
 
 - **Server-side keys only.** No per-user OAuth, no `window.open` popups —
   neither exists in RN. (This is why Higgsfield was dropped for KIE.)
-- **No DOM.** Plain `fetch` only in the service layer.
-- **Use `src/lib/storage.js`**, not `localStorage` directly. It is a
-  synchronous abstraction (web → localStorage, RN → react-native-mmkv;
-  deliberately *not* AsyncStorage, which is async).
+- **No DOM** in the service layer — plain `fetch` only.
+- **Use `core/platform/storage.js`**, never `localStorage` directly.
 
 ## Key files to know
 
 | Path | What it does |
 |---|---|
 | `src/App.jsx` | Routes (`/influencers`, `/create`, `/settings`) + providers |
-| `src/store.jsx` | localStorage-backed contexts (`useInfluencers`, etc.) + seed data |
-| `src/config/generation.js` | **All model ids** — the one place to switch a model |
-| `src/services/generation/index.js` | Generation facade — the only import point for UI |
-| `src/services/generation/providers/kie.js` | KIE adapter: uploads, job launch, polling |
-| `src/lib/storage.js` | RN-safe synchronous storage abstraction |
-| `src/utils/systemPrompt.js` | Prompt templates — poses, wardrobe, vibes |
-| `src/utils/kieAuth.js` | Engine health check (is the server key working) |
+| `src/core/store.jsx` | storage-backed contexts (`useInfluencers`, etc.) + seed data |
+| `src/core/config/generation.js` | **All model ids** — the one place to switch a model |
+| `src/core/services/generation/index.js` | Generation facade — the only import point for UI |
+| `src/core/services/generation/providers/kie.js` | KIE adapter: uploads, job launch, polling |
+| `src/core/platform/` | Web impls of storage / apiUrl / app-reload / media |
+| `src/core/prompts/systemPrompt.js` | Prompt templates — poses, wardrobe, vibes |
+| `src/core/api/kieAuth.js` | Engine health check (is the server key working) |
 | `src/pages/Create.jsx` | 3-step creation wizard (Basics / Reference / Generate) |
 | `src/pages/Influencers.jsx` | Profile + Videos + Motion Copy studio (5,800+ lines — known debt) |
 | `src/components/MotionCopyStudio.jsx` | Motion copy UI, self-contained |

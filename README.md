@@ -61,12 +61,13 @@ src/
   pages/           Routes: Influencers, Create, Settings
   components/      Reusable UI: Nav, ImageGrid, MasonryGrid, Lightbox,
                    WardrobeDrawer, MotionCopyStudio
-  config/          generation.js — every model id lives here
-  services/        generation/ — the only entry point for AI generation
-  lib/             storage.js — React-Native-safe storage abstraction
-  context/         React contexts (theme)
-  utils/           Prompt builders, image helpers, engine health check
-  store.jsx        localStorage-backed React contexts
+  core/            Shared, platform-agnostic layer (ready for React Native)
+    config/        generation.js — every model id lives here
+    services/      generation/ — the only entry point for AI generation
+    prompts/       Prompt builders
+    platform/      Web impls of storage / apiUrl / media (RN swaps these)
+    store.jsx      App state (React contexts)
+  context/         React contexts (theme — web only)
 api/               Vercel serverless functions (KIE proxy, image proxy, Claude proxy)
 docs/              Prompt engineering reference docs
 ```

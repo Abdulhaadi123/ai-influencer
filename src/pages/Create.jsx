@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { flushSync } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useInfluencers, generateId } from '../store'
-import { generateThreeImages } from '../services/generation'
-import { compressImage } from '../utils/imageUtils'
-import { gColor } from '../utils/influencerUtils'
+import { useInfluencers, generateId } from '../core/store'
+import { generateThreeImages } from '../core/services/generation'
+import { compressImage } from '../core/platform/media'
+import { gColor } from '../core/utils/influencerUtils'
 
 const STEPS = ['Basics', 'Reference', 'Generate']
 

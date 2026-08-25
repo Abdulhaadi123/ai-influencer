@@ -1,4 +1,4 @@
-import { getApiUrl } from './apiUrl'
+import { getApiUrl } from '../platform/apiUrl'
 
 export function buildInfluencerSheetPrompt(inf) {
   const phys = inf.physicalDesc ? `The character: ${inf.physicalDesc}. ` : ''
