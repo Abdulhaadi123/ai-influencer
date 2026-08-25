@@ -5,19 +5,19 @@
  * page. Same structure here, using a segmented control, which is the native
  * idiom for switching between sibling views.
  *
- * Profile and Motion Copy are live. Videos is ported in the next step, and says
- * so plainly rather than showing controls that do nothing.
+ * All three tabs are live.
  */
 
 import { useMemo, useState } from 'react'
-import { View, Text, ScrollView, Image, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet } from 'react-native'
 
 import { useInfluencers } from '@core/store'
 
-import { useTheme, space, radius } from '../theme'
+import { useTheme, space } from '../theme'
 import { Segmented } from '../components/ui'
 import MotionCopyScreen from './MotionCopyScreen'
 import ProfileTab from './ProfileTab'
+import VideosTab from './VideosTab'
 
 const TABS = [
   { label: 'Profile', value: 'profile' },
@@ -55,34 +55,12 @@ export default function InfluencerDetailScreen({ route }) {
 
       {tab === 'profile' ? (
         <ProfileTab influencer={influencer} />
-      ) : tab === 'motion' ? (
-        <MotionCopyScreen influencer={influencer} />
+      ) : tab === 'videos' ? (
+        <VideosTab influencer={influencer} />
       ) : (
-        <ComingNext influencer={influencer} />
+        <MotionCopyScreen influencer={influencer} />
       )}
     </View>
-  )
-}
-
-/**
- * Honest placeholder: states what is not built yet instead of rendering
- * controls that would do nothing.
- */
-function ComingNext({ influencer }) {
-  const { colors } = useTheme()
-  const label = 'Videos'
-
-  return (
-    <ScrollView contentContainerStyle={styles.comingWrap}>
-      {influencer.mainImage ? (
-        <Image source={{ uri: influencer.mainImage }} style={styles.hero} resizeMode="cover" />
-      ) : null}
-      <Text style={[styles.comingTitle, { color: colors.textPrimary }]}>{influencer.name}</Text>
-      <Text style={[styles.comingBody, { color: colors.textSecondary }]}>
-        {label} is not ported to mobile yet — it is the next step of the migration.
-        It works today in the web app, on the same data as this screen.
-      </Text>
-    </ScrollView>
   )
 }
 
@@ -92,8 +70,4 @@ const styles = StyleSheet.create({
   missing: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl },
   missingText: { fontSize: 15 },
 
-  comingWrap: { padding: space.xl, alignItems: 'center', gap: space.md },
-  hero: { width: 160, height: 213, borderRadius: radius.lg, marginBottom: space.sm },
-  comingTitle: { fontSize: 20, fontWeight: '700' },
-  comingBody: { fontSize: 14, lineHeight: 21, textAlign: 'center' },
 })

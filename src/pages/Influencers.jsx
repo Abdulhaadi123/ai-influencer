@@ -11,6 +11,7 @@ import { buildThreeVariationPrompts } from '../core/prompts/systemPrompt'
 import { gColor, pLabel } from '../core/utils/influencerUtils'
 import { getNiches } from '../core/niches'
 import { buildVideoPrompt, VOICE_PRESETS } from '../core/prompts/videoPrompt'
+import { loadStudioSettings, saveStudioSettings } from '../core/studioSettings'
 import { regenerateMainImage, NO_CREATION_PARAMS } from '../core/regenerate'
 import { useTheme } from '../context/theme'
 import { buildCharSheetPrompt, buildCharSheetPromptWithClaude } from '../core/prompts/charSheetPrompt'
@@ -2953,7 +2954,7 @@ function ContentStudio({ influencer, onUpdate, onSaveToScripts, onGenerated, res
   const [productRef1, setProductRef1] = useState(() => { try { return localStorage.getItem(`hf_product_ref_1_${influencer.id}`) || null } catch { return null } })
   const [productRef2, setProductRef2] = useState(() => { try { return localStorage.getItem(`hf_product_ref_2_${influencer.id}`) || null } catch { return null } })
   const [productRef3, setProductRef3] = useState(() => { try { return localStorage.getItem(`hf_product_ref_3_${influencer.id}`) || null } catch { return null } })
-  const [productWorn, setProductWorn] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').productWorn ?? false } catch { return false } })
+  const [productWorn, setProductWorn] = useState(() => { try { return loadStudioSettings(influencer.id).productWorn ?? false } catch { return false } })
   const [dealPopup, setDealPopup] = useState(null)
   const [dealViewSheet, setDealViewSheet] = useState({})
   const [dragOver1, setDragOver1] = useState(false)
@@ -2962,28 +2963,28 @@ function ContentStudio({ influencer, onUpdate, onSaveToScripts, onGenerated, res
   const productFileRef1 = useRef()
   const productFileRef2 = useRef()
   const productFileRef3 = useRef()
-  const [dialogue, setDialogue] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').dialogue ?? '' } catch { return '' } })
-  const [envKey, setEnvKey] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').envKey ?? '' } catch { return '' } })
+  const [dialogue, setDialogue] = useState(() => { try { return loadStudioSettings(influencer.id).dialogue ?? '' } catch { return '' } })
+  const [envKey, setEnvKey] = useState(() => { try { return loadStudioSettings(influencer.id).envKey ?? '' } catch { return '' } })
   const [environment, setEnvironment] = useState(() => {
     try {
-      const s = JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}')
+      const s = loadStudioSettings(influencer.id)
       const ek = s.envKey ?? ''
       return ek ? (CS_ENV_PRESETS[ek] || ek) : (s.envCustom ?? '')
     } catch { return '' }
   })
-  const [camera, setCamera] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').camera ?? 'Handheld' } catch { return 'Handheld' } })
-  const [vibe, setVibe] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').vibe ?? '' } catch { return '' } })
-  const [voicePreset, setVoicePreset] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').voicePreset ?? '' } catch { return '' } })
-  const [voiceCustom, setVoiceCustom] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').voiceCustom ?? '' } catch { return '' } })
+  const [camera, setCamera] = useState(() => { try { return loadStudioSettings(influencer.id).camera ?? 'Handheld' } catch { return 'Handheld' } })
+  const [vibe, setVibe] = useState(() => { try { return loadStudioSettings(influencer.id).vibe ?? '' } catch { return '' } })
+  const [voicePreset, setVoicePreset] = useState(() => { try { return loadStudioSettings(influencer.id).voicePreset ?? '' } catch { return '' } })
+  const [voiceCustom, setVoiceCustom] = useState(() => { try { return loadStudioSettings(influencer.id).voiceCustom ?? '' } catch { return '' } })
   const [additionalNotes, setAdditionalNotes] = useState('')
   const [audioDataUrl, setAudioDataUrl] = useState(null)
   const [audioFileName, setAudioFileName] = useState('')
   const [audioDuration, setAudioDuration] = useState(null)
   const audioFileRef = useRef()
-  const [duration, setDuration] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').duration ?? 15 } catch { return 15 } })
-  const [aspect, setAspect] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').aspect ?? '9:16' } catch { return '9:16' } })
-  const [outputs, setOutputs] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').outputs ?? 1 } catch { return 1 } })
-  const [shotMode, setShotMode] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').shotMode ?? 'oner' } catch { return 'oner' } })
+  const [duration, setDuration] = useState(() => { try { return loadStudioSettings(influencer.id).duration ?? 15 } catch { return 15 } })
+  const [aspect, setAspect] = useState(() => { try { return loadStudioSettings(influencer.id).aspect ?? '9:16' } catch { return '9:16' } })
+  const [outputs, setOutputs] = useState(() => { try { return loadStudioSettings(influencer.id).outputs ?? 1 } catch { return 1 } })
+  const [shotMode, setShotMode] = useState(() => { try { return loadStudioSettings(influencer.id).shotMode ?? 'oner' } catch { return 'oner' } })
   const [saved, setSaved] = useState(false)
   const [saveModal, setSaveModal] = useState(null)
   const [generating, setGenerating] = useState(false)
@@ -3030,7 +3031,7 @@ function ContentStudio({ influencer, onUpdate, onSaveToScripts, onGenerated, res
   const restoringRef = useRef(false)
 
   const CS_DEFAULTS = { vibe: '', duration: 15, aspect: '9:16', outputs: 1, shotMode: 'oner', camera: 'Handheld', envKey: '', envCustom: '', voicePreset: '', voiceCustom: '' }
-  function loadCsSettings(id) { try { return JSON.parse(localStorage.getItem(`cs_settings_${id}`) || '{}') } catch { return {} } }
+  function loadCsSettings(id) { return loadStudioSettings(id) }
 
   useEffect(() => {
     restoringRef.current = true
@@ -3065,7 +3066,7 @@ function ContentStudio({ influencer, onUpdate, onSaveToScripts, onGenerated, res
   const [advanced, setAdvanced] = useState(() => {
     try { return localStorage.getItem('cs_advanced_open') === '1' } catch { return false }
   })
-  const [videoTimeOfDay, setVideoTimeOfDay] = useState(() => { try { return JSON.parse(localStorage.getItem(`cs_settings_${influencer.id}`) || '{}').videoTimeOfDay ?? 'afternoon' } catch { return 'afternoon' } })
+  const [videoTimeOfDay, setVideoTimeOfDay] = useState(() => { try { return loadStudioSettings(influencer.id).videoTimeOfDay ?? 'afternoon' } catch { return 'afternoon' } })
   const [selectedWardrobeId, setSelectedWardrobeId] = useState(() => { try { return localStorage.getItem(`hf_wardrobe_id_${influencer.id}`) || '' } catch { return '' } })
   const wardrobeSlots = (influencer.wardrobeSlots || []).filter(s => s.image)
   const selectedWardrobe = wardrobeSlots.find(s => s.id === selectedWardrobeId) || null
@@ -3216,7 +3217,7 @@ function ContentStudio({ influencer, onUpdate, onSaveToScripts, onGenerated, res
   useEffect(() => {
     if (restoringRef.current) return
     try {
-      localStorage.setItem(`cs_settings_${influencer.id}`, JSON.stringify({ vibe, duration, aspect, outputs, shotMode, camera, envKey, envCustom: CS_ENV_PRESETS[envKey] ? '' : environment, voicePreset, voiceCustom, dialogue, videoTimeOfDay, productWorn }))
+      saveStudioSettings(influencer.id, ({ vibe, duration, aspect, outputs, shotMode, camera, envKey, envCustom: CS_ENV_PRESETS[envKey] ? '' : environment, voicePreset, voiceCustom, dialogue, videoTimeOfDay, productWorn }))
     } catch {}
   }, [influencer.id, vibe, duration, aspect, outputs, shotMode, camera, envKey, environment, voicePreset, voiceCustom, dialogue, videoTimeOfDay, productWorn])
 
