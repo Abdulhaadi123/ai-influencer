@@ -1,58 +1,104 @@
-# Getting the app to someone else
+# Getting the app onto phones
 
-Right now the app only runs against a Metro dev server on one machine, over
-the local network. That is fine for developing, but it means the app dies the
-moment that machine sleeps, and it cannot leave the Wi-Fi. To hand the app to
-somebody, build it.
+Expo Go is a dead end for this project: it only runs the SDK version the app
+stores currently ship, and it needs a Metro dev server on the same network.
+A **build** removes both problems — it is a real, standalone app that anyone
+can install, works on mobile data, and keeps working when this machine is off.
 
-## Android — an .apk they can install (free)
+Everything below runs from the `mobile/` folder.
 
-1. Make an Expo account at https://expo.dev (free), then:
+---
 
-       npm install -g eas-cli
-       eas login
+## Android — a `.apk` anyone can install (free)
 
-2. Give the build the API key. `mobile/.env` is gitignored, so EAS never
-   uploads it — it has to be stored as a build secret instead:
+**1. Make a free Expo account** at https://expo.dev, then log in:
 
-       eas secret:create --scope project --name EXPO_PUBLIC_KIE_API_KEY --value "<the key from mobile/.env>"
+```bash
+npx eas-cli login
+```
 
-3. Build:
+**2. Give the build the API key.**
 
-       cd mobile
-       eas build --platform android --profile preview
+`mobile/.env` is gitignored, so EAS never uploads it. The key has to be stored
+as a build secret instead — this keeps it out of the repo:
 
-   It builds in Expo's cloud (no Android Studio needed) and finishes with a
-   download link plus a QR. Send that link. They open it on their phone, tap
-   the .apk, and allow installing from an unknown source.
+```bash
+npx eas-cli secret:create --scope project --name EXPO_PUBLIC_KIE_API_KEY --value "PASTE_THE_KEY_FROM_mobile/.env"
+```
 
-## iOS — harder, and it costs money
+**3. Build it:**
 
-iOS will not install an app from a link. It needs either TestFlight or a
-registered device, and both require an **Apple Developer Program membership
-($99/year)**. With one:
+```bash
+npx eas-cli build --profile preview --platform android
+```
 
-       eas build --platform ios --profile preview
-       eas submit --platform ios          # then invite them in TestFlight
+First run asks a couple of setup questions (creating the project on your
+account, generating a keystore) — accept the defaults. The build runs on
+Expo's servers and takes roughly 10–20 minutes.
 
-Without a paid Apple account there is no way to put this on someone's iPhone.
-If your senior is on iPhone and you do not have that membership, the options
-are: they run Expo Go against your dev server while on your network, or you
-share the Android build instead.
+**4. Share it.** You get a URL like `https://expo.dev/accounts/.../builds/...`
+with a **Download** button. Send that link to anyone. They open it on their
+Android phone, download the `.apk`, and install it.
 
-## Before you share: the key ships inside the build
+Android will warn about installing outside the Play Store — that is normal for
+a direct `.apk`; they tap through it.
 
-`EXPO_PUBLIC_KIE_API_KEY` is compiled into the bundle, so anyone who has the
-.apk can extract it and spend that KIE account's credits. Sharing it with the
-person who owns the key is fine. Do not post the build anywhere public, and if
-it does leak, rotate the key at kie.ai and rebuild.
+---
 
-## Updating them later
+## iPhone — needs a paid Apple account
 
-Once someone has a build installed, small JS changes can be pushed without a
-reinstall:
+This is the honest part: **Apple does not allow installing apps outside the App
+Store without a paid Apple Developer account ($99/year).** There is no free
+equivalent of the Android `.apk` route.
 
-    eas update --branch preview
+With an Apple Developer account:
 
-Native changes (a new Expo module, permissions, the app icon) still need a
-fresh build.
+```bash
+npx eas-cli build --profile preview --platform ios
+```
+
+then distribute through **TestFlight**, which handles up to 10,000 testers:
+
+```bash
+npx eas-cli submit --platform ios
+```
+
+Without a paid account, the options for iPhone are Expo Go (blocked by the SDK
+mismatch) or a simulator on a Mac. Android is the practical route today.
+
+---
+
+## What the build already has configured
+
+- **`preview` profile** in `eas.json` → a plain `.apk` for Android, internal
+  distribution for iOS. No app store involved.
+- **Permissions**, in `app.json`. These matter only in a real build — Expo Go
+  supplies its own, which is why the app worked there without them:
+  - `CAMERA`, `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, `INTERNET`
+  - iOS `NSCameraUsageDescription` / `NSPhotoLibraryUsageDescription`, written
+    by the `expo-image-picker` plugin
+- **No backend.** The app calls `api.kie.ai` directly, so nothing needs
+  deploying and no server has to stay up.
+
+Verified by running `expo prebuild` locally and reading the generated
+`AndroidManifest.xml`.
+
+---
+
+## Updating a build
+
+Changing JS only? Rebuild and resend the link — or set up EAS Update to push
+changes to installed apps without a new build.
+
+Changing `app.json`, permissions, or native dependencies always needs a fresh
+build.
+
+---
+
+## Security note, before you send that link to anyone
+
+The KIE API key is compiled **into** the app. Anyone who installs the `.apk`
+can extract it and spend the account's credits, and revoking it means rotating
+the key and shipping a new build.
+
+That is fine for handing to colleagues. Do not post the build link publicly.

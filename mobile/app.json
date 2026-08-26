@@ -18,7 +18,13 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "INTERNET",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -27,7 +33,15 @@
       "expo-sharing",
       "expo-video",
       "expo-sqlite",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "$(PRODUCT_NAME) needs access to your photos so you can use them as reference images and motion videos.",
+          "cameraPermission": "$(PRODUCT_NAME) needs the camera so you can take a reference photo.",
+          "microphonePermission": false
+        }
+      ]
     ]
   }
 }
