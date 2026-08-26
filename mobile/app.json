@@ -26,7 +26,8 @@
     "plugins": [
       "expo-sharing",
       "expo-video",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-status-bar"
     ]
   }
 }
