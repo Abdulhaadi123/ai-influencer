@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import { generateSingleImage, initSession, pollAllJobs } from '../../core/services/generation'
-import { generateId } from '../../core/store'
+import { generateSingleImage, initSession, pollAllJobs } from '../../mobile/core/services/generation'
+import { generateId } from '../../mobile/core/store'
 
 export function buildWardrobePrompt(influencer, { outfit, hair, customText }) {
   const phys = influencer.physicalDesc ? `The subject: ${influencer.physicalDesc}. ` : ''

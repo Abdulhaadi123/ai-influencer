@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { checkKieConnection, isKieConnected } from '../../core/api/kieAuth'
+import { checkKieConnection, isKieConnected } from '../../mobile/core/api/kieAuth'
 import { useTheme } from '../context/theme'
 
 function Section({ title, children }) {

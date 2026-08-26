@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import { generateMotionCopy } from '../../core/services/generation'
-import { compressImage, downloadImage } from '../../core/platform/media'
+import { generateMotionCopy } from '../../mobile/core/services/generation'
+import { compressImage, downloadImage } from '../../mobile/core/platform/media'
 
 // Motion Copy studio — upload a driving (motion) video and the influencer performs
 // that exact motion while keeping their identity (Kling 3.0 Motion Control).
