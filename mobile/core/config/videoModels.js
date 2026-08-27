@@ -75,23 +75,6 @@ export const VIDEO_MODELS = [
     }),
   },
   {
-    id: 'kling-2.6/image-to-video',
-    label: 'Kling 2.6',
-    // The API accepts this id, but KIE publishes no docs page for it, so the
-    // field list is inferred from its Kling siblings. Treated conservatively:
-    // the narrow 5/10 duration enum the other Kling 2.x models use.
-    note: 'Previous Kling generation. Undocumented — may behave unevenly.',
-    supportsSound: true,
-    maxImages: 2,
-    durations: [5, 10],
-    buildInput: ({ prompt, imageUrls, duration, hasVoice, audioUrl }) => ({
-      prompt,
-      duration: String(nearest(duration, [5, 10])),
-      image_urls: imageUrls.slice(0, 2),
-      sound: !!(audioUrl || hasVoice),
-    }),
-  },
-  {
     id: 'kling/v2-5-turbo-image-to-video-pro',
     label: 'Kling 2.5 Turbo Pro',
     note: 'Single reference image. 5 or 10s only.',
@@ -241,22 +224,27 @@ export const MOTION_MODELS = [
     id: 'kling-2.6/motion-control',
     label: 'Kling 2.6 Motion Control',
     note: 'Previous generation.',
+    // This generation names its modes by resolution, not std/pro. Confirmed
+    // against the live API: mode:'std' is rejected outright with "mode is not
+    // within the range of allowed options"; '720p' is accepted.
     buildInput: ({ prompt, imageUrl, videoUrl, mode }) => ({
       prompt,
       input_urls: [imageUrl],
       video_urls: [videoUrl],
-      mode: mode === 'std' ? 'std' : 'pro',
+      mode: mode === 'std' ? '720p' : '1080p',
       character_orientation: 'video',
     }),
   },
   {
     id: 'wan/2-2-animate-move',
     label: 'Wan 2.2 Animate',
-    note: 'Alibaba motion transfer. Takes no prompt.',
+    note: 'Alibaba motion transfer. Takes no prompt. Caps at 720p.',
+    // Tops out at 720p — 480p/580p/720p are the only options. Confirmed
+    // against the live API: '1080p' is rejected as out of range.
     buildInput: ({ imageUrl, videoUrl }) => ({
       image_url: imageUrl,
       video_url: videoUrl,
-      resolution: '1080p',
+      resolution: '720p',
     }),
   },
 ]
