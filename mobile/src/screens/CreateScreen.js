@@ -23,10 +23,13 @@ import { generateThreeImages } from '@core/services/generation'
 import { COPY_ATTRIBUTES, buildImagePrompts } from '@core/prompts/influencerPrompts'
 import { buildNewInfluencer, buildCreationParams } from '@core/newInfluencer'
 import { saveCreationParams } from '@core/creationParams'
+import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
 
 import { useTheme, space, radius } from '../theme'
 import { Section, Button } from '../components/ui'
 import { pickImageWithPrompt } from '../lib/picker'
+import PromptSuggestion from '../components/PromptSuggestion'
+import { usePromptSuggestion } from '../hooks/usePromptSuggestion'
 
 const STEPS = ['Basics', 'Reference', 'Generate']
 const ASPECT_RATIO = '9:16'
@@ -50,6 +53,7 @@ export default function CreateScreen({ navigation }) {
   const [error, setError] = useState(null)
 
   const promptsRef = useRef([])
+  const attemptRef = useRef(0)
   const cancelledRef = useRef(false)
 
   const set = useCallback((key, value) => setData(d => ({ ...d, [key]: value })), [])
@@ -83,20 +87,31 @@ export default function CreateScreen({ navigation }) {
     cancelledRef.current = false
 
     try {
+      // One image per run. buildImagePrompts returns three pose variations;
+      // a different one is picked each time so pressing Regenerate gives a
+      // genuinely different look rather than repeating the same pose.
       const prompts = buildImagePrompts(data)
-      promptsRef.current = prompts
+      const prompt = prompts[attemptRef.current % prompts.length]
+      attemptRef.current += 1
+      promptsRef.current = [prompt]
 
       const urls = await generateThreeImages({
-        prompts,
+        prompts: [prompt],
         aspectRatio: ASPECT_RATIO,
         faceRef: data.referenceImage || null,
         physicalDesc: data.description || '',
         onProgress: p => setProgress(Math.round(p)),
-        onPartialResults: partial => setVariations([...partial]),
       })
 
       if (cancelledRef.current) return
-      setVariations(urls)
+      if (!urls?.[0]) { setError('No image was returned — please try again.'); return }
+
+      // KIE deletes results within a day or so, so copy it onto the device
+      // before it is stored against the influencer.
+      const localUri = await persistMedia(urls[0], mediaFilename('image', `${Date.now()}`, 'jpg'))
+      if (cancelledRef.current) return
+
+      setVariations([localUri])
       setSelectedIdx(0)
     } catch (e) {
       if (e?.message !== 'CANCELLED') setError(e?.message ?? String(e))
@@ -208,6 +223,7 @@ function BasicsStep({ data, set }) {
 
 function ReferenceStep({ data, set, onAddReference, onToggleAttribute }) {
   const { colors } = useTheme()
+  const assist = usePromptSuggestion(data.description, 'appearance')
   return (
     <>
       <Text style={[styles.heading, { color: colors.textPrimary }]}>Describe or upload</Text>
@@ -225,6 +241,12 @@ function ReferenceStep({ data, set, onAddReference, onToggleAttribute }) {
             onChangeText={v => set('description', v)}
             placeholder="e.g. mid-20s, long dark curly hair, warm smile, freckles"
             multiline
+          />
+          <PromptSuggestion
+            suggestion={assist.suggestion}
+            loading={assist.loading}
+            onUse={() => set('description', assist.suggestion)}
+            onDismiss={assist.dismiss}
           />
         </View>
       </Section>
@@ -298,11 +320,7 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
         <ActivityIndicator size="large" color={colors.brand} />
         <Text style={[styles.heading, { color: colors.textPrimary }]}>Generating…</Text>
         <Text style={[styles.sub, { color: colors.textSecondary }]}>{progress}%</Text>
-        {variations.length ? (
-          <Text style={[styles.sub, { color: colors.textSecondary }]}>
-            {variations.length} of 3 ready
-          </Text>
-        ) : null}
+
       </View>
     )
   }
@@ -312,19 +330,19 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
       <View style={styles.centered}>
         <Text style={[styles.heading, { color: colors.textPrimary }]}>Ready to generate</Text>
         <Text style={[styles.sub, { color: colors.textSecondary, textAlign: 'center' }]}>
-          Three looks will be created. Pick your favourite as the main image.
+          One image will be created. If it is not right, regenerate for a different look.
         </Text>
         {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
-        <Button title="Generate 3 looks" onPress={onGenerate} />
+        <Button title="Generate image" onPress={onGenerate} />
       </View>
     )
   }
 
   return (
     <>
-      <Text style={[styles.heading, { color: colors.textPrimary }]}>Pick your favourite</Text>
+      <Text style={[styles.heading, { color: colors.textPrimary }]}>Your influencer</Text>
       <Text style={[styles.sub, { color: colors.textSecondary }]}>
-        This becomes the main image. The others are saved to the gallery.
+        This becomes the main image. Not right? Regenerate for a different look.
       </Text>
 
       <View style={styles.grid}>
@@ -342,6 +360,7 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
         ))}
       </View>
 
+      {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
       <Button title="Regenerate" variant="secondary" onPress={onGenerate} />
     </>
   )

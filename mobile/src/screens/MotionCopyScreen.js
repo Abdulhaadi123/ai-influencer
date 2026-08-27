@@ -21,6 +21,7 @@ import { useVideoPlayer, VideoView } from 'expo-video'
 
 import { generateMotionCopy } from '@core/services/generation'
 import { downloadImage } from '@core/platform/media'
+import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
 import { useInfluencers, generateId } from '@core/store'
 
 import { useTheme, space, radius } from '../theme'
@@ -93,14 +94,19 @@ export default function MotionCopyScreen({ influencer }) {
       if (cancelRef.current) return
       if (!url) { setError('No video was returned — please try again.'); return }
 
-      setResult(url)
+      // KIE deletes results within a day or so — copy it onto the device first,
+      // otherwise the saved entry becomes a dead link.
+      const entryId = generateId()
+      const localUri = await persistMedia(url, mediaFilename('motion', entryId, 'mp4'))
+      if (cancelRef.current) return
 
-      // Record it on the influencer, same as the web studio does.
+      setResult(localUri)
+
       if (influencer?.id) {
         setInfluencers(prev => prev.map(inf => inf.id === influencer.id ? {
           ...inf,
           generationHistory: [
-            { id: generateId(), type: 'video', label: 'Motion Copy', url, date: Date.now() },
+            { id: entryId, type: 'video', label: 'Motion Copy', url: localUri, date: Date.now() },
             ...(inf.generationHistory || []),
           ],
         } : inf))

@@ -31,3 +31,12 @@ export const IMAGE_MODEL_ID     = 'nano-banana-pro'          // Nano Banana Pro 
 export const VIDEO_MODEL_KLING  = 'kling-3.0/video'          // Kling 3.0 — set input.sound for Omni
 export const VIDEO_MODEL_VEO    = 'veo3_fast'                // alternate video path (unused by default)
 export const MOTION_MODEL_KIE   = 'kling-3.0/motion-control' // Kling 3.0 Motion Control
+
+// ── Prompt assistant (OpenAI) ────────────────────────────────────────────────
+// Rewrites what the user types into a stronger prompt, shown as a suggestion
+// they can take or ignore. Optional: with no key configured the feature simply
+// does not appear.
+//
+// A small, fast model is the right choice here — this runs while the user is
+// still typing, so latency matters far more than depth.
+export const PROMPT_ASSIST_MODEL = 'gpt-4o-mini'

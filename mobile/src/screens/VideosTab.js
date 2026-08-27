@@ -27,11 +27,14 @@ import { buildVideoPrompt, VOICE_PRESETS } from '@core/prompts/videoPrompt'
 import { loadStudioSettings, saveStudioSettings } from '@core/studioSettings'
 import { ENV_PRESETS, ENV_KEYS, VIBES, CAMERAS, TIMES_OF_DAY, DURATIONS } from '@core/studioOptions'
 import { downloadImage } from '@core/platform/media'
+import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
 import { useInfluencers, generateId } from '@core/store'
 
 import { useTheme, space, radius } from '../theme'
 import { Section, Button, Segmented, Collapsible, Field } from '../components/ui'
 import { pickImageWithPrompt } from '../lib/picker'
+import PromptSuggestion from '../components/PromptSuggestion'
+import { usePromptSuggestion } from '../hooks/usePromptSuggestion'
 
 const MAX_PRODUCTS = 3
 
@@ -106,15 +109,20 @@ export default function VideosTab({ influencer }) {
       if (cancelRef.current) return
       if (!urls?.length) { setError('No video was returned — please try again.'); return }
 
-      setResults(urls)
+      // KIE deletes results within a day or so, so copy each onto the device
+      // before storing it — otherwise history fills up with dead links.
+      const entries = await Promise.all(urls.map(async url => {
+        const id = generateId()
+        const localUri = await persistMedia(url, mediaFilename('video', id, 'mp4'))
+        return { id, type: 'video', label: 'Video', url: localUri, date: Date.now() }
+      }))
 
-      // Record on the influencer so the history (web and mobile) sees it.
+      if (cancelRef.current) return
+      setResults(entries.map(e => e.url))
+
       setInfluencers(prev => prev.map(i => i.id === influencer.id ? {
         ...i,
-        generationHistory: [
-          ...urls.map(url => ({ id: generateId(), type: 'video', label: 'Video', url, date: Date.now() })),
-          ...(i.generationHistory || []),
-        ],
+        generationHistory: [...entries, ...(i.generationHistory || [])],
       } : i))
     } catch (e) {
       if (e?.message !== 'CANCELLED') setError(e?.message ?? String(e))
@@ -124,6 +132,9 @@ export default function VideosTab({ influencer }) {
   }, [canGenerate, influencer, settings, products, setInfluencers])
 
   const voicePresets = influencer.gender === 'Male' ? VOICE_PRESETS.male : VOICE_PRESETS.female
+
+  // Live rewrite of the script, offered as a suggestion only.
+  const assist = usePromptSuggestion(settings.dialogue, 'script')
 
   return (
     <ScrollView
@@ -140,6 +151,12 @@ export default function VideosTab({ influencer }) {
             placeholderTextColor={colors.textTertiary}
             multiline
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
+          />
+          <PromptSuggestion
+            suggestion={assist.suggestion}
+            loading={assist.loading}
+            onUse={() => set('dialogue', assist.suggestion)}
+            onDismiss={assist.dismiss}
           />
         </View>
       </Section>

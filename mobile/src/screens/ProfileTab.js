@@ -24,6 +24,7 @@ import { useInfluencers } from '@core/store'
 import { getNiches } from '@core/niches'
 import { regenerateMainImage, NO_CREATION_PARAMS } from '@core/regenerate'
 import { downloadImage } from '@core/platform/media'
+import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
 
 import { useTheme, space, radius } from '../theme'
 import { Section, Row, Button, Collapsible, Field } from '../components/ui'
@@ -51,7 +52,9 @@ export default function ProfileTab({ influencer }) {
     setRegenerating(true)
     try {
       const url = await regenerateMainImage(influencer)
-      update({ mainImage: url })
+      // Copy onto the device: KIE's result URLs expire within days.
+      const localUri = await persistMedia(url, mediaFilename('image', `${influencer.id}_${Date.now()}`, 'jpg'))
+      update({ mainImage: localUri })
     } catch (e) {
       if (e?.message === NO_CREATION_PARAMS) {
         Alert.alert(
