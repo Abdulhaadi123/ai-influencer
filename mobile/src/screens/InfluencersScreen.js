@@ -9,7 +9,8 @@
 
 import { useMemo } from 'react'
 import { View, Text, Image, FlatList, Pressable, StyleSheet } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
+import { useBottomInset } from '../hooks/useBottomInset'
 
 import { useInfluencers } from '@core/store'
 
@@ -17,7 +18,7 @@ import { useTheme, space, radius } from '../theme'
 
 export default function InfluencersScreen({ navigation }) {
   const { colors } = useTheme()
-  const insets = useSafeAreaInsets()
+  const bottomInset = useBottomInset()
   const [influencers] = useInfluencers()
 
   // Stable ordering so the list doesn't reshuffle between renders.
@@ -40,7 +41,7 @@ export default function InfluencersScreen({ navigation }) {
   return (
     <FlatList
       style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + space.xxl }]}
+      contentContainerStyle={[styles.list, { paddingBottom: bottomInset }]}
       data={data}
       keyExtractor={item => String(item.id)}
       renderItem={({ item }) => (

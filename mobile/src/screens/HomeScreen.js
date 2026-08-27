@@ -11,7 +11,8 @@
 
 import { useMemo } from 'react'
 import { View, Text, ScrollView, Image, Pressable, StyleSheet } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
+import { useBottomInset } from '../hooks/useBottomInset'
 import { LinearGradient } from 'expo-linear-gradient'
 
 import { useInfluencers } from '@core/store'
@@ -22,7 +23,7 @@ const FEATURES = [
   {
     icon: '✦',
     title: 'Create an influencer',
-    body: 'Describe them, or upload a photo and choose exactly what to copy — face, hair, build, outfit. You get three looks to pick from.',
+    body: 'Describe them, or upload a photo and choose exactly what to copy — face, hair, build, outfit. Regenerate until the look is right.',
     tab: 'Create',
   },
   {
@@ -43,7 +44,7 @@ const FEATURES = [
 
 export default function HomeScreen({ navigation }) {
   const { colors } = useTheme()
-  const insets = useSafeAreaInsets()
+  const bottomInset = useBottomInset()
   const [influencers] = useInfluencers()
 
   const recent = useMemo(
@@ -55,7 +56,7 @@ export default function HomeScreen({ navigation }) {
   return (
     <ScrollView
       style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
     >
       {/* Masthead */}
       <LinearGradient

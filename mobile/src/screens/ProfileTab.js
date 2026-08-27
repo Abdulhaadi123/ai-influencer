@@ -18,7 +18,8 @@ import {
   View, Text, TextInput, ScrollView, Image, Pressable,
   ActivityIndicator, StyleSheet, Alert,
 } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
+import { useBottomInset } from '../hooks/useBottomInset'
 
 import { useInfluencers } from '@core/store'
 import { getNiches } from '@core/niches'
@@ -32,7 +33,7 @@ import { pickImageWithPrompt } from '../lib/picker'
 
 export default function ProfileTab({ influencer }) {
   const { colors } = useTheme()
-  const insets = useSafeAreaInsets()
+  const bottomInset = useBottomInset()
   const [, setInfluencers] = useInfluencers()
 
   const [regenerating, setRegenerating] = useState(false)
@@ -74,7 +75,7 @@ export default function ProfileTab({ influencer }) {
   return (
     <ScrollView
       style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
       keyboardShouldPersistTaps="handled"
     >
       <Section title="Main image">

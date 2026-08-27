@@ -27,12 +27,14 @@ import { useVideoPlayer, VideoView } from 'expo-video'
 import { downloadImage } from '@core/platform/media'
 import { useInfluencers } from '@core/store'
 
+import { useBottomInset } from '../hooks/useBottomInset'
 import { useTheme, space, radius } from '../theme'
 import { Button } from '../components/ui'
 
 export default function GalleryTab({ influencer }) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
+  const bottomInset = useBottomInset()
   const [, setInfluencers] = useInfluencers()
   const [filter, setFilter] = useState('all')
   const [openId, setOpenId] = useState(null)
@@ -87,7 +89,7 @@ export default function GalleryTab({ influencer }) {
   // empty grid with a filter bar above it that does nothing.
   if (all.length === 0) {
     return (
-      <View style={[styles.emptyScreen, { paddingBottom: insets.bottom + space.xxl }]}>
+      <View style={[styles.emptyScreen, { paddingBottom: bottomInset }]}>
         <View style={[styles.emptyIcon, { backgroundColor: colors.brandSoft }]}>
           <Text style={styles.emptyGlyph}>🎬</Text>
         </View>
@@ -104,7 +106,7 @@ export default function GalleryTab({ influencer }) {
     <>
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
       >
         <View style={styles.filters}>
           {[

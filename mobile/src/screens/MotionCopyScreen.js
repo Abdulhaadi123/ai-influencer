@@ -16,7 +16,8 @@ import {
   View, Text, TextInput, ScrollView, Image, Pressable,
   ActivityIndicator, StyleSheet, Alert,
 } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
+import { useBottomInset } from '../hooks/useBottomInset'
 import { useVideoPlayer, VideoView } from 'expo-video'
 
 import { generateMotionCopy } from '@core/services/generation'
@@ -32,7 +33,7 @@ import ModelPicker from '../components/ModelPicker'
 
 export default function MotionCopyScreen({ influencer }) {
   const { colors } = useTheme()
-  const insets = useSafeAreaInsets()
+  const bottomInset = useBottomInset()
   const [, setInfluencers] = useInfluencers()
 
   // Same character sources the web studio offers.
@@ -131,7 +132,7 @@ export default function MotionCopyScreen({ influencer }) {
   return (
     <ScrollView
       style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
       keyboardShouldPersistTaps="handled"
     >
       <Text style={[styles.sub, { color: colors.textSecondary }]}>

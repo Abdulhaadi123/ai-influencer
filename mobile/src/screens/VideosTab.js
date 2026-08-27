@@ -19,7 +19,8 @@ import {
   View, Text, TextInput, ScrollView, Image, Pressable,
   ActivityIndicator, StyleSheet, Alert,
 } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
+import { useBottomInset } from '../hooks/useBottomInset'
 import { useVideoPlayer, VideoView } from 'expo-video'
 
 import { generateVideo } from '@core/services/generation'
@@ -42,7 +43,7 @@ const MAX_PRODUCTS = 3
 
 export default function VideosTab({ influencer }) {
   const { colors } = useTheme()
-  const insets = useSafeAreaInsets()
+  const bottomInset = useBottomInset()
   const [, setInfluencers] = useInfluencers()
 
   // Load whatever was last set up for this influencer.
@@ -142,7 +143,7 @@ export default function VideosTab({ influencer }) {
   return (
     <ScrollView
       style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
       keyboardShouldPersistTaps="handled"
     >
       <Section title="Script" footer={`What should ${influencer.name} say? Leave empty for a silent clip.`}>

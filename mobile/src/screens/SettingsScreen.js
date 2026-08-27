@@ -9,7 +9,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { View, Text, TextInput, ScrollView, ActivityIndicator, StyleSheet, Alert } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
+import { useBottomInset } from '../hooks/useBottomInset'
 
 import { checkKieConnection } from '@core/api/kieAuth'
 import { runDiagnostics } from '@core/api/diagnostics'
@@ -23,7 +24,7 @@ const CLAUDE_KEY = 'claude_api_key'
 
 export default function SettingsScreen() {
   const { colors, preference, setPreference } = useTheme()
-  const insets = useSafeAreaInsets()
+  const bottomInset = useBottomInset()
 
   const [engine, setEngine] = useState('checking') // checking | ready | offline
   const [diag, setDiag] = useState(null)          // null | 'running' | results
@@ -85,7 +86,7 @@ export default function SettingsScreen() {
   return (
     <ScrollView
       style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
       keyboardShouldPersistTaps="handled"
     >
       <Section title="Appearance">
