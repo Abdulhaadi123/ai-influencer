@@ -26,6 +26,7 @@ import { generateVideo } from '@core/services/generation'
 import { buildVideoPrompt, VOICE_PRESETS } from '@core/prompts/videoPrompt'
 import { loadStudioSettings, saveStudioSettings } from '@core/studioSettings'
 import { ENV_PRESETS, ENV_KEYS, VIBES, CAMERAS, TIMES_OF_DAY, DURATIONS } from '@core/studioOptions'
+import { VIDEO_MODELS, DEFAULT_VIDEO_MODEL, getVideoModel } from '@core/config/videoModels'
 import { downloadImage } from '@core/platform/media'
 import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
 import { useInfluencers, generateId } from '@core/store'
@@ -35,6 +36,7 @@ import { Section, Button, Segmented, Collapsible, Field } from '../components/ui
 import { pickImageWithPrompt } from '../lib/picker'
 import PromptSuggestion from '../components/PromptSuggestion'
 import { usePromptSuggestion } from '../hooks/usePromptSuggestion'
+import ModelPicker from '../components/ModelPicker'
 
 const MAX_PRODUCTS = 3
 
@@ -97,6 +99,7 @@ export default function VideosTab({ influencer }) {
         prompt,
         aspectRatio: settings.aspect,
         duration: settings.duration,
+        model: settings.videoModel || DEFAULT_VIDEO_MODEL,
         count: 1,
         referenceImages,
         hasVoice: !!(settings.voicePreset || (settings.voiceCustom || '').trim()),
@@ -195,6 +198,17 @@ export default function VideosTab({ influencer }) {
         </View>
       </Section>
 
+      <Section title="Model" footer="Kling 3.0 is the default. Pick another to compare results.">
+        <View style={styles.padded}>
+          <ModelPicker
+            models={VIDEO_MODELS}
+            value={settings.videoModel || DEFAULT_VIDEO_MODEL}
+            defaultId={DEFAULT_VIDEO_MODEL}
+            onChange={v => set('videoModel', v)}
+          />
+        </View>
+      </Section>
+
       <Collapsible
         title="Style &amp; delivery"
         subtitle={`${settings.camera} · ${settings.duration}s · ${settings.vibe || 'default mood'}${settings.envKey ? ' · ' + settings.envKey : ''}`}
@@ -254,7 +268,12 @@ export default function VideosTab({ influencer }) {
           </View>
         </Field>
 
-        <Field label="Voice" hint="Picking a voice turns on the model's native audio.">
+        <Field
+          label="Voice"
+          hint={getVideoModel(settings.videoModel).supportsSound
+            ? "Picking a voice turns on the model's native audio."
+            : `${getVideoModel(settings.videoModel).label} has no audio track — clips will be silent.`}
+        >
           <View style={styles.chipWrap}>
             <Chip label="None" active={!settings.voicePreset} onPress={() => set('voicePreset', '')} />
             {(voicePresets || []).map(v => (

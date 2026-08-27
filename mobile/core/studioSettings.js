@@ -16,6 +16,7 @@
  */
 
 import * as storage from './platform/storage'
+import { DEFAULT_VIDEO_MODEL } from './config/videoModels'
 
 const KEY_PREFIX = 'cs_settings_'
 
@@ -34,6 +35,8 @@ export const DEFAULT_STUDIO_SETTINGS = {
   dialogue: '',
   videoTimeOfDay: 'afternoon',
   productWorn: false,
+  // Which video model to generate with; the default stays Kling 3.0.
+  videoModel: DEFAULT_VIDEO_MODEL,
 }
 
 /**

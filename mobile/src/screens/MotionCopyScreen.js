@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useVideoPlayer, VideoView } from 'expo-video'
 
 import { generateMotionCopy } from '@core/services/generation'
+import { MOTION_MODELS, DEFAULT_MOTION_MODEL, getMotionModel } from '@core/config/videoModels'
 import { downloadImage } from '@core/platform/media'
 import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
 import { useInfluencers, generateId } from '@core/store'
@@ -27,6 +28,7 @@ import { useInfluencers, generateId } from '@core/store'
 import { useTheme, space, radius } from '../theme'
 import { Section, Button, Segmented, Collapsible, Field } from '../components/ui'
 import { pickImageWithPrompt, pickVideo } from '../lib/picker'
+import ModelPicker from '../components/ModelPicker'
 
 export default function MotionCopyScreen({ influencer }) {
   const { colors } = useTheme()
@@ -45,6 +47,7 @@ export default function MotionCopyScreen({ influencer }) {
   const [videoName, setVideoName] = useState('')
   const [prompt, setPrompt] = useState('')
   const [mode, setMode] = useState('pro') // 'std' = 720p, 'pro' = 1080p
+  const [model, setModel] = useState(DEFAULT_MOTION_MODEL)
 
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -85,6 +88,7 @@ export default function MotionCopyScreen({ influencer }) {
         drivingVideo,
         prompt,
         mode,
+        model,
         onProgress: setProgress,
         isCancelled: () => cancelRef.current,
         pendingKey: influencer?.id,
@@ -116,7 +120,7 @@ export default function MotionCopyScreen({ influencer }) {
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }
-  }, [canGenerate, characterImage, drivingVideo, prompt, mode, influencer, setInfluencers])
+  }, [canGenerate, characterImage, drivingVideo, prompt, mode, model, influencer, setInfluencers])
 
   const cancel = useCallback(() => {
     cancelRef.current = true
@@ -197,9 +201,20 @@ export default function MotionCopyScreen({ influencer }) {
         </View>
       </Section>
 
+      <Section title="Model" footer="Kling 3.0 is the default. Pick another to compare results.">
+        <View style={styles.padded}>
+          <ModelPicker
+            models={MOTION_MODELS}
+            value={model}
+            defaultId={DEFAULT_MOTION_MODEL}
+            onChange={setModel}
+          />
+        </View>
+      </Section>
+
       <Collapsible
         title="Options"
-        subtitle={`${mode === 'std' ? 'Standard · 720p' : 'Pro · 1080p'}${prompt ? ' · scene set' : ''}`}
+        subtitle={`${getMotionModel(model).label}${prompt ? ' · scene set' : ''}`}
       >
         <Field label="Scene direction" hint="Optional.">
           <TextInput

@@ -1,5 +1,6 @@
 import { kieFetch } from '../../../platform/kieTransport'
 import { IMAGE_MODEL_ID, VIDEO_MODEL_KLING, VIDEO_MODEL_VEO, MOTION_MODEL_KIE } from '../../../config/generation'
+import { getVideoModel, getMotionModel } from '../../../config/videoModels'
 import * as storage from '../../../platform/storage'
 
 // KIE.AI enforces a 3000-character prompt limit — trim with a small safety margin
@@ -459,24 +460,23 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
       if (json.code !== 200 || !json.data?.taskId) throw new Error(json.msg || 'Failed to start Veo video')
       return { taskId: json.data.taskId, isVeo: true }
     } else {
-      const klingInput = {
-        prompt: finalPrompt,
-        aspect_ratio: aspectRatio,
-        duration: duration,
-        image_urls: imageUrls,
-        mode: 'std',
-        multi_shots: false,
-        // sound: true when user uploaded audio (lip-sync) OR selected a voice preset/custom (Kling AI voice)
-        sound: !!(audioUrl || hasVoice),
-      }
-      // If an audio URL was uploaded, attach it for lip-sync / audio generation
-      if (audioUrl) {
-        klingInput.audio_url = audioUrl
-        console.log('[KIE Video] Audio attached for lip-sync:', audioUrl.slice(0, 80))
-      }
+      // Each model declares how to map this request onto its own fields —
+      // vendors differ (image_urls vs image_url, mode vs resolution), so the
+      // model id alone is not enough to swap between them.
+      const chosen = getVideoModel(model)
       const body = {
-        model: VIDEO_MODEL_KLING,
-        input: klingInput
+        model: chosen.id,
+        input: chosen.buildInput({
+          prompt: finalPrompt,
+          imageUrls,
+          duration,
+          aspectRatio,
+          hasVoice,
+          audioUrl: chosen.supportsSound ? audioUrl : null,
+        }),
+      }
+      if (audioUrl && !chosen.supportsSound) {
+        console.warn(`[KIE Video] ${chosen.label} has no audio track — generating silent.`)
       }
       const res = await kieFetch('/api/v1/jobs/createTask', {
       method: 'POST',
@@ -542,7 +542,7 @@ async function uploadRefVideo(base64Data) {
   }
 }
 
-export async function generateMotionCopy({ characterImage, drivingVideo, prompt = '', mode = 'pro', onProgress, onPartialResults, isCancelled, pendingKey = null }) {
+export async function generateMotionCopy({ characterImage, drivingVideo, prompt = '', mode = 'pro', model = MOTION_MODEL_KIE, onProgress, onPartialResults, isCancelled, pendingKey = null }) {
   if (!characterImage) throw new Error('A character image is required')
   if (!drivingVideo)  throw new Error('A driving (motion) video is required')
 
@@ -557,16 +557,17 @@ export async function generateMotionCopy({ characterImage, drivingVideo, prompt 
   // Kling 3.0 Motion Control schema (KIE docs): input_urls = character image(s),
   // video_urls = driving/motion video(s). mode 'std' = 720p, 'pro' = 1080p. The
   // output orientation/background follow the driving video by default.
+  // The chosen model maps this onto its own fields; Wan, for example, takes
+  // singular image_url/video_url and no prompt at all.
+  const chosenMotion = getMotionModel(model)
   const body = {
-    model: MOTION_MODEL_KIE,
-    input: {
+    model: chosenMotion.id,
+    input: chosenMotion.buildInput({
       prompt: capVideoPrompt(prompt || ''),
-      input_urls: [imageUrl],
-      video_urls: [videoUrl],
-      mode: mode === 'std' ? 'std' : 'pro',
-      character_orientation: 'video',
-      background_source: 'input_video',
-    },
+      imageUrl,
+      videoUrl,
+      mode,
+    }),
   }
   const res = await kieFetch('/api/v1/jobs/createTask', {
       method: 'POST',
