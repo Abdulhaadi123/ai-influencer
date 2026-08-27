@@ -2,23 +2,24 @@
  * Gallery — everything this influencer has generated.
  *
  * Why this screen exists: Videos and Motion Copy have always APPENDED their
- * results to `influencer.generationHistory`, but nothing in the app ever read
- * that list back. The old web studio owned the history browser; when the web
- * app was removed the reader went with it and the writer was left behind. That
- * looked exactly like a save bug — a clip appeared once in the "Result" card,
- * then vanished as soon as you navigated away, because that card renders
- * transient screen state, not stored history.
+ * results to `influencer.generationHistory`, but nothing in the app read that
+ * list back. The old web studio owned the history browser; when the web app was
+ * removed the reader went with it and the writer was left behind. That looked
+ * exactly like a save bug — a clip appeared once in the "Result" card, then
+ * vanished as soon as you navigated away, because that card renders transient
+ * screen state, not stored history.
  *
  * Nothing was ever being deleted. It was being saved and never shown.
  *
- * This reads live from the store, so a clip appears the instant it is
- * generated and survives leaving the screen, switching influencer, and
- * restarting the app.
+ * Layout is a two-column thumbnail grid rather than a stack of full-width
+ * players: clips are 9:16, so stacked full-width each one filled the whole
+ * screen and you could never see what you had. Tapping a tile opens the
+ * lightbox, which is where playback, sharing and deleting live.
  */
 
 import { useCallback, useMemo, useState } from 'react'
 import {
-  View, Text, ScrollView, Image, Pressable, StyleSheet, Alert,
+  View, Text, ScrollView, Image, Pressable, StyleSheet, Alert, Modal,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useVideoPlayer, VideoView } from 'expo-video'
@@ -27,44 +28,50 @@ import { downloadImage } from '@core/platform/media'
 import { useInfluencers } from '@core/store'
 
 import { useTheme, space, radius } from '../theme'
-import { Section, Button } from '../components/ui'
-
-const FILTERS = [
-  { label: 'All', value: 'all' },
-  { label: 'Videos', value: 'video' },
-  { label: 'Images', value: 'image' },
-]
+import { Button } from '../components/ui'
 
 export default function GalleryTab({ influencer }) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const [, setInfluencers] = useInfluencers()
   const [filter, setFilter] = useState('all')
+  const [openId, setOpenId] = useState(null)
 
   const history = influencer.generationHistory
 
-  // Newest first. Entries predating the `date` field sort last rather than
-  // being dropped — old records are still worth showing.
-  const items = useMemo(() => {
-    const all = (history || []).filter(e => e && e.url)
-    const byType = filter === 'all' ? all : all.filter(e => (e.type || 'video') === filter)
-    return [...byType].sort((a, b) => (b.date || 0) - (a.date || 0))
-  }, [history, filter])
+  const all = useMemo(
+    () => [...(history || []).filter(e => e && e.url)].sort((a, b) => (b.date || 0) - (a.date || 0)),
+    [history],
+  )
 
-  const total = (history || []).filter(e => e && e.url).length
+  const counts = useMemo(() => ({
+    all: all.length,
+    video: all.filter(e => (e.type || 'video') === 'video').length,
+    image: all.filter(e => (e.type || 'video') === 'image').length,
+  }), [all])
+
+  const items = useMemo(
+    () => (filter === 'all' ? all : all.filter(e => (e.type || 'video') === filter)),
+    [all, filter],
+  )
+
+  const open = useMemo(() => all.find(e => e.id === openId) || null, [all, openId])
 
   const remove = useCallback(entry => {
     Alert.alert(
-      'Delete this?',
+      'Delete this clip?',
       'It will be removed from the gallery. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => setInfluencers(prev => prev.map(i => i.id === influencer.id
-            ? { ...i, generationHistory: (i.generationHistory || []).filter(e => e.id !== entry.id) }
-            : i)),
+          onPress: () => {
+            setOpenId(null)
+            setInfluencers(prev => prev.map(i => i.id === influencer.id
+              ? { ...i, generationHistory: (i.generationHistory || []).filter(e => e.id !== entry.id) }
+              : i))
+          },
         },
       ],
     )
@@ -76,103 +83,182 @@ export default function GalleryTab({ influencer }) {
     downloadImage(entry.url, base + '-' + entry.id + (isVideo ? '.mp4' : '.jpg'))
   }, [influencer.name])
 
+  // Nothing generated yet at all — a single, calm empty state rather than an
+  // empty grid with a filter bar above it that does nothing.
+  if (all.length === 0) {
+    return (
+      <View style={[styles.emptyScreen, { paddingBottom: insets.bottom + space.xxl }]}>
+        <View style={[styles.emptyIcon, { backgroundColor: colors.brandSoft }]}>
+          <Text style={styles.emptyGlyph}>🎬</Text>
+        </View>
+        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No clips yet</Text>
+        <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>
+          Promo videos and motion copies you generate for {influencer.name} are kept here —
+          they stay after you leave the screen or close the app.
+        </Text>
+      </View>
+    )
+  }
+
   return (
-    <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{ paddingBottom: insets.bottom + space.xxl }}
-      keyboardShouldPersistTaps="handled"
-    >
-      {total > 0 ? (
+    <>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
+      >
         <View style={styles.filters}>
-          {FILTERS.map(f => (
-            <Pressable
-              key={f.value}
-              onPress={() => setFilter(f.value)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: filter === f.value }}
-              style={[
-                styles.filter,
-                {
-                  backgroundColor: filter === f.value ? colors.brand : colors.surfaceAlt,
-                  borderColor: filter === f.value ? colors.brand : colors.borderSubtle,
-                },
-              ]}
-            >
-              <Text
+          {[
+            { label: 'All', value: 'all' },
+            { label: 'Videos', value: 'video' },
+            { label: 'Images', value: 'image' },
+          ].map(f => {
+            const active = filter === f.value
+            const n = counts[f.value]
+            return (
+              <Pressable
+                key={f.value}
+                onPress={() => setFilter(f.value)}
+                disabled={n === 0}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active, disabled: n === 0 }}
                 style={[
-                  styles.filterText,
-                  { color: filter === f.value ? '#FFFFFF' : colors.textSecondary },
+                  styles.filter,
+                  {
+                    backgroundColor: active ? colors.brand : colors.surface,
+                    borderColor: active ? colors.brand : colors.borderSubtle,
+                    opacity: n === 0 ? 0.45 : 1,
+                  },
                 ]}
               >
-                {f.label}
-              </Text>
-            </Pressable>
-          ))}
+                <Text
+                  style={[
+                    styles.filterText,
+                    { color: active ? '#FFFFFF' : colors.textSecondary },
+                  ]}
+                >
+                  {f.label} {n}
+                </Text>
+              </Pressable>
+            )
+          })}
         </View>
-      ) : null}
 
-      {items.length === 0 ? (
-        <Section title={total === 0 ? 'Nothing here yet' : 'Nothing of that kind yet'}>
-          <View style={styles.padded}>
-            <Text style={[styles.empty, { color: colors.textSecondary }]}>
-              {total === 0
-                ? 'Generate a promo video or a motion copy and it is kept here — it stays after you leave the screen or close the app.'
-                : 'Try a different filter.'}
-            </Text>
-          </View>
-        </Section>
-      ) : (
-        <Section title={items.length + (items.length === 1 ? ' item' : ' items')}>
-          <View style={[styles.padded, { gap: space.lg }]}>
+        {items.length === 0 ? (
+          <Text style={[styles.noneForFilter, { color: colors.textTertiary }]}>
+            No {filter === 'video' ? 'videos' : 'images'} yet.
+          </Text>
+        ) : (
+          <View style={styles.grid}>
             {items.map(entry => (
-              <GalleryItem
-                key={entry.id}
-                entry={entry}
-                onShare={() => share(entry)}
-                onDelete={() => remove(entry)}
-              />
+              <Tile key={entry.id} entry={entry} onPress={() => setOpenId(entry.id)} />
             ))}
           </View>
-        </Section>
-      )}
-    </ScrollView>
+        )}
+      </ScrollView>
+
+      <Lightbox
+        entry={open}
+        influencerName={influencer.name}
+        onClose={() => setOpenId(null)}
+        onShare={() => open && share(open)}
+        onDelete={() => open && remove(open)}
+      />
+    </>
   )
 }
 
-function GalleryItem({ entry, onShare, onDelete }) {
+/** One grid thumbnail. Videos render a paused frame with a play badge. */
+function Tile({ entry, onPress }) {
   const { colors } = useTheme()
   const isVideo = (entry.type || 'video') === 'video'
 
   return (
-    <View style={[styles.card, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
-      {isVideo
-        ? <HistoryVideo uri={entry.url} />
-        : <Image source={{ uri: entry.url }} style={styles.media} resizeMode="contain" />}
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={(entry.label || (isVideo ? 'Video' : 'Image')) + ', ' + formatDate(entry.date)}
+      style={({ pressed }) => [styles.tile, { opacity: pressed ? 0.75 : 1 }]}
+    >
+      <View style={[styles.thumbWrap, { borderColor: colors.borderSubtle }]}>
+        {isVideo
+          ? <TilePreview uri={entry.url} />
+          : <Image source={{ uri: entry.url }} style={styles.thumb} resizeMode="cover" />}
 
-      <View style={styles.meta}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.label, { color: colors.textPrimary }]} numberOfLines={1}>
-            {entry.label || (isVideo ? 'Video' : 'Image')}
-          </Text>
-          <Text style={[styles.date, { color: colors.textTertiary }]}>{formatDate(entry.date)}</Text>
-        </View>
-        <Pressable onPress={onDelete} hitSlop={10} accessibilityRole="button" accessibilityLabel="Delete">
-          <Text style={[styles.delete, { color: colors.danger }]}>Delete</Text>
-        </Pressable>
+        {isVideo ? (
+          <View style={styles.playBadge}>
+            <Text style={styles.playGlyph}>▶</Text>
+          </View>
+        ) : null}
       </View>
 
-      <Button title="Save or share" variant="secondary" onPress={onShare} />
-    </View>
+      <Text style={[styles.tileLabel, { color: colors.textPrimary }]} numberOfLines={1}>
+        {entry.label || (isVideo ? 'Video' : 'Image')}
+      </Text>
+      <Text style={[styles.tileDate, { color: colors.textTertiary }]} numberOfLines={1}>
+        {formatDate(entry.date)}
+      </Text>
+    </Pressable>
   )
 }
 
 /**
- * One player per item, not looping and not autoplaying: a gallery can hold many
- * clips, and playing them all at once would compete for decoders and battery.
+ * Muted, paused, no controls — this is a poster frame, not a player. Playback
+ * happens in the lightbox so only one clip is ever decoding at a time.
  */
-function HistoryVideo({ uri }) {
-  const player = useVideoPlayer(uri, p => { p.loop = false })
-  return <VideoView style={styles.media} player={player} allowsFullscreen nativeControls contentFit="contain" />
+function TilePreview({ uri }) {
+  const player = useVideoPlayer(uri, p => { p.loop = false; p.muted = true })
+  return <VideoView style={styles.thumb} player={player} nativeControls={false} contentFit="cover" />
+}
+
+/** Full-screen viewer: playback plus the destructive/among-apps actions. */
+function Lightbox({ entry, influencerName, onClose, onShare, onDelete }) {
+  const { colors } = useTheme()
+  const insets = useSafeAreaInsets()
+
+  return (
+    <Modal
+      visible={!!entry}
+      animationType="slide"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={[styles.sheet, { backgroundColor: colors.bg, paddingTop: insets.top }]}>
+        <View style={[styles.sheetBar, { borderBottomColor: colors.borderSubtle }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.sheetTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+              {entry?.label || 'Clip'}
+            </Text>
+            <Text style={[styles.sheetSub, { color: colors.textTertiary }]} numberOfLines={1}>
+              {influencerName} · {formatDate(entry?.date)}
+            </Text>
+          </View>
+          <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
+            <Text style={[styles.close, { color: colors.brandDeep }]}>Done</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.stage}>
+          {entry ? (
+            (entry.type || 'video') === 'video'
+              ? <LightboxVideo uri={entry.url} />
+              : <Image source={{ uri: entry.url }} style={styles.stageMedia} resizeMode="contain" />
+          ) : null}
+        </View>
+
+        <View style={[styles.sheetActions, { paddingBottom: insets.bottom + space.lg }]}>
+          <Button title="Save or share" variant="secondary" onPress={onShare} />
+          <Pressable onPress={onDelete} accessibilityRole="button" style={styles.deleteRow}>
+            <Text style={[styles.deleteText, { color: colors.danger }]}>Delete</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
+function LightboxVideo({ uri }) {
+  const player = useVideoPlayer(uri, p => { p.loop = true; p.play() })
+  return <VideoView style={styles.stageMedia} player={player} allowsFullscreen nativeControls contentFit="contain" />
 }
 
 function formatDate(ts) {
@@ -187,18 +273,59 @@ function formatDate(ts) {
 }
 
 const styles = StyleSheet.create({
-  padded: { paddingHorizontal: space.lg },
-  empty: { fontSize: 14, lineHeight: 20 },
+  content: { padding: space.lg },
 
-  filters: { flexDirection: 'row', gap: space.sm, paddingHorizontal: space.lg, paddingTop: space.lg },
-  filter: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: radius.pill, borderWidth: 1 },
+  filters: { flexDirection: 'row', gap: space.sm, marginBottom: space.lg },
+  filter: {
+    paddingVertical: 8, paddingHorizontal: 14,
+    borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth,
+  },
   filterText: { fontSize: 13, fontWeight: '600' },
 
-  card: { borderWidth: 1, borderRadius: radius.md, padding: space.md, gap: space.md },
-  media: { width: '100%', aspectRatio: 9 / 16, borderRadius: radius.sm, backgroundColor: '#000' },
+  noneForFilter: { fontSize: 14, paddingVertical: space.xxl, textAlign: 'center' },
 
-  meta: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  label: { fontSize: 14, fontWeight: '600' },
-  date: { fontSize: 12, marginTop: 2 },
-  delete: { fontSize: 13, fontWeight: '600' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  tile: { width: '48%', marginBottom: space.lg },
+  thumbWrap: {
+    width: '100%', aspectRatio: 9 / 16, borderRadius: radius.md,
+    overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#000',
+  },
+  thumb: { width: '100%', height: '100%' },
+  playBadge: {
+    position: 'absolute', left: 8, bottom: 8,
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  playGlyph: { color: '#FFFFFF', fontSize: 11, marginLeft: 2 },
+  tileLabel: { fontSize: 13, fontWeight: '600', marginTop: space.sm },
+  tileDate: { fontSize: 11.5, marginTop: 1 },
+
+  // Empty state
+  emptyScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xxl },
+  emptyIcon: {
+    width: 72, height: 72, borderRadius: 36,
+    alignItems: 'center', justifyContent: 'center', marginBottom: space.lg,
+  },
+  emptyGlyph: { fontSize: 30 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: space.sm },
+  emptyBody: { fontSize: 14, lineHeight: 21, textAlign: 'center' },
+
+  // Lightbox
+  sheet: { flex: 1 },
+  sheetBar: {
+    flexDirection: 'row', alignItems: 'center', gap: space.md,
+    paddingHorizontal: space.lg, paddingVertical: space.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  sheetTitle: { fontSize: 16, fontWeight: '700' },
+  sheetSub: { fontSize: 12, marginTop: 2 },
+  close: { fontSize: 15, fontWeight: '600' },
+
+  stage: { flex: 1, backgroundColor: '#000' },
+  stageMedia: { width: '100%', height: '100%' },
+
+  sheetActions: { paddingHorizontal: space.lg, paddingTop: space.lg, gap: space.sm },
+  deleteRow: { alignItems: 'center', paddingVertical: space.md },
+  deleteText: { fontSize: 15, fontWeight: '600' },
 })
