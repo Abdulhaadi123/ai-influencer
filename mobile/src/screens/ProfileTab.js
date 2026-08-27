@@ -20,6 +20,7 @@ import {
 } from 'react-native'
 
 import { useBottomInset } from '../hooks/useBottomInset'
+import { mediaSource } from '../lib/seedMedia'
 
 import { useInfluencers } from '@core/store'
 import { getNiches } from '@core/niches'
@@ -35,6 +36,8 @@ export default function ProfileTab({ influencer }) {
   const { colors } = useTheme()
   const bottomInset = useBottomInset()
   const [, setInfluencers] = useInfluencers()
+
+  const heroSource = mediaSource(influencer.mainImage)
 
   const [regenerating, setRegenerating] = useState(false)
   const [nicheOpen, setNicheOpen] = useState(false)
@@ -80,10 +83,10 @@ export default function ProfileTab({ influencer }) {
     >
       <Section title="Main image">
         <View style={styles.padded}>
-          {influencer.mainImage ? (
+          {heroSource ? (
             <View style={{ gap: space.md }}>
               <View>
-                <Image source={{ uri: influencer.mainImage }} style={styles.hero} resizeMode="cover" />
+                <Image source={heroSource} style={styles.hero} resizeMode="cover" />
                 {regenerating ? (
                   <View style={styles.heroOverlay}>
                     <ActivityIndicator size="large" color="#FFFFFF" />

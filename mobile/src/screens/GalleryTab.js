@@ -28,6 +28,7 @@ import { downloadImage } from '@core/platform/media'
 import { useInfluencers } from '@core/store'
 
 import { useBottomInset } from '../hooks/useBottomInset'
+import { isServable, mediaSource } from '../lib/seedMedia'
 import { useTheme, space, radius } from '../theme'
 import { Button } from '../components/ui'
 
@@ -41,8 +42,11 @@ export default function GalleryTab({ influencer }) {
 
   const history = influencer.generationHistory
 
+  // isServable, not just `e.url`: the seeded influencers carry web-origin
+  // paths like "/camila/videos/v1.mp4" whose files are not shipped with the
+  // app. Left in, Camila alone would show 15 tiles that can never load.
   const all = useMemo(
-    () => [...(history || []).filter(e => e && e.url)].sort((a, b) => (b.date || 0) - (a.date || 0)),
+    () => [...(history || []).filter(e => e && isServable(e.url))].sort((a, b) => (b.date || 0) - (a.date || 0)),
     [history],
   )
 
@@ -184,7 +188,7 @@ function Tile({ entry, onPress }) {
       <View style={[styles.thumbWrap, { borderColor: colors.borderSubtle }]}>
         {isVideo
           ? <TilePreview uri={entry.url} />
-          : <Image source={{ uri: entry.url }} style={styles.thumb} resizeMode="cover" />}
+          : <Image source={mediaSource(entry.url)} style={styles.thumb} resizeMode="cover" />}
 
         {isVideo ? (
           <View style={styles.playBadge}>
@@ -243,7 +247,7 @@ function Lightbox({ entry, influencerName, onClose, onShare, onDelete }) {
           {entry ? (
             (entry.type || 'video') === 'video'
               ? <LightboxVideo uri={entry.url} />
-              : <Image source={{ uri: entry.url }} style={styles.stageMedia} resizeMode="contain" />
+              : <Image source={mediaSource(entry.url)} style={styles.stageMedia} resizeMode="contain" />
           ) : null}
         </View>
 

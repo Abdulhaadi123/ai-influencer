@@ -13,6 +13,7 @@ import { useMemo } from 'react'
 import { View, Text, ScrollView, Image, Pressable, StyleSheet } from 'react-native'
 
 import { useBottomInset } from '../hooks/useBottomInset'
+import { isServable, mediaSource } from '../lib/seedMedia'
 import { LinearGradient } from 'expo-linear-gradient'
 
 import { useInfluencers } from '@core/store'
@@ -48,7 +49,7 @@ export default function HomeScreen({ navigation }) {
   const [influencers] = useInfluencers()
 
   const recent = useMemo(
-    () => (influencers || []).filter(i => i.mainImage).slice(0, 6),
+    () => (influencers || []).filter(i => isServable(i.mainImage)).slice(0, 6),
     [influencers]
   )
   const count = (influencers || []).length
@@ -95,7 +96,7 @@ export default function HomeScreen({ navigation }) {
             {recent.map(inf => (
               <Image
                 key={inf.id}
-                source={{ uri: inf.mainImage }}
+                source={mediaSource(inf.mainImage)}
                 style={[styles.avatar, { borderColor: colors.surface }]}
                 resizeMode="cover"
               />

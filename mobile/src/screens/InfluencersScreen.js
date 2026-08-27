@@ -11,6 +11,7 @@ import { useMemo } from 'react'
 import { View, Text, Image, FlatList, Pressable, StyleSheet } from 'react-native'
 
 import { useBottomInset } from '../hooks/useBottomInset'
+import { mediaSource } from '../lib/seedMedia'
 
 import { useInfluencers } from '@core/store'
 
@@ -56,7 +57,9 @@ export default function InfluencersScreen({ navigation }) {
 
 function InfluencerCard({ influencer, onPress }) {
   const { colors } = useTheme()
-  const image = influencer.mainImage || influencer.image
+  // Resolve rather than trust the string: seed avatars are web-origin paths
+  // that render blank, and must fall through to the letter placeholder.
+  const image = mediaSource(influencer.mainImage || influencer.image)
   const subtitle = influencer.niche || influencer.gender || '—'
 
   return (
@@ -73,7 +76,7 @@ function InfluencerCard({ influencer, onPress }) {
       ]}
     >
       {image ? (
-        <Image source={{ uri: image }} style={styles.avatar} resizeMode="cover" />
+        <Image source={image} style={styles.avatar} resizeMode="cover" />
       ) : (
         <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.brandSoft }]}>
           <Text style={[styles.avatarLetter, { color: colors.brand }]}>
