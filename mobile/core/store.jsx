@@ -1,7 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react'
 import * as storage from './platform/storage'
 import seedData from './data/seeds.json'
-import { reloadApp } from './platform/app'
 
 // Generic small-value localStorage hook (inspiration boards, brand deals, etc.)
 function useLocalStorage(key, initial) {
@@ -432,60 +431,69 @@ const TEMPLATE_IDS = new Set(['kayla-template', 'camila-template', 'marcus-templ
 
 export function StoreProvider({ children }) {
   const influencerStore = useInfluencerStore([KAYLA_SEED, CAMILA_SEED, MARCUS_SEED])
+  const [, setInfluencers] = influencerStore
   const brandDealsState  = useLocalStorage('brand_deals', [])
   const [, setDealsData]         = brandDealsState
 
-  // Seed from the bundled seed data when those IDs are missing from storage.
-  // Bundled rather than fetched: the app must work with no backend of its own,
-  // and a network round-trip here would block first-run seeding offline.
+  // Seed from the bundled seed data when those IDs are missing. Bundled rather
+  // than fetched: the app must work with no backend of its own, and a network
+  // round-trip here would block first-run seeding offline.
+  //
+  // Seeds are merged into REACT STATE, not written straight to storage. That
+  // distinction matters: useInfluencerStore's effect mirrors React state back
+  // onto storage and prunes any hf_influencer_* key it does not recognise. A
+  // seed written only to storage would therefore be deleted again the moment
+  // the user changed anything. This used to be papered over with a full app
+  // reload, which is a no-op on native (expo-updates is not installed), so the
+  // pruning ran and the records were lost. Going through state keeps the two
+  // in sync by construction and needs no reload.
   useEffect(() => {
     Promise.resolve(seedData)
       .then(seeds => {
-        const currentIds = new Set(readIds() || [])
-        const missingSeedIds = seeds.influencer_ids.filter(id => !currentIds.has(id))
-        let didWrite = false
+        const seedIds = seeds.influencer_ids || []
 
-        if (missingSeedIds.length) {
-          // Write only the missing seed influencers, preserve everything already there
-          const allIds = [...seeds.influencer_ids]
-          // Also keep any user IDs not in seeds (in case user added new ones)
-          for (const id of currentIds) {
-            if (!allIds.includes(id)) allIds.push(id)
-          }
-          writeIds(allIds)
-          for (const id of missingSeedIds) {
-            if (seeds.influencers[id]) writeInfluencer(seeds.influencers[id])
+        setInfluencers(prev => {
+          const byId = new Map(prev.map(i => [i.id, i]))
+          let changed = false
+
+          for (const id of seedIds) {
+            const seedInf = seeds.influencers?.[id]
+            if (!seedInf) continue
+            const existing = byId.get(id)
+            if (!existing) {
+              byId.set(id, seedInf)
+              changed = true
+            } else if ((seedInf.prompt && !existing.prompt) || (seedInf.backstory && !existing.backstory)) {
+              // Patch only empty fields — never overwrite the user's own edits.
+              byId.set(id, {
+                ...existing,
+                prompt: existing.prompt || seedInf.prompt || '',
+                backstory: existing.backstory || seedInf.backstory || '',
+              })
+              changed = true
+            }
           }
 
-          // Merge photo history — add seed photos that aren't already there
-          const existingPhotos = JSON.parse(storage.getItem('photo_studio_history') || '[]')
-          const existingPhotoUrls = new Set(existingPhotos.map(p => p.url))
-          const newPhotos = (seeds.photo_studio_history || []).filter(p => !existingPhotoUrls.has(p.url))
-          if (newPhotos.length) {
-            const merged = [...existingPhotos, ...newPhotos].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-            try { storage.setItem('photo_studio_history', JSON.stringify(merged)) } catch {}
-          }
+          if (!changed) return prev
 
-          didWrite = true
+          // Seed order first, then anything the user created, so the list stays
+          // stable across launches instead of reshuffling.
+          const seedIdSet = new Set(seedIds)
+          const ordered = seedIds.filter(id => byId.has(id)).map(id => byId.get(id))
+          for (const inf of prev) if (!seedIdSet.has(inf.id)) ordered.push(inf)
+          return ordered
+        })
+
+        // Photo history is plain storage, not React state — merge it in place.
+        const existingPhotos = JSON.parse(storage.getItem('photo_studio_history') || '[]')
+        const existingPhotoUrls = new Set(existingPhotos.map(p => p.url))
+        const newPhotos = (seeds.photo_studio_history || []).filter(p => !existingPhotoUrls.has(p.url))
+        if (newPhotos.length) {
+          const merged = [...existingPhotos, ...newPhotos].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+          try { storage.setItem('photo_studio_history', JSON.stringify(merged)) } catch {}
         }
 
-        // Always patch existing influencers that are missing prompt or backstory from seeds
-        for (const [id, seedInf] of Object.entries(seeds.influencers || {})) {
-          if (!currentIds.has(id)) continue // will be written above if missing
-          const existing = readInfluencer(id)
-          if (!existing) continue
-          const needsPatch = (seedInf.prompt && !existing.prompt) || (seedInf.backstory && !existing.backstory)
-          if (needsPatch) {
-            writeInfluencer({
-              ...existing,
-              prompt: existing.prompt || seedInf.prompt || '',
-              backstory: existing.backstory || seedInf.backstory || '',
-            })
-            didWrite = true
-          }
-        }
-
-        // Always merge global brand deals via React state setter — no reload needed
+        // Brand deals go through their own state setter — likewise no reload.
         const existingDeals = JSON.parse(storage.getItem('brand_deals') || '[]')
         const existingDealMap = new Map(existingDeals.map(d => [d.id, d]))
         const newDeals = (seeds.brand_deals || []).filter(d => d.id && !existingDealMap.has(d.id))
@@ -500,9 +508,6 @@ export function StoreProvider({ children }) {
         if (dealsChanged) {
           setDealsData([...newDeals, ...patchedDeals])
         }
-
-        // Only reload when influencer data or photo history changed — boards/deals are handled above via state
-        if (didWrite) reloadApp()
       })
       .catch(e => console.warn('[seeds] failed to load:', e))
   }, []) // eslint-disable-line

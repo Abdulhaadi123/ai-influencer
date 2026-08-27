@@ -5,7 +5,8 @@
  * page. Same structure here, using a segmented control, which is the native
  * idiom for switching between sibling views.
  *
- * All three tabs are live.
+ * All four tabs are live. Gallery reads back the generation history that
+ * Videos and Motion Copy write, so results outlive the screen that made them.
  */
 
 import { useMemo, useState } from 'react'
@@ -15,6 +16,7 @@ import { useInfluencers } from '@core/store'
 
 import { useTheme, space } from '../theme'
 import { Segmented } from '../components/ui'
+import GalleryTab from './GalleryTab'
 import MotionCopyScreen from './MotionCopyScreen'
 import ProfileTab from './ProfileTab'
 import VideosTab from './VideosTab'
@@ -23,6 +25,7 @@ const TABS = [
   { label: 'Profile', value: 'profile' },
   { label: 'Videos', value: 'videos' },
   { label: 'Motion', value: 'motion' },
+  { label: 'Gallery', value: 'gallery' },
 ]
 
 export default function InfluencerDetailScreen({ route }) {
@@ -57,8 +60,10 @@ export default function InfluencerDetailScreen({ route }) {
         <ProfileTab influencer={influencer} />
       ) : tab === 'videos' ? (
         <VideosTab influencer={influencer} />
-      ) : (
+      ) : tab === 'motion' ? (
         <MotionCopyScreen influencer={influencer} />
+      ) : (
+        <GalleryTab influencer={influencer} />
       )}
     </View>
   )
