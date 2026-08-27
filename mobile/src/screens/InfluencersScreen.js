@@ -31,10 +31,24 @@ export default function InfluencersScreen({ navigation }) {
   if (!data.length) {
     return (
       <View style={[styles.empty, { backgroundColor: colors.bg }]}>
+        <View style={[styles.emptyIcon, { backgroundColor: colors.brandSoft }]}>
+          <Text style={styles.emptyGlyph}>✦</Text>
+        </View>
         <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No influencers yet</Text>
         <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>
-          Once you create one it will appear here, on this device and in the web app.
+          Create one and it appears here. Describe them, or start from a photo
+          and pick what to copy.
         </Text>
+        <Pressable
+          onPress={() => navigation?.navigate?.('Create')}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.emptyCta,
+            { backgroundColor: colors.brand, opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <Text style={styles.emptyCtaText}>Create an influencer</Text>
+        </Pressable>
       </View>
     )
   }
@@ -116,6 +130,18 @@ const styles = StyleSheet.create({
   name: { fontSize: 16, fontWeight: '600' },
   subtitle: { fontSize: 13 },
   chevron: { fontSize: 24, lineHeight: 26, paddingRight: space.xs },
+
+  emptyIcon: {
+    width: 72, height: 72, borderRadius: 36,
+    alignItems: 'center', justifyContent: 'center', marginBottom: space.lg,
+  },
+  emptyGlyph: { fontSize: 28 },
+  emptyCta: {
+    marginTop: space.xl,
+    paddingVertical: space.md, paddingHorizontal: space.xl,
+    borderRadius: radius.md,
+  },
+  emptyCtaText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.sm },
   emptyTitle: { fontSize: 18, fontWeight: '600' },

@@ -1,6 +1,5 @@
 import { useState, useEffect, createContext, useContext } from 'react'
 import * as storage from './platform/storage'
-import seedData from './data/seeds.json'
 
 // Generic small-value localStorage hook (inspiration boards, brand deals, etc.)
 function useLocalStorage(key, initial) {
@@ -120,397 +119,61 @@ function useInfluencerStore(initial) {
 const InfluencersCtx = createContext(null)
 const BrandDealsCtx  = createContext(null)
 
-const KAYLA_SEED = {
-  id: 'kayla-template',
-  name: 'Kayla',
-  gender: 'Female',
-  type: 'Influencer',
-  createdAt: 1715000000000,
-  mainImage: '/kayla/main.jpg',
-  characterSheetImage: '/kayla/sheet.jpg',
-  closeUpImage1: '/kayla/closeup1.jpg',
-  closeUpImage2: '/kayla/closeup2.jpg',
-  prompt: '',
-  age: '18',
-  backstory: 'wanna be influencer',
-  introExtrovert: 85,
-  niche: 'Fashion',
-  nicheCustom: '',
-  audience: '',
-  hobbies: '',
-  clothingStyle: 'Streetwear',
-  dreamBrands: '',
-  voice: '',
-  contentPillars: [],
-  palette: ['#F472B6', '#FBCFE8', '#C084FC', '#DB2777'],
-  videoUrls: [],
-  scripts: [],
-  homeImages: [],
-  brandDealImages: [],
-  wardrobeSlots: [],
-  physicalDesc: 'white, long wavy blonde hair, blue eyes, medium skin tone, athletic build',
-  generationHistory: [
-    { id: 'kayla-video-1', type: 'video', label: 'Video', url: 'https://d8j0ntlcm91z4.cloudfront.net/user_2z5tOA1YxOBG2p6w9RhgcS5yRLO/hf_20260518_041646_b7fade5c-6e6b-460a-80c8-3d672acac275.mp4', date: 1779077806000 },
-  ],
+// ── One-time removal of the bundled demo influencers ────────────────────────
+//
+// The app used to ship eight sample influencers (Kayla, Camila, Marcus, plus
+// five carried over from the old web deployment) and inject them on first run.
+// They are gone: everyone got the same fake roster, several of them were one
+// real person's content, and their media only ever resolved against the old
+// website's origin.
+//
+// Removing them from the bundle stops NEW installs receiving them, but an
+// existing install already has the records on disk, so they are cleared here.
+//
+// The `file://` check is the safeguard: persistMedia writes results to a
+// file:// path on the device, and only ever for something the user generated
+// themselves. Seed history entries are all http:// or bare web paths. So a
+// demo influencer the user actually made something with is KEPT — deleting it
+// would take their clip with it.
+
+const DEMO_IDS = [
+  'kayla-template', 'camila-template', 'marcus-template',
+  'mpe00fxqdypgtihqft', 'mpm5hc0xi4d78ry3qr', 'mpm8eqj77o69r06igss',
+  'mpma2ne5wzlwy87k7n', 'mpmd4rw1nhdryivbpxh',
+]
+const DEMO_PURGE_FLAG = 'demo_influencers_removed_v1'
+
+function hasUserContent(inf) {
+  return (inf?.generationHistory || []).some(e => typeof e?.url === 'string' && e.url.startsWith('file://'))
 }
 
-const MARCUS_SEED = {
-  id: 'marcus-template',
-  name: 'Marcus',
-  gender: 'Male',
-  type: 'Influencer',
-  createdAt: 1715000002000,
-  mainImage: '/marcus/main.png',
-  characterSheetImage: '/marcus/sheet.png',
-  closeUpImage1: '/marcus/closeup1.png',
-  closeUpImage2: '/marcus/closeup2.png',
-  prompt: '',
-  age: '22',
-  backstory: 'loves tech since he was young',
-  introExtrovert: 60,
-  niche: 'Tech',
-  nicheCustom: '',
-  audience: '',
-  hobbies: '',
-  clothingStyle: 'Streetwear',
-  dreamBrands: '',
-  voice: '',
-  contentPillars: [],
-  palette: ['#6366F1', '#A5B4FC', '#4F46E5', '#1E1B4B'],
-  videoUrls: [],
-  scripts: [],
-  homeImages: [],
-  brandDealImages: [],
-  wardrobeSlots: [],
-  physicalDesc: 'Latino, short black hair, brown eyes, olive skin tone, average build',
-  generationHistory: [
-    { id: 'marcus-video-1', type: 'video', label: 'Video', url: '/marcus/video1.mp4', date: 1748248415000 },
-  ],
-}
-
-const CAMILA_SEED = {
-  id: 'camila-template',
-  name: 'Camila',
-  gender: 'Female',
-  type: 'Influencer',
-  createdAt: 1715000001000,
-  mainImage: '/camila/main.jpg',
-  characterSheetImage: '/camila/sheet.jpg',
-  closeUpImage1: '/camila/closeup1.png',
-  closeUpImage2: '/camila/closeup2.png',
-  prompt: 'Candid iPhone photo of @image1, wearing the complete outfit from @image2, reproducing all clothing, headwear, and accessories exactly. Match skin texture and facial detail from @image3 and @image4. Mid-action — mid-laugh, mid-sip, mid-step, or mid-reach — body fully committed to the action, expression caught at the apex. Eyes can be on lens (late-arrival) or completely off-axis. Hands engaged with the action, not posed. Expression: direct and serious — neutral mouth at rest, steady gaze into the lens, no smile. Composed and self-assured. Eyes directed off-axis — looking to the side or slightly above the camera, as if unaware of being photographed. A small front window table, street traffic soft and blurred outside the glass, a half-drunk flat white on the table beside her. Soft morning window light from one side, cool and directional. Eye-level, 24mm, handheld. 9:16, chest-up framing. Deep focus, no bokeh, photorealistic. No other people in frame.',
-  age: '22',
-  backstory: "Camilla got into fitness relatively young, but after realizing she wasn't passionate in personal training clients in the gym, she switched careers to teaching yoga classes.",
-  introExtrovert: 70,
-  niche: 'Fashion',
-  nicheCustom: '',
-  audience: '',
-  hobbies: '',
-  clothingStyle: 'Streetwear',
-  dreamBrands: '',
-  voice: '',
-  contentPillars: [],
-  palette: ['#D97706', '#FDE68A', '#B45309', '#92400E'],
-  videoUrls: [],
-  scripts: [],
-  homeImages: [],
-  brandDealImages: [],
-  wardrobeSlots: [
-    { id: 'camila-wardrobe-sporty', name: 'sporty fit', image: '/camila/wardrobe/sporty_fit.png' },
-    { id: 'camila-wardrobe-yoga',   name: 'yoga fit',   image: '/camila/wardrobe/yoga_fit.png'   },
-  ],
-  brandDeals: [
-    { id: 'camila-deal-swatch', brand: 'swatch', category: 'fashion', image: '/camila/brand_deals/swatch_original.png', images: ['/camila/brand_deals/swatch_original.png'], characterSheet: '/camila/brand_deals/swatch_sheet.png' },
-  ],
-  physicalDesc: 'Latina, medium-length wavy brunette hair with side-swept bangs, brown eyes, olive skin tone, slim athletic build',
-  generationHistory: [
-    { id: 'camila-video-1', type: 'video', label: 'Video', url: '/camila/videos/v1.mp4', date: 1748177579000 },
-    { id: 'camila-video-2', type: 'video', label: 'Video', url: '/camila/videos/v2.mp4', date: 1748213180000 },
-    { id: 'camila-video-3', type: 'video', label: 'Video', url: '/camila/videos/v3.mp4', date: 1748216854000 },
-    { id: 'camila-video-4', type: 'video', label: 'Video', url: '/camila/videos/v4.mp4', date: 1748208318000 },
-  ],
-}
-
-// ── Sync startup block ────────────────────────────────────────────
-// Runs before React renders. Order matters:
-// 1. Free quota first (strip bloated video history blobs)
-// 2. Then migrate influencers to per-key format while quota is available
-
-// Step 1: Free quota by stripping base64 product refs from video history
 try {
-  const histKeys = storage.getAllKeys().filter(k => k.startsWith('hf_video_history_'))
-  for (const key of histKeys) {
-    const raw = JSON.parse(storage.getItem(key) || '[]')
-    if (raw.some(e => e.productRef1 || e.productRef2 || e.productRef3)) {
-      const cleaned = raw.map(e => { const c = { ...e }; delete c.productRef1; delete c.productRef2; delete c.productRef3; return c })
-      try { storage.setItem(key, JSON.stringify(cleaned)) } catch { storage.removeItem(key) }
-    }
-  }
-} catch (_) {}
-
-// Step 2: Migrate to per-influencer keys (now that quota has been freed)
-try {
-  const ids = readIds()
-  if (!ids) {
-    // First run with new code — migrate from legacy 'influencers' key
-    const list = readLegacyList()
-    if (!list.some(i => i.id === 'kayla-template'))  list.unshift(KAYLA_SEED)
-    if (!list.some(i => i.id === 'camila-template')) {
-      const ki = list.findIndex(i => i.id === 'kayla-template')
-      list.splice(ki + 1, 0, CAMILA_SEED)
-    }
-    if (!list.some(i => i.id === 'marcus-template')) list.push(MARCUS_SEED)
-    for (const inf of list) writeInfluencer(inf)
-    writeIds(list.map(i => i.id))
-  } else {
-    // New format exists — ensure seeds are present
-    if (!ids.includes('kayla-template')) {
-      writeInfluencer(KAYLA_SEED)
-      writeIds(['kayla-template', ...ids])
-    } else {
-      // Patch seed videos into existing Kayla entry
-      const existing = readInfluencer('kayla-template')
-      if (existing) {
-        const existingVideoIds = new Set((existing.generationHistory || []).filter(e => e.type === 'video').map(e => e.id))
-        const missingVideos = (KAYLA_SEED.generationHistory || []).filter(e => e.type === 'video' && !existingVideoIds.has(e.id))
-        if (missingVideos.length) {
-          writeInfluencer({ ...existing, generationHistory: [...missingVideos, ...(existing.generationHistory || [])] })
-        }
+  if (!storage.getItem(DEMO_PURGE_FLAG)) {
+    const ids = readIds() || []
+    const keep = ids.filter(id => {
+      if (!DEMO_IDS.includes(id)) return true          // the user's own, always keep
+      return hasUserContent(readInfluencer(id))        // demo they built on, keep
+    })
+    for (const id of ids) {
+      if (!keep.includes(id)) {
+        try { storage.removeItem(`${INF_PREFIX}${id}`) } catch {}
       }
     }
-    if (!ids.includes('camila-template')) {
-      const updated = readIds() || ids
-      const ki = updated.indexOf('kayla-template')
-      updated.splice(ki + 1, 0, 'camila-template')
-      writeInfluencer(CAMILA_SEED)
-      writeIds(updated)
-    } else {
-      // Patch any seed fields that are missing from the existing entry
-      const existing = readInfluencer('camila-template')
-      if (existing) {
-        const existingWardrobeIds = new Set((existing.wardrobeSlots || []).map(s => s.id))
-        const missingWardrobe = CAMILA_SEED.wardrobeSlots.filter(s => !existingWardrobeIds.has(s.id))
-        const existingDealIds = new Set((existing.brandDeals || []).map(d => d.id))
-        const missingDeals = CAMILA_SEED.brandDeals.filter(d => !existingDealIds.has(d.id))
-        const existingVideoIds = new Set((existing.generationHistory || []).filter(e => e.type === 'video').map(e => e.id))
-        const missingVideos = CAMILA_SEED.generationHistory.filter(e => e.type === 'video' && !existingVideoIds.has(e.id))
-        const needsPatch = !existing.closeUpImage1 || !existing.closeUpImage2 || missingWardrobe.length || missingDeals.length || missingVideos.length
-        if (needsPatch) {
-          writeInfluencer({
-            ...existing,
-            closeUpImage1: existing.closeUpImage1 || CAMILA_SEED.closeUpImage1,
-            closeUpImage2: existing.closeUpImage2 || CAMILA_SEED.closeUpImage2,
-            wardrobeSlots: [...(existing.wardrobeSlots || []), ...missingWardrobe],
-            brandDeals: [...(existing.brandDeals || []), ...missingDeals],
-            generationHistory: [...missingVideos, ...(existing.generationHistory || [])],
-          })
-        }
-      }
-    }
-    if (!ids.includes('marcus-template')) {
-      writeInfluencer(MARCUS_SEED)
-      writeIds([...(readIds() || ids), 'marcus-template'])
-    } else {
-      // Marcus exists but may be missing data from the failed migration — patch it back in
-      const existing = readInfluencer('marcus-template')
-      if (!existing) {
-        writeInfluencer(MARCUS_SEED)
-      } else {
-        // Patch back seed images/video if they were lost in the failed migration
-        const needsPatch =
-          !existing.mainImage || existing.mainImage.startsWith('data:') ||
-          !existing.characterSheetImage || existing.characterSheetImage.startsWith('data:') ||
-          !(existing.generationHistory || []).some(e => e.type === 'video')
-        if (needsPatch) {
-          const existingVideoHistory = (existing.generationHistory || []).filter(e => e.type === 'video')
-          const seedVideo = MARCUS_SEED.generationHistory.filter(e => e.type === 'video')
-          const mergedHistory = existingVideoHistory.length ? existing.generationHistory : [...seedVideo, ...(existing.generationHistory || [])]
-          writeInfluencer({
-            ...existing,
-            mainImage: MARCUS_SEED.mainImage,
-            characterSheetImage: MARCUS_SEED.characterSheetImage,
-            closeUpImage1: MARCUS_SEED.closeUpImage1,
-            closeUpImage2: MARCUS_SEED.closeUpImage2,
-            generationHistory: mergedHistory,
-          })
-        }
-      }
-    }
+    writeIds(keep)
+    // The photo board only ever held demo stills; nothing in the app reads it.
+    try { storage.removeItem('photo_studio_history') } catch {}
+    storage.setItem(DEMO_PURGE_FLAG, '1')
   }
 } catch (_) {}
 
-// Step 3a: Restore missing photos for user-created influencers — ADDITIVE ONLY, never removes
-try {
-  const CDN = 'https://d8j0ntlcm91z4.cloudfront.net/user_2z5tOA1YxOBG2p6w9RhgcS5yRLO'
-  const RESTORE = [
-    // Derek — all 4 photos
-    { name: 'Derek', url: `${CDN}/hf_20260526_102441_f96f7c7b-4cc1-4e0f-bd75-3088038c69f8.png`, createdAt: 1748261081000 },
-    { name: 'Derek', url: `${CDN}/hf_20260526_102443_3a420032-8203-4f6c-8c7f-6d1171adc2db.png`, createdAt: 1748261083000 },
-    { name: 'Derek', url: `${CDN}/hf_20260526_101736_ca48db77-53e6-4335-8a6e-e12d616ea8e7.png`, createdAt: 1748257056000 },
-    { name: 'Derek', url: `${CDN}/hf_20260526_101732_8a3965d0-53ed-4c6a-9a5f-11888817a5ae.png`, createdAt: 1748257052000 },
-    // Joshua — 2 photos
-    { name: 'Joshua', url: `${CDN}/hf_20260526_101651_39cb19bb-94df-4f47-b5cf-c71d4ac6e478.png`, createdAt: 1748256611000 },
-    { name: 'Joshua', url: `${CDN}/hf_20260526_101653_cff2e1b2-5dd8-4a79-bafa-7d727c0bca4d.png`, createdAt: 1748256613000 },
-    // Jake — 5 photos
-    { name: 'Jake', url: `${CDN}/hf_20260526_104559_392be9b8-96f3-4c5a-b0d6-2050d45d9deb.png`, createdAt: 1748263559000 },
-    { name: 'Jake', url: `${CDN}/hf_20260526_102734_6ad497c6-bbc4-4c97-970c-6fb5173409da.png`, createdAt: 1748261254000 },
-    { name: 'Jake', url: `${CDN}/hf_20260526_102733_4b1aeb26-ba4e-4e1b-a76d-357d9cbe26a4.png`, createdAt: 1748261253000 },
-    { name: 'Jake', url: `${CDN}/hf_20260526_102234_76e09a86-e6a2-423d-9d41-f45724eda8fa.png`, createdAt: 1748261154000 },
-    { name: 'Jake', url: `${CDN}/hf_20260526_102231_0daa99dd-e291-47f6-b78d-eb816d171ac8.png`, createdAt: 1748261151000 },
-  ]
-  const ids = readIds() || []
-  const nameToId = {}
-  for (const id of ids) {
-    try { const inf = readInfluencer(id); if (inf?.name) nameToId[inf.name] = id } catch {}
-  }
-  const existing = JSON.parse(storage.getItem('photo_studio_history') || '[]')
-  const existingUrls = new Set(existing.map(e => e.url))
-  const toAdd = RESTORE
-    .filter(r => nameToId[r.name] && !existingUrls.has(r.url))
-    .map(r => ({ influencerId: nameToId[r.name], url: r.url, createdAt: r.createdAt, location: '', timeOfDay: '', aspectRatio: '9:16', settings: null }))
-  if (toAdd.length) {
-    // Merge by inserting at correct chronological position — never overwrites existing entries
-    const merged = [...existing, ...toAdd].sort((a, b) => b.createdAt - a.createdAt)
-    try { storage.setItem('photo_studio_history', JSON.stringify(merged)) } catch {}
-  }
-} catch (_) {}
-
-// Step 3b: Restore missing videos for user-created influencers — patches into generationHistory, ADDITIVE ONLY
-try {
-  const CDN = 'https://d8j0ntlcm91z4.cloudfront.net/user_2z5tOA1YxOBG2p6w9RhgcS5yRLO'
-  const RESTORE_VIDEOS = [
-    // Brad
-    { name: 'Brad', id: 'brad-video-restore-1', url: `${CDN}/hf_20260526_110221_3922b091-289c-4ad4-8d40-a57b7e82f9cc.mp4`, date: 1748261341000 },
-    // Derek
-    { name: 'Derek', id: 'derek-video-restore-1', url: `${CDN}/hf_20260526_113121_248608f1-9f0f-4759-b338-3173ce804261.mp4`, date: 1748259081000 },
-  ]
-  const ids = readIds() || []
-  const nameToId = {}
-  for (const id of ids) {
-    try { const inf = readInfluencer(id); if (inf?.name) nameToId[inf.name] = id } catch {}
-  }
-  for (const entry of RESTORE_VIDEOS) {
-    const infId = nameToId[entry.name]
-    if (!infId) continue
-    const inf = readInfluencer(infId)
-    if (!inf) continue
-    const existingIds = new Set((inf.generationHistory || []).map(e => e.id))
-    if (!existingIds.has(entry.id)) {
-      const newEntry = { id: entry.id, type: 'video', label: 'Video', url: entry.url, date: entry.date }
-      writeInfluencer({ ...inf, generationHistory: [newEntry, ...(inf.generationHistory || [])] })
-    }
-  }
-} catch (_) {}
-
-// Step 3: Inject Camila's 11 photos into photo_studio_history (where the Photos tab actually reads from)
-try {
-  const CAMILA_PHOTO_URLS = [
-    '/camila/photos/p1.png', '/camila/photos/p2.png', '/camila/photos/p3.png',
-    '/camila/photos/p4.png', '/camila/photos/p5.png', '/camila/photos/p6.png',
-    '/camila/photos/p7.png', '/camila/photos/p8.png', '/camila/photos/p9.png',
-    '/camila/photos/p10.png', '/camila/photos/p11.png',
-    '/camila/photos/p12.png', '/camila/photos/p13.png',
-  ]
-  const existing = JSON.parse(storage.getItem('photo_studio_history') || '[]')
-  const existingUrls = new Set(existing.map(e => e.url))
-  const toAdd = CAMILA_PHOTO_URLS.filter(url => !existingUrls.has(url)).map(url => ({
-    influencerId: 'camila-template',
-    url,
-    createdAt: 1748131200000,
-    location: '',
-    timeOfDay: '',
-    aspectRatio: '9:16',
-    settings: null,
-  }))
-  if (toAdd.length) {
-    try { storage.setItem('photo_studio_history', JSON.stringify([...existing, ...toAdd])) } catch {}
-  }
-} catch (_) {}
-
-const TEMPLATE_IDS = new Set(['kayla-template', 'camila-template', 'marcus-template'])
 
 export function StoreProvider({ children }) {
-  const influencerStore = useInfluencerStore([KAYLA_SEED, CAMILA_SEED, MARCUS_SEED])
-  const [, setInfluencers] = influencerStore
-  const brandDealsState  = useLocalStorage('brand_deals', [])
-  const [, setDealsData]         = brandDealsState
+  const influencerStore = useInfluencerStore([])
+  const brandDealsState = useLocalStorage('brand_deals', [])
 
-  // Seed from the bundled seed data when those IDs are missing. Bundled rather
-  // than fetched: the app must work with no backend of its own, and a network
-  // round-trip here would block first-run seeding offline.
-  //
-  // Seeds are merged into REACT STATE, not written straight to storage. That
-  // distinction matters: useInfluencerStore's effect mirrors React state back
-  // onto storage and prunes any hf_influencer_* key it does not recognise. A
-  // seed written only to storage would therefore be deleted again the moment
-  // the user changed anything. This used to be papered over with a full app
-  // reload, which is a no-op on native (expo-updates is not installed), so the
-  // pruning ran and the records were lost. Going through state keeps the two
-  // in sync by construction and needs no reload.
-  useEffect(() => {
-    Promise.resolve(seedData)
-      .then(seeds => {
-        const seedIds = seeds.influencer_ids || []
-
-        setInfluencers(prev => {
-          const byId = new Map(prev.map(i => [i.id, i]))
-          let changed = false
-
-          for (const id of seedIds) {
-            const seedInf = seeds.influencers?.[id]
-            if (!seedInf) continue
-            const existing = byId.get(id)
-            if (!existing) {
-              byId.set(id, seedInf)
-              changed = true
-            } else if ((seedInf.prompt && !existing.prompt) || (seedInf.backstory && !existing.backstory)) {
-              // Patch only empty fields — never overwrite the user's own edits.
-              byId.set(id, {
-                ...existing,
-                prompt: existing.prompt || seedInf.prompt || '',
-                backstory: existing.backstory || seedInf.backstory || '',
-              })
-              changed = true
-            }
-          }
-
-          if (!changed) return prev
-
-          // Seed order first, then anything the user created, so the list stays
-          // stable across launches instead of reshuffling.
-          const seedIdSet = new Set(seedIds)
-          const ordered = seedIds.filter(id => byId.has(id)).map(id => byId.get(id))
-          for (const inf of prev) if (!seedIdSet.has(inf.id)) ordered.push(inf)
-          return ordered
-        })
-
-        // Photo history is plain storage, not React state — merge it in place.
-        const existingPhotos = JSON.parse(storage.getItem('photo_studio_history') || '[]')
-        const existingPhotoUrls = new Set(existingPhotos.map(p => p.url))
-        const newPhotos = (seeds.photo_studio_history || []).filter(p => !existingPhotoUrls.has(p.url))
-        if (newPhotos.length) {
-          const merged = [...existingPhotos, ...newPhotos].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-          try { storage.setItem('photo_studio_history', JSON.stringify(merged)) } catch {}
-        }
-
-        // Brand deals go through their own state setter — likewise no reload.
-        const existingDeals = JSON.parse(storage.getItem('brand_deals') || '[]')
-        const existingDealMap = new Map(existingDeals.map(d => [d.id, d]))
-        const newDeals = (seeds.brand_deals || []).filter(d => d.id && !existingDealMap.has(d.id))
-        const patchedDeals = existingDeals.map(d => {
-          const seed = (seeds.brand_deals || []).find(s => s.id === d.id)
-          if (!seed) return d
-          const needsPatch = (seed.image && d.image !== seed.image) || (seed.characterSheet && d.characterSheet !== seed.characterSheet)
-          if (needsPatch) return { ...d, image: seed.image || d.image, characterSheet: seed.characterSheet || d.characterSheet }
-          return d
-        })
-        const dealsChanged = newDeals.length || patchedDeals.some((d, i) => d !== existingDeals[i])
-        if (dealsChanged) {
-          setDealsData([...newDeals, ...patchedDeals])
-        }
-      })
-      .catch(e => console.warn('[seeds] failed to load:', e))
-  }, []) // eslint-disable-line
+  // No seeding. The app used to ship a roster of demo influencers and merge
+  // them in here; they are gone, so a fresh install starts empty and every
+  // influencer in the list is one the user made.
 
   return (
     <InfluencersCtx.Provider value={influencerStore}>
