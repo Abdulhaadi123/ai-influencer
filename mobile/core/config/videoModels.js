@@ -211,11 +211,15 @@ export const MOTION_MODELS = [
     id: 'kling-3.0/motion-control',
     label: 'Kling 3.0 Motion Control',
     note: 'Default. Best identity retention.',
+    // Modes are named by resolution here, NOT std/pro — despite what the docs
+    // page says. Confirmed against the live API: both 'std' and 'pro' come
+    // back "mode is not within the range of allowed options", while '720p'
+    // and '1080p' are accepted. This is why motion copy never worked.
     buildInput: ({ prompt, imageUrl, videoUrl, mode }) => ({
       prompt,
       input_urls: [imageUrl],
       video_urls: [videoUrl],
-      mode: mode === 'std' ? 'std' : 'pro',
+      mode: mode === 'std' ? '720p' : '1080p',
       character_orientation: 'video',
       background_source: 'input_video',
     }),
