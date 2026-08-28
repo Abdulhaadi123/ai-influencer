@@ -85,6 +85,28 @@ export async function downloadImage(src, filename = 'image.jpg') {
       file = await File.downloadFileAsync(src, new File(Paths.cache, safeName(filename)), {
         idempotent: true,
       })
+    } else if (src.startsWith('file:')) {
+      // Already on the device. persistMedia copies every generated result to
+      // the documents directory because KIE's URLs expire within a day, so by
+      // the time the user taps Save or share the source is a local path — this
+      // branch used to be missing and every share silently warned instead.
+      //
+      // Copied into the cache first so the share sheet offers the caller's
+      // readable filename rather than the internal one (video_mfz1x9.mp4).
+      const source = new File(src)
+      if (!source.exists) {
+        console.warn('[media] file has gone missing:', src.slice(0, 64))
+        return
+      }
+      try {
+        const target = new File(Paths.cache, safeName(filename))
+        if (target.exists) target.delete()
+        source.copy(target)
+        file = target
+      } catch {
+        // A rename is a convenience, not the point — share the original.
+        file = source
+      }
     } else {
       console.warn('[media] unsupported source for download:', src.slice(0, 32))
       return
