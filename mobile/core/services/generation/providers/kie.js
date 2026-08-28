@@ -2,6 +2,7 @@ import { kieFetch } from '../../../platform/kieTransport'
 import { IMAGE_MODEL_ID, VIDEO_MODEL_KLING, VIDEO_MODEL_VEO, MOTION_MODEL_KIE } from '../../../config/generation'
 import { getVideoModel, getMotionModel } from '../../../config/videoModels'
 import * as storage from '../../../platform/storage'
+import { compressImage } from '../../../platform/media'
 
 // KIE.AI enforces a 3000-character prompt limit — trim with a small safety margin
 const KIE_PROMPT_MAX = 2900
@@ -94,21 +95,50 @@ export function getPendingVideo(influencerId) {
 export const initSession = async () => {} // No MCP session to initialize
 
 // ── Base64 Reference Image Upload ───────────────────────────────────
-async function uploadRefImage(base64Data) {
-  if (!base64Data) return null
-  if (base64Data.startsWith('http')) return base64Data
-  
-  const fp = mediaFingerprint(base64Data)
-  if (_mediaCache.has(fp)) {
-    const cached = _mediaCache.get(fp)
-    if (cached && cached.url && (Date.now() - cached.uploadedAt < 24 * 60 * 60 * 1000)) {
-      return cached.url
-    } else {
-      _mediaCache.delete(fp)
-      _mediaCacheSave()
-    }
+/**
+ * Resolve whatever an influencer record holds into base64 the uploader accepts.
+ *
+ * Stored results are LOCAL FILE PATHS, not URLs: persistMedia copies each
+ * generated file onto the device because KIE deletes its result URLs within a
+ * day. So `mainImage` and friends look like "file:///data/.../image_123.jpg".
+ * The upload endpoint takes base64, and the old code only special-cased http,
+ * so a file path fell through and the path STRING was POSTed as image data —
+ * every upload failed, and Motion Copy reported "Failed to upload the
+ * character image".
+ *
+ * compressImage already reads a file:// URI and returns a data URL, so it does
+ * the conversion and keeps the size down in one step.
+ */
+async function toBase64(source) {
+  if (!source) return null
+  if (source.startsWith('data:')) return source
+  const converted = await compressImage(source)
+  // compressImage falls back to returning its input unchanged on failure, so
+  // only accept a genuine data URL back.
+  return typeof converted === 'string' && converted.startsWith('data:') ? converted : null
+}
+
+async function uploadRefImage(source) {
+  if (!source) return null
+  if (source.startsWith('http')) return source
+
+  // Key the cache on the ORIGINAL reference so a repeat upload skips the
+  // conversion too, not just the network call.
+  const cacheKey = mediaFingerprint(source)
+  if (_mediaCache.has(cacheKey)) {
+    const hit = _mediaCache.get(cacheKey)
+    if (hit && hit.url && (Date.now() - hit.uploadedAt < 24 * 60 * 60 * 1000)) return hit.url
+    _mediaCache.delete(cacheKey)
+    _mediaCacheSave()
   }
 
+  const base64Data = await toBase64(source)
+  if (!base64Data) {
+    console.error('[KIE Upload] could not read image:', String(source).slice(0, 80))
+    return null
+  }
+
+  const fp = cacheKey
   try {
     const res = await kieFetch('/api/file-base64-upload', {
       method: 'POST',
@@ -147,6 +177,12 @@ async function uploadRefImage(base64Data) {
 async function uploadAudioFile(base64Data) {
   if (!base64Data) return null
   if (base64Data.startsWith('http')) return base64Data
+  // Guard the same trap uploadRefImage fell into: anything that is not already
+  // base64 would otherwise be POSTed as audio data as a literal string.
+  if (!base64Data.startsWith('data:')) {
+    console.error('[KIE Upload] audio is not base64:', String(base64Data).slice(0, 80))
+    return null
+  }
 
   const fp = mediaFingerprint(base64Data)
   if (_mediaCache.has(fp)) {
@@ -517,6 +553,12 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
 async function uploadRefVideo(base64Data) {
   if (!base64Data) return null
   if (base64Data.startsWith('http')) return base64Data
+  // Guard the same trap uploadRefImage fell into: anything that is not already
+  // base64 would otherwise be POSTed as video data as a literal string.
+  if (!base64Data.startsWith('data:')) {
+    console.error('[KIE Upload] video is not base64:', String(base64Data).slice(0, 80))
+    return null
+  }
 
   const fp = mediaFingerprint(base64Data)
   if (_mediaCache.has(fp)) {
