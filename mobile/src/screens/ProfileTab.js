@@ -30,6 +30,7 @@ import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
 
 import { useTheme, space, radius } from '../theme'
 import { Section, Row, Button, Collapsible, Field } from '../components/ui'
+import IdentityRefs from '../components/IdentityRefs'
 import { pickImageWithPrompt } from '../lib/picker'
 
 export default function ProfileTab({ influencer }) {
@@ -118,6 +119,8 @@ export default function ProfileTab({ influencer }) {
           )}
         </View>
       </Section>
+
+      <IdentityRefs influencer={influencer} />
 
       <Section title="Identity">
         <Row

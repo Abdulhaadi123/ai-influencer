@@ -92,3 +92,45 @@ Output only valid JSON. No explanation, no markdown.` },
 
   return buildCharSheetPrompt(brand, category, json.productDesc, json.angles || null)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identity reference sheets.
+//
+// These two lived only in the deleted web studio, so the mobile app had no way
+// to produce a close-up or a feature sheet — the fields existed on every
+// influencer and were always null. Recovered verbatim from the web
+// implementation (commit 4559740) so both platforms would generate identical
+// references, and placed in core because they are pure string builders.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function buildFeatureSheetPrompt(inf) {
+  const phys = inf.physicalDesc ? `The subject: ${inf.physicalDesc}. ` : ''
+  return `Beauty model feature reference sheet. ${phys}Pure white background throughout. Clinical reference card layout — like a casting or makeup artist reference sheet printed on white paper. Bold black uppercase sans-serif labels above each panel. Clear white gutters between every panel and white margins around the outside.
+
+Layout — 4 rows stacked top to bottom:
+Row 1 (full width): one wide panel labelled "EYE" — extreme macro close-up centered tightly on both irises. The irises fill the majority of the frame. Shows exact iris color, pattern, and detail. Lashes visible at edges but irises are the dominant subject.
+Row 2 (full width): one wide panel labelled "BROW" — close-up from hairline to mid-nose showing exact brow shape, arch, thickness, hair direction, forehead skin.
+Row 3 (two equal side-by-side panels):
+  Left — labelled "LIP": close-up from nose base to chin showing exact lip shape, cupid's bow, natural lip color.
+  Right — labelled "SKIN TEXTURE": macro close-up of cheek skin showing pores, freckles, natural skin detail, zero retouching.
+Row 4 (two equal side-by-side panels):
+  Left — labelled "HAIR TEXTURE": close-up of hair strands showing exact color, shine, texture, wave or curl pattern.
+  Right — labelled "HANDS": close-up of hand showing nail shape, length, nail color or nail art, knuckle skin detail.
+
+Replicate the reference person's exact features in every panel: precise skin tone, freckle placement, hair color, lip shape, brow arch. Zero beauty retouching — raw photographic detail. White space clearly visible between all panels.
+
+Photorealistic RAW photograph quality, ultra-sharp macro detail in each panel. Shot on Hasselblad 100mm macro lens.`
+}
+
+export function buildCloseUpPrompt(inf) {
+  const phys = inf.physicalDesc ? `The subject: ${inf.physicalDesc}. ` : ''
+  return `Professional studio headshot. Subject facing directly forward, eyes looking straight into the camera lens. Framed from shoulders up — head, neck, and upper chest visible. Clean seamless pure white backdrop, soft gradient toward very light grey at edges, no texture, no cast shadows on background.
+
+${phys}Soft diffused studio lighting: two large softboxes at 45-degree angles producing soft, even, shadow-free illumination across the face. Subtle catchlights visible in both eyes. No harsh under-nose or chin shadows. Skin tone reproduced accurately — natural pore texture, subtle imperfections visible, zero retouching.
+
+Replicate every physical detail from the reference image exactly: facial bone structure, unique facial features and natural asymmetries, precise skin tone, freckles, moles, iris color and detail, eyebrow shape, lip shape, hair color, texture and natural fall. The subject must be unmistakably the same individual.
+
+Subject standing straight, head completely level, facing dead-on into the camera — no tilt, no turn, no pose. Eyes looking directly into the lens. Neutral expression, mouth relaxed and closed. No modelling, no attitude, no special pose whatsoever. Identical to a casting reference or identity card photo.
+
+Shot on Phase One IQ4 150MP, 85mm portrait lens, f/2.8, studio strobe. Photorealistic, ultra-sharp facial detail, RAW photograph quality. Studio identity reference portrait.`
+}
