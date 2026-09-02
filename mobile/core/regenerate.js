@@ -23,7 +23,7 @@ export const NO_CREATION_PARAMS = 'NO_CREATION_PARAMS'
  * @param {(pct:number)=>void} [onProgress]
  * @returns {Promise<string>} the new image URL
  */
-export async function regenerateMainImage(influencer, onProgress) {
+export async function regenerateMainImage(influencer, onProgress, queueMeta = null) {
   const params = getCreationParams(influencer.id)
   if (!params) throw new Error(NO_CREATION_PARAMS)
 
@@ -46,6 +46,7 @@ export async function regenerateMainImage(influencer, onProgress) {
     faceRefNote: params.faceRefNote || '',
     styleRefNote: params.styleRefNote || '',
     onProgress: onProgress || (() => {}),
+    queueMeta,
   })
 
   if (!urls[0]) throw new Error('No image was returned — please try again.')

@@ -19,7 +19,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useInfluencers } from '@core/store'
-import { generateThreeImages } from '@core/services/generation'
+import { generateThreeImages, STILL_RUNNING } from '@core/services/generation'
+import { markSavedByResultUrl } from '@core/jobQueue'
 import { COPY_ATTRIBUTES, buildImagePrompts } from '@core/prompts/influencerPrompts'
 import { buildNewInfluencer, buildCreationParams } from '@core/newInfluencer'
 import { saveCreationParams } from '@core/creationParams'
@@ -101,6 +102,9 @@ export default function CreateScreen({ navigation }) {
         faceRef: data.referenceImage || null,
         physicalDesc: data.description || '',
         onProgress: p => setProgress(Math.round(p)),
+        // No influencer exists yet, so the queue row is labelled by the name
+        // being typed. Collecting it from the Queue tab saves to the device.
+        queueMeta: { influencerName: data.name || 'New influencer', label: 'Influencer image' },
       })
 
       if (cancelledRef.current) return
@@ -109,12 +113,15 @@ export default function CreateScreen({ navigation }) {
       // KIE deletes results within a day or so, so copy it onto the device
       // before it is stored against the influencer.
       const localUri = await persistMedia(urls[0], mediaFilename('image', `${Date.now()}`, 'jpg'))
+      markSavedByResultUrl(urls[0], localUri)
       if (cancelledRef.current) return
 
       setVariations([localUri])
       setSelectedIdx(0)
     } catch (e) {
-      if (e?.message !== 'CANCELLED') setError(e?.message ?? String(e))
+      if (e?.message === STILL_RUNNING) {
+        setError('Still generating — this is taking longer than usual, but it has not failed. Open the Queue tab to collect the image when it is ready.')
+      } else if (e?.message !== 'CANCELLED') setError(e?.message ?? String(e))
     } finally {
       setGenerating(false)
     }

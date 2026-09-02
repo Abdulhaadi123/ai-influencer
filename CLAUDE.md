@@ -24,74 +24,104 @@ The mobile app is the product going forward; the web app still runs and is
 kept working, but new feature work targets `mobile/`.
 
 ```
-core/      shared, platform-agnostic logic — used by BOTH apps
-mobile/    the React Native (Expo) app          ← primary
-web/       the Vite web UI                      ← still works, still deployed
-api/       Vercel serverless functions          ← the mobile app's BACKEND
-public/    static assets, incl. seeds.json      ← also served to mobile
+mobile/       the React Native (Expo) app            ← primary
+mobile/core/  shared, platform-agnostic logic        ← used by BOTH apps
+web/          the Vite web UI                        ← still works, still deployed
+api/          Vercel serverless functions            ← WEB ONLY
+public/       static assets                          ← web only
 ```
 
-**`api/` and `public/` are not web-only.** The mobile app has no API key of
-its own: it calls the deployed `/api/kie` proxy, which attaches the
-server-side key, and fetches `/seeds.json` from the same deployment.
-Breaking the web deployment breaks the mobile app.
+**`core/` lives inside `mobile/`, and the web app imports sideways into it**
+(`web/App.jsx` does `import { StoreProvider } from '../mobile/core/store'`).
+The dependency runs web → mobile. It sits there because `eas build` uploads
+only the project directory, so a root-level `../core` did not exist in the
+build container and every `@core/...` import failed to resolve.
+
+**The mobile app does NOT use `api/`.** It calls `api.kie.ai` directly with a
+key bundled into the app (`EXPO_PUBLIC_KIE_API_KEY`). The `/api/*` proxies
+exist for the browser, which must not hold a key. Breaking the web deployment
+does **not** break the mobile app — they share code, not infrastructure.
 
 ## Generation stack
 
-All generation runs through **KIE** (`api.kie.ai`) using a **single
-server-side API key** (`KIE_API_KEY`). Users never log in or connect an
-account of their own.
+All generation runs through **KIE** (`api.kie.ai`). Users never log in or
+connect an account of their own — one account's credits serve everyone. How
+the key is supplied differs by platform:
+
+| Platform | Key | Path |
+|---|---|---|
+| Web | `KIE_API_KEY`, server-side | browser → `/api/kie` proxy → `api.kie.ai` |
+| Mobile | `EXPO_PUBLIC_KIE_API_KEY`, **bundled into the app** | app → `api.kie.ai` |
 
 | Feature | Model id | Set in |
 |---|---|---|
-| Images | `nano-banana-pro` | `core/config/generation.js` |
+| Images | `nano-banana-pro` | `mobile/core/config/generation.js` |
 | Video (with native audio) | `kling-3.0/video` + `sound: true` | same |
 | Motion copy | `kling-3.0/motion-control` | same |
 
 **Never hard-code a model id in UI or feature code.** Model ids live only in
-`core/config/generation.js`; feature code calls the generation functions.
+`mobile/core/config/generation.js`; feature code calls the generation functions.
 
 ### Architecture (important)
 
 ```
-UI / pages  →  core/services/generation/index.js  (facade — import from HERE only)
-                 └─ providers/kie.js                  (the only provider today)
-                      └─ /api/kie  →  api.kie.ai      (server-side key)
+screens / pages  →  core/services/generation/index.js   (facade — import from HERE only)
+                      └─ providers/kie.js               (the only provider today)
+                           ├─ web:    /api/kie  →  api.kie.ai   (key stays server-side)
+                           └─ mobile: api.kie.ai directly       (key bundled in the app)
 ```
+
+The split happens in `core/platform/kieTransport{,.native}.js` — the provider
+itself never knows which one it got.
 
 `index.js` is a bare `export * from './providers/kie'`. To add a provider,
 add a file under `providers/` with the same exports and switch that line —
 UI code never changes.
 
-### `core/` — the shared, platform-agnostic layer
+### `mobile/core/` — the shared, platform-agnostic layer
 
-`core/` is being prepared for a React Native port: it holds everything
-that is NOT web-specific, so a mobile app can import it unchanged.
+Holds everything that is NOT web-specific, so both apps import it unchanged.
 
 ```
-core/
-  config/generation.js     model ids
+mobile/core/
+  config/generation.js     default model ids
+  config/videoModels.js    selectable video / motion models + their input shapes
   services/generation/     the generation facade + KIE provider
-  prompts/                 systemPrompt, charSheetPrompt
+  prompts/                 systemPrompt, videoPrompt, charSheetPrompt, influencerPrompts
+  jobQueue.js              persisted KIE taskIds — the generation queue
+  videoRefs.js             which reference images survive a model's image cap
+  identityRefs.js          the three reference sheets
+  regenerate.js            re-run an influencer's main image
+  studioSettings.js        per-influencer studio state
   utils/influencerUtils.js
   api/kieAuth.js           engine health check
+  api/diagnostics.js       free, credit-free integration checks
   store.jsx                app state (React context — no DOM)
-  platform/                ← the ONLY place web APIs may appear
+  platform/                ← the ONLY place platform APIs may appear
 ```
 
-**The rule: nothing in `core/` outside `core/platform/` may touch
-`window`, `document`, `localStorage`, `FileReader`, or any DOM API.**
-This is currently true and is worth re-checking after edits — a single
-stray `window.` reference breaks the mobile port.
+Two pieces of core carry hard-won rules; see `mobile/CLAUDE.md` for the
+detail:
 
-`core/platform/` holds the web implementations of four capabilities:
+- **`videoRefs.js`** — video models take one or two reference images, so
+  something is always dropped. Rank, never list: product outranks identity
+  sheets, and only products actually sent may be named in the prompt.
+- **`jobQueue.js`** — KIE result URLs expire after 24 h and there is no
+  list-tasks endpoint, so the local taskId record is the only index. A slow
+  job throws `STILL_RUNNING` and is never reported as a failure.
 
-| File | Capability | React Native equivalent |
+`mobile/core/platform/` holds both implementations of each capability:
+
+| Capability | Web | Native |
 |---|---|---|
-| `storage.js` | synchronous key-value | expo-sqlite/kv-store, used synchronously (**not** AsyncStorage) |
-| `apiUrl.js` | resolve an API base URL | always absolute; RN has no relative origin |
-| `app.js` | restart the app | Expo Updates `reloadAsync()` |
-| `media.js` | compress / download media | expo-image-manipulator, expo-file-system |
+| synchronous key-value | `storage.js` (localStorage) | `storage.native.js` (expo-sqlite/kv-store, **not** AsyncStorage) |
+| KIE transport | `kieTransport.js` (via `/api/kie`) | `kieTransport.native.js` (direct) |
+| OpenAI transport | `openaiTransport.js` (disabled) | `openaiTransport.native.js` (direct) |
+| compress / share media | `media.js` (canvas) | `media.native.js` (expo-image-manipulator / expo-sharing) |
+| keep a result past 24 h | `persistMedia.js` (passthrough) | `persistMedia.native.js` (downloads to documents dir) |
+
+`apiUrl.js` is imported only by the two web modules and has no native
+variant. There is no `app.js` / `app.native.js`.
 
 Metro resolves `foo.native.js` ahead of `foo.js` automatically, so the RN
 implementations go in sibling `.native.js` files with no web changes.
@@ -101,29 +131,43 @@ view-transition API), all of `web/pages/` and `web/components/`.
 
 ### React Native safety (hard constraint)
 
-- **Server-side keys only.** No per-user OAuth, no `window.open` popups —
-  neither exists in RN. (This is why Higgsfield was dropped for KIE.)
+- **No per-user OAuth, no `window.open` popups** — neither exists in RN.
+  (This is why Higgsfield was dropped for KIE.)
 - **No DOM** in the service layer — plain `fetch` only.
 - **Use `core/platform/storage.js`**, never `localStorage` directly.
+- Nothing in `core/` outside `core/platform/` may touch `window`, `document`,
+  `localStorage`, `FileReader`, or any other DOM API. Worth re-checking after
+  edits — one stray `window.` breaks the mobile app.
 
 ## Key files to know
 
 | Path | What it does |
 |---|---|
+| `mobile/core/config/generation.js` | **Default model ids** — one place to switch a model |
+| `mobile/core/config/videoModels.js` | Selectable models + each vendor's request shape and image cap |
+| `mobile/core/services/generation/index.js` | Generation facade — the only import point for UI |
+| `mobile/core/services/generation/providers/kie.js` | KIE adapter: uploads, job launch, polling, `STILL_RUNNING` |
+| `mobile/core/jobQueue.js` | Persisted taskIds — survives restarts, drives the Queue tab |
+| `mobile/core/videoRefs.js` | Ranks reference images against the model's cap |
+| `mobile/core/store.jsx` | storage-backed contexts (`useInfluencers`, `useBrandDeals`) |
+| `mobile/core/prompts/systemPrompt.js` | Image prompt templates — poses, wardrobe, vibes |
+| `mobile/core/prompts/videoPrompt.js` | `buildVideoPrompt` + voice presets |
+| `mobile/core/platform/` | Web + native impls of storage / transports / media |
+| `mobile/src/navigation/index.js` | Bottom tabs: Home, Influencers, Create, Queue, Settings |
+| `mobile/src/screens/QueueScreen.js` | Generation queue — status, collect, expiry |
+| `mobile/src/screens/VideosTab.js` | Brand promo studio |
+| `mobile/src/screens/MotionCopyScreen.js` | Motion copy studio |
+| `mobile/src/screens/CreateScreen.js` | 3-step creation wizard |
 | `web/App.jsx` | Routes (`/influencers`, `/create`, `/settings`) + providers |
-| `core/store.jsx` | storage-backed contexts (`useInfluencers`, etc.) + seed data |
-| `core/config/generation.js` | **All model ids** — the one place to switch a model |
-| `core/services/generation/index.js` | Generation facade — the only import point for UI |
-| `core/services/generation/providers/kie.js` | KIE adapter: uploads, job launch, polling |
-| `core/platform/` | Web impls of storage / apiUrl / app-reload / media |
-| `core/prompts/systemPrompt.js` | Prompt templates — poses, wardrobe, vibes |
-| `core/api/kieAuth.js` | Engine health check (is the server key working) |
-| `web/pages/Create.jsx` | 3-step creation wizard (Basics / Reference / Generate) |
-| `web/pages/Influencers.jsx` | Profile + Videos + Motion Copy studio (5,800+ lines — known debt) |
-| `web/components/MotionCopyStudio.jsx` | Motion copy UI, self-contained |
-| `api/kie.js` | Edge proxy that attaches `KIE_API_KEY` server-side |
+| `web/pages/Influencers.jsx` | Profile + Videos + Motion Copy studio (5,300+ lines — known debt) |
+| `api/kie.js` | Edge proxy that attaches `KIE_API_KEY` server-side (**web only**) |
 | `api/img-proxy.js` | Download proxy — **allowlisted hosts** (see below) |
 | `api/claude.js` | Anthropic proxy — caller supplies its own `x-api-key` |
+
+> **Known breakage:** `web/pages/Influencers.jsx` imports
+> `buildCharSheetPrompt` and `buildCharSheetPromptWithClaude` from
+> `mobile/core/prompts/charSheetPrompt`, which exports neither. The web app's
+> main page cannot load until that is reconciled. The mobile app is unaffected.
 
 ### The KIE proxy path convention
 
@@ -157,26 +201,39 @@ so an allowlist bug only shows up in production.
   `web/context/theme.jsx`.
 - IDs use `generateId()` from `store.jsx` (`Date.now() + random`).
 
-## Things not to do
-
-- **Never kill the Vite dev server** (port 5173). The owner wants it
-  running at all times.
-- **Don't add UI that isn't actually wired.** A recurring cleanup theme in
-  this project has been removing controls that looked functional but did
-  nothing. If a control can't be implemented, don't ship it.
-- Don't refactor `Influencers.jsx` casually. It's 5,800+ lines and the state
-  is tangled; any split needs its own dedicated session with in-browser
-  verification of every flow.
-
 ## Dev workflow
+
+**Mobile (primary):**
+
+```bash
+cd mobile
+npx expo start                                    # then press `a` for Android
+npx expo export --platform android --no-bytecode  # prove it still bundles
+```
+
+Keys go in `mobile/.env` as `EXPO_PUBLIC_KIE_API_KEY` (and optionally
+`EXPO_PUBLIC_OPENAI_API_KEY`). Both are **inlined into the shipped bundle** —
+see `mobile/SHARING.md` before distributing a build.
+
+**Web:**
 
 ```bash
 npm install
 npm run dev          # http://localhost:5173
 npm run build        # production build
-npm run preview      # preview the production build locally
 ```
 
-`KIE_API_KEY` goes in `.env` (server-side, never `VITE_`-prefixed — a
-`VITE_` prefix would ship the key to the browser). Settings → *KIE.AI
-Engine* shows whether the key is live.
+`KIE_API_KEY` goes in the root `.env` (server-side, never `VITE_`-prefixed —
+that prefix would ship the key to the browser). Settings → *KIE.AI Engine*
+shows whether the key is live.
+
+## Things not to do
+
+- **Never kill the Vite dev server** (port 5173). The owner wants it running.
+- **Don't add UI that isn't actually wired.** A recurring cleanup theme here
+  has been removing controls that looked functional but did nothing.
+- **Don't report a slow generation as an error.** KIE jobs can take many
+  minutes; `STILL_RUNNING` means "handed to the queue", not "failed".
+- **Don't store a bare KIE result URL** — it dies within 24 hours.
+- Don't refactor `web/pages/Influencers.jsx` casually. It's 5,300+ lines with
+  tangled state; any split needs its own session and in-browser verification.

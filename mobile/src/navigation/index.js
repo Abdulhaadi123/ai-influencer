@@ -10,6 +10,7 @@
  * the app is for, so Home explains the three features and routes into them.
  */
 
+import { useEffect, useState } from 'react'
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
@@ -19,7 +20,10 @@ import HomeScreen from '../screens/HomeScreen'
 import InfluencersScreen from '../screens/InfluencersScreen'
 import InfluencerDetailScreen from '../screens/InfluencerDetailScreen'
 import CreateScreen from '../screens/CreateScreen'
+import QueueScreen from '../screens/QueueScreen'
 import SettingsScreen from '../screens/SettingsScreen'
+import { countActive } from '@core/jobQueue'
+import { useQueueSync } from '../hooks/useQueueSync'
 import { useTheme } from '../theme'
 
 const Tab = createBottomTabNavigator()
@@ -54,8 +58,28 @@ function InfluencersStack() {
   )
 }
 
+/**
+ * Live count of running jobs, for the Queue tab badge.
+ *
+ * Polled from local storage rather than pushed: the queue is written from the
+ * generation layer, which has no React binding, and reading a handful of rows
+ * every few seconds is far cheaper than threading a context through it.
+ */
+function useActiveJobCount() {
+  const [n, setN] = useState(() => countActive())
+  useEffect(() => {
+    const id = setInterval(() => setN(countActive()), 3000)
+    return () => clearInterval(id)
+  }, [])
+  return n
+}
+
 export default function RootNavigator() {
   const { colors, scheme } = useTheme()
+  // Runs app-wide so the badge below is right even when nobody has opened the
+  // Queue tab — see useQueueSync for why that matters.
+  useQueueSync()
+  const activeJobs = useActiveJobCount()
 
   // Feed our palette into React Navigation so its own chrome matches.
   const base = scheme === 'dark' ? DarkTheme : DefaultTheme
@@ -108,6 +132,19 @@ export default function RootNavigator() {
           component={CreateScreen}
           options={{
             tabBarIcon: ({ color }) => <TabIcon glyph="✨" color={color} />,
+          }}
+        />
+        <Tab.Screen
+          name="Queue"
+          component={QueueScreen}
+          options={{
+            title: 'Generation queue',
+            tabBarLabel: 'Queue',
+            // The badge is the whole point of the tab: it is how someone who
+            // walked away from a slow job learns the result is waiting.
+            tabBarBadge: activeJobs > 0 ? activeJobs : undefined,
+            tabBarBadgeStyle: { backgroundColor: colors.brand, color: '#FFFFFF', fontSize: 11 },
+            tabBarIcon: ({ color }) => <TabIcon glyph="🕓" color={color} />,
           }}
         />
         <Tab.Screen

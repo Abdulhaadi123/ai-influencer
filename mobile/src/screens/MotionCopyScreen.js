@@ -20,7 +20,8 @@ import {
 import { useBottomInset } from '../hooks/useBottomInset'
 import { useVideoPlayer, VideoView } from 'expo-video'
 
-import { generateMotionCopy } from '@core/services/generation'
+import { generateMotionCopy, STILL_RUNNING } from '@core/services/generation'
+import { markSavedByResultUrl } from '@core/jobQueue'
 import { MOTION_MODELS, DEFAULT_MOTION_MODEL, getMotionModel } from '@core/config/videoModels'
 import { downloadImage } from '@core/platform/media'
 import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
@@ -54,6 +55,8 @@ export default function MotionCopyScreen({ influencer }) {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
+  // Polling stopped watching, but the job is alive in the queue.
+  const [handedOff, setHandedOff] = useState(false)
 
   const cancelRef = useRef(false)
   useEffect(() => () => { cancelRef.current = true }, [])
@@ -81,7 +84,7 @@ export default function MotionCopyScreen({ influencer }) {
   const generate = useCallback(async () => {
     if (!canGenerate) return
     cancelRef.current = false
-    setGenerating(true); setProgress(0); setError(null); setResult(null)
+    setGenerating(true); setProgress(0); setError(null); setResult(null); setHandedOff(false)
 
     try {
       const { urls } = await generateMotionCopy({
@@ -93,6 +96,7 @@ export default function MotionCopyScreen({ influencer }) {
         onProgress: setProgress,
         isCancelled: () => cancelRef.current,
         pendingKey: influencer?.id,
+        queueMeta: { influencerId: influencer?.id, influencerName: influencer?.name, label: 'Motion Copy' },
       })
 
       const url = urls?.[0]
@@ -103,6 +107,7 @@ export default function MotionCopyScreen({ influencer }) {
       // otherwise the saved entry becomes a dead link.
       const entryId = generateId()
       const localUri = await persistMedia(url, mediaFilename('motion', entryId, 'mp4'))
+      markSavedByResultUrl(url, localUri)
       if (cancelRef.current) return
 
       setResult(localUri)
@@ -117,7 +122,8 @@ export default function MotionCopyScreen({ influencer }) {
         } : inf))
       }
     } catch (e) {
-      if (e?.message !== 'CANCELLED') setError(e?.message ?? String(e))
+      if (e?.message === STILL_RUNNING) setHandedOff(true)
+      else if (e?.message !== 'CANCELLED') setError(e?.message ?? String(e))
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }
@@ -242,6 +248,16 @@ export default function MotionCopyScreen({ influencer }) {
       {error ? (
         <View style={[styles.errorBox, { borderColor: colors.danger, backgroundColor: colors.brandSoft }]}>
           <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
+        </View>
+      ) : null}
+
+      {handedOff ? (
+        <View style={[styles.errorBox, { borderColor: colors.brand, backgroundColor: colors.brandSoft }]}>
+          <Text style={[styles.errorText, { color: colors.textPrimary }]}>
+            Still generating — motion copy is the slowest thing here, and this
+            one has not failed. It is in the Queue tab; save it from there when
+            it lands.
+          </Text>
         </View>
       ) : null}
 

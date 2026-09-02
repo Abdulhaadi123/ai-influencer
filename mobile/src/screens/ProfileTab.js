@@ -25,6 +25,8 @@ import { mediaSource } from '../lib/seedMedia'
 import { useInfluencers } from '@core/store'
 import { getNiches } from '@core/niches'
 import { regenerateMainImage, NO_CREATION_PARAMS } from '@core/regenerate'
+import { STILL_RUNNING } from '@core/services/generation'
+import { markSavedByResultUrl } from '@core/jobQueue'
 import { downloadImage } from '@core/platform/media'
 import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
 
@@ -56,15 +58,23 @@ export default function ProfileTab({ influencer }) {
   const regenerate = useCallback(async () => {
     setRegenerating(true)
     try {
-      const url = await regenerateMainImage(influencer)
+      const url = await regenerateMainImage(influencer, undefined, {
+        influencerId: influencer.id, influencerName: influencer.name, label: 'Main image',
+      })
       // Copy onto the device: KIE's result URLs expire within days.
       const localUri = await persistMedia(url, mediaFilename('image', `${influencer.id}_${Date.now()}`, 'jpg'))
+      markSavedByResultUrl(url, localUri)
       update({ mainImage: localUri })
     } catch (e) {
       if (e?.message === NO_CREATION_PARAMS) {
         Alert.alert(
           'Nothing to regenerate from',
           'This influencer was created before regeneration was supported. Replace the image manually instead.'
+        )
+      } else if (e?.message === STILL_RUNNING) {
+        Alert.alert(
+          'Still generating',
+          'This is taking longer than usual, but it has not failed. Open the Queue tab to collect the image when it is ready.'
         )
       } else {
         Alert.alert('Regeneration failed', e?.message ?? 'Please try again.')

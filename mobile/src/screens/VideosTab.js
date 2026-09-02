@@ -14,7 +14,7 @@
  * appended to the influencer's generationHistory, which the web history reads.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View, Text, TextInput, ScrollView, Image, Pressable,
   ActivityIndicator, StyleSheet, Alert,
@@ -23,11 +23,13 @@ import {
 import { useBottomInset } from '../hooks/useBottomInset'
 import { useVideoPlayer, VideoView } from 'expo-video'
 
-import { generateVideo } from '@core/services/generation'
+import { generateVideo, STILL_RUNNING } from '@core/services/generation'
+import { markSavedByResultUrl } from '@core/jobQueue'
 import { buildVideoPrompt, VOICE_PRESETS } from '@core/prompts/videoPrompt'
 import { loadStudioSettings, saveStudioSettings } from '@core/studioSettings'
 import { ENV_PRESETS, ENV_KEYS, VIBES, CAMERAS, TIMES_OF_DAY, DURATIONS } from '@core/studioOptions'
 import { VIDEO_MODELS, DEFAULT_VIDEO_MODEL, getVideoModel } from '@core/config/videoModels'
+import { selectVideoReferences, describeDroppedReferences } from '@core/videoRefs'
 import { downloadImage } from '@core/platform/media'
 import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
 import { useInfluencers, generateId } from '@core/store'
@@ -54,6 +56,8 @@ export default function VideosTab({ influencer }) {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState(null)
   const [results, setResults] = useState([])
+  // Set when polling ran longer than we watch for; the job lives on in the queue.
+  const [handedOff, setHandedOff] = useState(false)
 
   const cancelRef = useRef(false)
   useEffect(() => () => { cancelRef.current = true }, [])
@@ -73,26 +77,38 @@ export default function VideosTab({ influencer }) {
     (settings.dialogue || '').trim().length > 0 || products.length > 0 || !!influencer.mainImage
   )
 
+  // What will ACTUALLY be sent, given the chosen model's image limit. Computed
+  // here so the warning below and the request itself come from one calculation
+  // and cannot drift apart.
+  const chosenModel = getVideoModel(settings.videoModel || DEFAULT_VIDEO_MODEL)
+  const selection = useMemo(
+    () => selectVideoReferences(influencer, products, chosenModel.maxImages),
+    [influencer, products, chosenModel.maxImages],
+  )
+  const dropWarning = describeDroppedReferences(selection, chosenModel.label)
+
   const generate = useCallback(async () => {
     if (!canGenerate) return
     cancelRef.current = false
-    setGenerating(true); setProgress(0); setError(null); setResults([])
+    setGenerating(true); setProgress(0); setError(null); setResults([]); setHandedOff(false)
 
     try {
-      // Identity references, in the order the prompt's @image_N tags expect.
-      const referenceImages = [
-        influencer.mainImage,
-        influencer.characterSheetImage,
-        influencer.closeUpImage1,
-        influencer.closeUpImage2,
-        ...products,
-      ].filter(Boolean)
+      // Ranked, not just listed: the model takes one or two images and there
+      // are usually more than that available, so the product photo has to
+      // outrank the identity sheets or it is the thing that gets dropped.
+      const referenceImages = selection.images
+
+      // Describe ONLY the products the model will actually receive. Telling it
+      // to present a product whose image was trimmed away is what made the
+      // original bug invisible — the model just invented an object and the
+      // clip looked plausible.
+      const sentProducts = products.slice(0, selection.productsIncluded)
 
       const prompt = buildVideoPrompt(influencer, {
         ...settings,
-        productRef1: products[0] || null,
-        productRef2: products[1] || null,
-        productRef3: products[2] || null,
+        productRef1: sentProducts[0] || null,
+        productRef2: sentProducts[1] || null,
+        productRef3: sentProducts[2] || null,
         environment: ENV_PRESETS[settings.envKey] || settings.envCustom || '',
       })
 
@@ -108,6 +124,7 @@ export default function VideosTab({ influencer }) {
         onPartialResults: partial => { if (!cancelRef.current) setResults([...partial]) },
         isCancelled: () => cancelRef.current,
         pendingKey: influencer.id,
+        queueMeta: { influencerId: influencer.id, influencerName: influencer.name, label: 'Video' },
       })
 
       if (cancelRef.current) return
@@ -118,6 +135,9 @@ export default function VideosTab({ influencer }) {
       const entries = await Promise.all(urls.map(async url => {
         const id = generateId()
         const localUri = await persistMedia(url, mediaFilename('video', id, 'mp4'))
+        // Tell the queue this one is already collected, so it does not sit in
+        // the Queue tab asking to be saved a second time.
+        markSavedByResultUrl(url, localUri)
         return { id, type: 'video', label: 'Video', url: localUri, date: Date.now() }
       }))
 
@@ -129,7 +149,10 @@ export default function VideosTab({ influencer }) {
         generationHistory: [...entries, ...(i.generationHistory || [])],
       } : i))
     } catch (e) {
-      if (e?.message !== 'CANCELLED') setError(e?.message ?? String(e))
+      // A slow job is not a failed one. The task is still alive on KIE and the
+      // queue is holding its taskId, so say that instead of showing an error.
+      if (e?.message === STILL_RUNNING) setHandedOff(true)
+      else if (e?.message !== 'CANCELLED') setError(e?.message ?? String(e))
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }
@@ -194,6 +217,21 @@ export default function VideosTab({ influencer }) {
                 onChange={v => set('productWorn', v === 'worn')}
                 options={[{ label: 'Held', value: 'held' }, { label: 'Worn', value: 'worn' }]}
               />
+            </View>
+          ) : null}
+
+          {/* What will not fit. Shown before generating, because finding out
+              afterwards means having already paid for the wrong clip. */}
+          {dropWarning ? (
+            <View style={[styles.noticeBox, {
+              borderColor: selection.productsDropped > 0 ? colors.danger : colors.border,
+              backgroundColor: selection.productsDropped > 0 ? 'transparent' : colors.surfaceAlt,
+            }]}>
+              <Text style={[styles.noticeText, {
+                color: selection.productsDropped > 0 ? colors.danger : colors.textSecondary,
+              }]}>
+                {dropWarning}
+              </Text>
             </View>
           ) : null}
         </View>
@@ -295,6 +333,16 @@ export default function VideosTab({ influencer }) {
         </View>
       ) : null}
 
+      {handedOff ? (
+        <View style={[styles.errorBox, { borderColor: colors.brand, backgroundColor: colors.brandSoft }]}>
+          <Text style={[styles.errorText, { color: colors.textPrimary }]}>
+            Still generating — this one is taking longer than usual, but it has
+            not failed. It is waiting for you in the Queue tab; open it there to
+            save the video once it finishes.
+          </Text>
+        </View>
+      ) : null}
+
       {generating ? (
         <Section title="Generating">
           <View style={[styles.padded, { gap: space.md }]}>
@@ -382,6 +430,9 @@ const styles = StyleSheet.create({
 
   errorBox: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.md, padding: space.md, marginBottom: space.xl },
   errorText: { fontSize: 13, lineHeight: 18 },
+
+  noticeBox: { borderWidth: 1, borderRadius: radius.md, padding: space.md, marginTop: space.md },
+  noticeText: { fontSize: 12.5, lineHeight: 18 },
 
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   progressText: { fontSize: 13, fontWeight: '600' },

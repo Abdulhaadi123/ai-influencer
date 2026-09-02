@@ -69,7 +69,7 @@ export const NO_MAIN_IMAGE = 'NO_MAIN_IMAGE'
  *
  * @returns {Promise<string>} the generated image URL
  */
-export async function generateIdentityRef(influencer, slotKey, { onProgress, isCancelled } = {}) {
+export async function generateIdentityRef(influencer, slotKey, { onProgress, isCancelled, queueMeta } = {}) {
   if (!influencer?.mainImage) throw new Error(NO_MAIN_IMAGE)
 
   const slot = getIdentitySlot(slotKey)
@@ -79,6 +79,7 @@ export async function generateIdentityRef(influencer, slotKey, { onProgress, isC
     referenceImage: influencer.mainImage,
     onProgress: onProgress || (() => {}),
     isCancelled: isCancelled || (() => false),
+    queueMeta,
   })
 
   if (!url) throw new Error('No image was returned — please try again.')

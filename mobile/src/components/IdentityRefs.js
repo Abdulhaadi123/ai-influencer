@@ -16,6 +16,8 @@ import { useCallback, useState } from 'react'
 import { View, Text, Image, Pressable, ActivityIndicator, StyleSheet, Alert } from 'react-native'
 
 import { IDENTITY_SLOTS, generateIdentityRef, NO_MAIN_IMAGE } from '@core/identityRefs'
+import { STILL_RUNNING } from '@core/services/generation'
+import { markSavedByResultUrl } from '@core/jobQueue'
 import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
 import { downloadImage } from '@core/platform/media'
 import { useInfluencers, generateId } from '@core/store'
@@ -72,15 +74,22 @@ function RefSlot({ slot, influencer, last }) {
   const generate = useCallback(async () => {
     setBusy(true); setError(null); setProgress(0)
     try {
-      const url = await generateIdentityRef(influencer, slot.key, { onProgress: setProgress })
+      const url = await generateIdentityRef(influencer, slot.key, {
+        onProgress: setProgress,
+        queueMeta: { influencerId: influencer.id, influencerName: influencer.name, label: slot.label },
+      })
       // KIE deletes result URLs within a day, so copy it onto the device
       // before it is stored — same as every other generated file.
       const local = await persistMedia(url, mediaFilename('image', `${slot.key}_${Date.now()}`, 'jpg'))
+      markSavedByResultUrl(url, local)
       save(local)
     } catch (e) {
-      setError(e?.message === NO_MAIN_IMAGE
-        ? 'Add a main image first — it is the face reference.'
-        : (e?.message ?? 'Generation failed.'))
+      setError(
+        e?.message === NO_MAIN_IMAGE
+          ? 'Add a main image first — it is the face reference.'
+          : e?.message === STILL_RUNNING
+          ? 'Still generating — not failed. Collect it from the Queue tab when it is ready.'
+          : (e?.message ?? 'Generation failed.'))
     } finally {
       setBusy(false); setProgress(0)
     }
