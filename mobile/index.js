@@ -1,3 +1,5 @@
+// Standards-complete URL and URLSearchParams, which the API client relies on.
+import 'react-native-url-polyfill/auto';
 import { registerRootComponent } from 'expo';
 
 import App from './App';

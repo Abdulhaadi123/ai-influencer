@@ -34,8 +34,6 @@ import SettingsScreen from '../screens/SettingsScreen'
 import SignInScreen from '../screens/auth/SignInScreen'
 import SignUpScreen from '../screens/auth/SignUpScreen'
 import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen'
-import ResetPasswordScreen from '../screens/auth/ResetPasswordScreen'
-import ConfirmEmailScreen from '../screens/auth/ConfirmEmailScreen'
 
 import { useQueueSync } from '../hooks/useQueueSync'
 import { useCollectedResults } from '../hooks/useCollectedResults'
@@ -45,28 +43,6 @@ import { useTheme, space } from '../theme'
 const Tab = createBottomTabNavigator()
 const Stack = createNativeStackNavigator()
 const AuthStack = createNativeStackNavigator()
-
-/**
- * Deep links. Two come from emails, and each exact URL must be listed in
- * Supabase → Authentication → URL Configuration → Redirect URLs:
- *
- *   aiinfluencer://reset-password?code=…   the password-reset email
- *   aiinfluencer://confirm-email?code=…    the sign-up confirmation email
- *
- * The code (or Supabase's error_code) lands in route.params.
- */
-const linking = {
-  prefixes: ['aiinfluencer://'],
-  config: {
-    screens: {
-      SignIn: 'sign-in',
-      SignUp: 'sign-up',
-      ForgotPassword: 'forgot-password',
-      ResetPassword: 'reset-password',
-      ConfirmEmail: 'confirm-email',
-    },
-  },
-}
 
 function TabIcon({ glyph, color }) {
   return <Text style={{ fontSize: 20, color }}>{glyph}</Text>
@@ -190,8 +166,6 @@ function AuthFlow() {
       <AuthStack.Screen name="SignIn" component={SignInScreen} />
       <AuthStack.Screen name="SignUp" component={SignUpScreen} />
       <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-      <AuthStack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-      <AuthStack.Screen name="ConfirmEmail" component={ConfirmEmailScreen} />
     </AuthStack.Navigator>
   )
 }
@@ -240,7 +214,7 @@ export default function RootNavigator() {
   if (initialising) return <Splash />
 
   return (
-    <NavigationContainer theme={navTheme} linking={linking} fallback={<Splash />}>
+    <NavigationContainer theme={navTheme}>
       {isSignedIn ? <MainTabs /> : <AuthFlow />}
     </NavigationContainer>
   )

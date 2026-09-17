@@ -1,213 +1,241 @@
 # Backend
 
-The API and the generation worker. **Self-contained** — nothing here imports
-the mobile app or the web UI, and it has its own `package.json`, so deploying
-it does not drag React, Vite or Expo onto your server.
+The API, the generation worker and the database for AI Influencer Studio.
+**Self-contained** — nothing here imports the app or the web UI, and it has its
+own `package.json`, so deploying it does not bring React or Expo onto a server.
 
 ```
 backend/
-  api/          the endpoints (one copy of the logic)
-  lib/          rate limiting
+  api/              the endpoints
+    auth/           accounts and the pages email links open
+    _lib/           database, sessions, passwords, email, S3, errors
+  db/
+    migrations/     the schema — applied automatically when the API starts
+    migrate.js
+  lib/              rate limiting
   server/
-    index.js    Express wrapper — runs the endpoints as a long-lived server
-    worker.js   always-on job collector
+    index.js        the API server (Express)
+    worker.js       always-on job collector
+  backup/           daily database dump to S3
   Dockerfile
   docker-compose.yml
   Caddyfile
-  vercel.json   only for running the API on Vercel instead
 ```
-
-The endpoints are written as `(req, res)` handlers, which Express and Vercel
-both understand. That is deliberate: the logic has exactly one copy, so a fix
-applies wherever it runs, and moving between hosts never means a rewrite.
 
 ---
 
-## Deploying only this folder
+## What runs
 
-The Docker build context is `backend/`, so the image never contains app or web
-code regardless of how you get the files onto the box. Three ways, in order of
-how much you care:
-
-### 1. Clone the repo, build from this folder (simplest)
-
-The repo is small — the app is source only, no `node_modules` committed. Just
-clone it and ignore the rest.
-
-```bash
-git clone <your-repo> ai-influencer
-cd ai-influencer/backend
-cp .env.example .env && nano .env      # fill in the secrets
-docker compose up -d --build
-```
-
-Updating is `git pull && docker compose up -d --build`.
-
-### 2. Sparse checkout (only this folder on disk)
-
-If you would rather the server never hold the app source at all:
-
-```bash
-git clone --filter=blob:none --sparse <your-repo> ai-influencer
-cd ai-influencer
-git sparse-checkout set backend
-cd backend
-```
-
-Same repo, same history, but only `backend/` is materialised on the server.
-This is what to use if the box is shared or you want a smaller blast radius.
-
-### 3. A separate repository
-
-Cleanest isolation, most maintenance. Only worth it if the backend gets its own
-release cycle or a different set of people work on it. Until then, one repo with
-a sparse checkout gives you the same practical result without a second thing to
-keep in sync.
-
-### Vercel instead of a server
-
-Import the repo with **Root Directory** set to `backend`; `vercel.json` routes
-`/api/kie/*` to the proxy. Set the same variables as `.env.example` in the
-project settings. Vercel runs the endpoints but not `server/worker.js`, so
-results are collected only while the app is open — see below.
-
----
-
-## The two processes
-
-`docker compose up -d` starts three containers:
+`docker compose up -d --build` starts five containers:
 
 | Container | What it does |
 |---|---|
-| `api` | Serves `/api/*`. Stateless — scale it horizontally if you ever need to. |
-| `worker` | Polls the generator, collects finished results into S3. **Exactly one.** |
-| `caddy` | TLS termination with automatic certificates. |
+| `postgres` | PostgreSQL 16. **No public port** — only the containers below reach it. Data in the `postgres_data` volume. |
+| `api` | Serves `/api/*` and the email-link pages. Applies pending migrations on start. |
+| `worker` | Asks KIE about running jobs and collects finished results into S3. **Exactly one.** |
+| `backup` | `pg_dump` to `s3://$S3_BUCKET/backups/` once a day. |
+| `caddy` | TLS with automatic certificates, in front of `api`. |
 
-**Do not run two workers.** They would double the request rate against the
-generator's per-account limit and race each other to collect the same result.
-The `replicas: 1` in `docker-compose.yml` says so; keep it.
+**Do not run two workers.** They would double the request rate against KIE's
+per-account limit. `replicas: 1` says so; keep it.
 
 ### Why the worker matters
 
-Generation is asynchronous and results expire 24 hours after they finish.
-Without the worker, the phone is the only thing watching — so closing the app
-mid-generation means nothing collects the result, and leaving it a day means the
-credits were spent for nothing.
-
-The worker watches every user's jobs continuously, pulls finished results into
-their storage, and files them into the gallery. The user opens the app and it is
-simply there. This is the main reason to run a server rather than serverless
-functions, which only exist while a request is in flight.
-
-It also sweeps jobs the app saw finish but never saved (the user left the
-screen), after a three-minute grace period. The app, the Queue tab and the
-worker can all collect the same result safely: collection is idempotent
-(`api/_lib/results.js`), which relies on the unique index in
-`supabase/migrations/0002_collect_results_once.sql` — apply that migration.
+KIE results expire 24 hours after they finish. Without the worker, the phone is
+the only thing watching — close the app mid-generation and nothing collects the
+result. The worker watches every user's jobs, stores finished results, and files
+them in the gallery, so the user opens the app and the video is simply there.
 
 ---
 
-## Setup
+## Security model
 
-1. **TLS.** Edit `Caddyfile` and replace `api.example.com` with your domain, and
-   point the domain's A record at the box first — Caddy needs to answer an ACME
-   challenge on port 80 before it can issue a certificate.
-
-2. **Secrets.** `cp .env.example .env` and fill it in. Every value there is a
-   real secret; `.env` is gitignored and is mounted into the containers rather
-   than baked into the image.
-
-3. **Firewall.** Only 80 and 443 need to be open. The API listens on 8080
-   inside the Docker network and should not be reachable from outside — Caddy
-   is the only way in.
-
-   ```bash
-   ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw enable
-   ```
-
-4. **Database.** Run every file in `supabase/migrations/` in order — `0001`,
-   `0002`, `0003` — in the Supabase SQL editor. `0002` makes result collection
-   safe to race; `0003` stops clients writing storage accounting directly and
-   stops Realtime broadcasting deleted rows. A database that already ran `0001`
-   still needs `0003`.
-
-5. **Point the app at it.** In `mobile/.env`:
-
-   ```
-   EXPO_PUBLIC_API_BASE=https://api.your-domain.com
-   ```
-
-   That is the only change the app needs, ever. Moving hosts later is this one
-   line.
+- **The database is only reachable by the backend.** The app calls the API and
+  never connects to Postgres, so there is no Row Level Security. Instead, **every
+  query on user data carries the user id from the verified session** — never an
+  id from the request. Keep it that way in every new endpoint.
+- **Passwords** are Argon2id hashes (`api/_lib/passwords.js`), never logged.
+- **Sessions** are random access and refresh tokens, stored only as SHA-256
+  hashes and checked against the database on every call, so signing out, "sign
+  out everywhere", password changes and account deletion take effect
+  immediately. Refresh tokens rotate on every use; an old one replayed after a
+  30-second grace period ends the session (`api/_lib/sessions.js`).
+- **No response reveals whether an email is registered.** Sign-in failures are
+  identical, forgot-password and resend always answer "sent", and those take the
+  same time either way.
+- **Sign-in, sign-up and email sending are rate limited** by IP and by address
+  (in memory, per API process).
+- **Files** are in a private bucket and handed out as short-lived presigned URLs
+  after an ownership check. Upload URLs are signed for the exact file size.
+- **Generated results** are fetched only from KIE's CDNs, with every redirect
+  hop re-checked (`api/_lib/results.js`).
+- **Only the server writes a job's state and result link**, from KIE's own
+  answer (`api/_lib/kieStatus.js`).
 
 ---
 
 ## Email — SendGrid
 
-Auth emails (password reset, email confirmation) are sent by **Supabase**, not
-by this backend. Our code calls `supabase.auth.resetPasswordForEmail()` and
-Supabase's servers compose and deliver the message.
+Two emails: **confirm your email** and **reset your password**. Both are sent
+from this server through the SendGrid API (`api/_lib/email.js`) and carry a
+one-time link to a page this server renders (`api/auth/pages.js`):
 
-So SendGrid is wired in **as Supabase's SMTP relay**, configured in the Supabase
-dashboard — there is no SMTP client, no API key and no email template in this
-repo. That is on purpose: an email path here would be a second place a reset
-token could leak, and a second thing to secure, for no gain.
-
-**Supabase → Project Settings → Authentication → SMTP Settings:**
-
-| Field | Value |
+| Link | Page |
 |---|---|
-| Host | `smtp.sendgrid.net` |
-| Port | `587` |
-| Username | `apikey` — the literal string, not your key |
-| Password | a SendGrid API key restricted to Mail Send |
-| Sender email | an address at a domain authenticated in SendGrid |
+| `/auth/confirm-email?token=…` | "Confirm my email" button → confirmed |
+| `/auth/reset-password?token=…` | new-password form → changed, every device signed out |
 
-Then raise **Authentication → Rate Limits → Emails**, which stays at the
-free-tier number until it is changed.
+Opening a link does not use it up — only pressing the button does, because mail
+scanners open every link in an email as it arrives. Links are https pages, not
+`aiinfluencer://` links, because mail clients strip custom schemes and a page
+also works on a computer.
 
-**The sender domain is the part that matters.** It must be a domain you own and
-have authenticated in SendGrid with the CNAME records it issues, which is what
-supplies SPF and DKIM. A `@gmail.com` sender address will be rejected outright
-regardless of SendGrid being configured correctly — `gmail.com` publishes a
-DMARC policy that forbids anyone else sending as it. Use the same domain the API
-runs on.
+**Setup in SendGrid:**
 
-Without domain authentication, reset emails go to spam and users conclude the
-account is broken.
+1. **Settings → Sender Authentication → Authenticate Your Domain.** Add the CNAME
+   records it gives you at your DNS provider (on Cloudflare: **DNS only**, grey
+   cloud). Without this, emails land in spam. A `@gmail.com` sender will not work.
+2. **Settings → API Keys → Create API Key** → *Restricted Access* → **Mail Send:
+   Full Access**, everything else off.
+3. In `.env`: `SENDGRID_API_KEY`, `EMAIL_FROM=noreply@your-domain.com`, and
+   `PUBLIC_BASE_URL=https://api.your-domain.com` (the links point there).
+
+Click and open tracking are turned off per message: click tracking would route
+one-time tokens through SendGrid's link redirector.
+
+**Locally**, without a SendGrid key, emails are written to the API's log instead
+of sent — the link is right there to open. In production a missing key is an
+error, not a silent skip.
 
 ---
 
-## Checking it works
+## Deploying to an Ubuntu server (AWS EC2)
+
+### 1. The server
+
+- EC2 → Launch instance: **Ubuntu 24.04**, **t3.small** (2 GB) or larger, 30 GB
+  disk, same region as the S3 bucket.
+- Security group: **22** from your IP only; **80** and **443** from anywhere.
+- Allocate an **Elastic IP** and attach it, then point `api.your-domain.com` at
+  it. Caddy needs the domain to resolve before it can get a certificate.
+
+### 2. Docker
 
 ```bash
-curl https://api.your-domain.com/health           # {"ok":true}
-docker compose logs -f worker                     # cycle logs
-docker compose ps                                 # all three up
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 git && sudo usermod -aG docker ubuntu
 ```
 
-An endpoint that answers `401 {"error":"Sign in to continue."}` without a token
-is working correctly — that is the auth boundary doing its job.
+Log out and back in so the group change applies.
 
-A `503` names what is missing, and the full error is in `docker compose logs api`:
+### 3. Only this folder
 
-| `code` | Meaning |
-|---|---|
-| `SERVER_NOT_CONFIGURED` | A required variable in `.env` is empty — usually Supabase or `S3_BUCKET` |
-| `AUTH_UNAVAILABLE` | The server could not reach Supabase to check a session |
-| `STORAGE_UNAVAILABLE` | AWS refused the credentials or the bucket |
-| `UPSTREAM_UNAVAILABLE` | A dependency could not be reached at all |
-| `ENGINE_KEY_REJECTED` (502) | KIE rejected `KIE_API_KEY` |
+```bash
+git clone --filter=blob:none --sparse -b aws-postgres https://github.com/<owner>/ai-influencer.git && cd ai-influencer && git sparse-checkout set backend && cd backend
+```
+
+### 4. Configure
+
+```bash
+cp .env.example .env && nano .env
+```
+
+- `POSTGRES_PASSWORD` — letters and digits only: `openssl rand -hex 32`
+- `PUBLIC_BASE_URL`, SendGrid, S3 and KIE values — see the comments in the file
+
+Edit `Caddyfile` and replace `api.example.com` with your domain.
+
+### 5. Start
+
+```bash
+docker compose up -d --build
+```
+
+### 6. Check
+
+```bash
+curl https://api.your-domain.com/health
+docker compose ps
+docker compose logs -f api worker
+```
+
+`/health` answers `{"ok":true}`. An API endpoint answering
+`401 {"code":"NOT_AUTHENTICATED"}` without a token is the auth boundary working.
+
+Then set `EXPO_PUBLIC_API_BASE=https://api.your-domain.com` for the app.
+
+### Updating
+
+```bash
+git pull && docker compose up -d --build
+```
+
+New migrations in `db/migrations/` are applied when the API restarts. **Never
+edit a migration that has already been applied** — add a new file.
 
 ---
 
-## A note on what lives on this box
+## Backups
 
-This server holds your **AWS credentials** and your **Supabase service-role
-key**. The service-role key bypasses every Row Level Security policy in the
-database: anything that gets it can read and write every user's data.
+The `backup` container writes a `pg_dump` to `s3://$S3_BUCKET/backups/` every
+`BACKUP_INTERVAL_SECONDS` (default a day). It never deletes old dumps: in the
+S3 console add a **lifecycle rule** on the `backups/` prefix to expire them after
+30 days or so.
 
-That is the trade for running your own server. Keep the box patched
-(`unattended-upgrades`), keep SSH on keys only, and do not install anything on
-it that does not need to be there. If you are not going to do that, a managed
-platform is genuinely the safer choice.
+Restore, from this folder on the server:
+
+```bash
+aws s3 cp s3://BUCKET/backups/db-<time>.dump ./restore.dump && docker compose exec -T postgres pg_restore --clean --if-exists -U app -d app < restore.dump
+```
+
+Test a restore at least once before you need one.
+
+**Moving to AWS RDS later** is a configuration change: create the RDS instance,
+restore a dump into it, set `DATABASE_URL` in `.env`, and remove the `postgres`
+service from `docker-compose.yml`.
+
+---
+
+## Running locally
+
+Needs Node 20+ and a PostgreSQL database.
+
+```bash
+npm install
+DATABASE_URL=postgres://user:pass@localhost:5432/app npm start
+```
+
+In a second terminal, for the job collector:
+
+```bash
+DATABASE_URL=postgres://user:pass@localhost:5432/app npm run worker
+```
+
+The API applies migrations on start (`npm run migrate` does it on its own). From
+the Android emulator it is reachable at `http://10.0.2.2:8080`.
+
+`S3_ENDPOINT` and `KIE_BASE_URL` exist only to point at S3-compatible storage or
+local stand-ins in tests; production leaves them unset.
+
+---
+
+## Endpoints
+
+| Area | Endpoints |
+|---|---|
+| Accounts | `POST /api/auth/signup` `login` `refresh` `logout` `logout-all` `change-password` `forgot-password` `resend-confirmation`; `GET/POST /api/auth/me`; `POST /api/account/delete` |
+| Email pages | `GET/POST /auth/confirm-email`, `GET/POST /auth/reset-password` |
+| Influencers | `GET /api/influencers`; `POST /api/influencers/create` `update` `delete` |
+| Gallery | `GET /api/generations/by-asset`; `POST /api/generations/add` `delete` |
+| Queue | `GET /api/jobs` `by-task` `active-count` `changes` `sync`; `POST /api/jobs/register` `remove` `clear-settled` |
+| Settings | `GET/POST /api/studio-settings`; `GET /api/creation-params` |
+| Files | `POST /api/storage/upload-url` `confirm` `download-url` `ingest` `delete` |
+| Generation | `/api/kie/*` (proxy), `POST /api/prompt-assist` |
+
+---
+
+## What lives on this server
+
+The **database**, the **AWS keys** and the **SendGrid and KIE keys**. Anything
+that gets onto this box can read every user's data. Keep it patched
+(`unattended-upgrades`), SSH on keys only, and install nothing that does not need
+to be there.

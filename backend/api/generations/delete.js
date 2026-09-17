@@ -1,62 +1,42 @@
 /**
- * POST /api/generations/delete
+ * POST /api/generations/delete  { generationId } → 204
  *
  * Remove one gallery entry and the file behind it.
  *
- * The generation row and its asset are deleted together. Dropping only the row
- * is the common mistake: the clip vanishes from the gallery, the user believes
- * it is gone, and the bytes stay in the bucket forever. "Delete" has to mean
- * deleted, both for cost and because a user asking to remove a generated video
- * of a person is making a request about the file, not about a list.
- *
- * Body: { generationId } → 204
+ * Dropping only the row is the common mistake: the clip vanishes from the
+ * gallery, the user believes it is gone, and the bytes stay in the bucket
+ * forever. "Delete" has to mean deleted — for cost, and because someone asking
+ * to remove a generated video of a person is asking about the file.
  */
 
-import { requireUser, adminClient, applyCors } from '../_lib/auth.js'
-import { sendServerError } from '../_lib/errors.js'
+import { one, transaction } from '../_lib/db.js'
+import { userRoute, badRequest } from '../_lib/http.js'
 import { deleteObject } from '../_lib/s3.js'
 import { forgetSource } from '../_lib/results.js'
+import { isUuid } from '../_lib/validate.js'
 
-export default async function handler(req, res) {
-  if (applyCors(req, res)) return
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-
-  const user = await requireUser(req, res)
-  if (!user) return
-
+export default userRoute(async (req, res, user) => {
   const { generationId } = req.body || {}
-  if (!generationId) return res.status(400).json({ error: 'generationId is required.' })
+  if (!isUuid(generationId)) throw badRequest('generationId is required.')
 
-  const db = adminClient()
+  // The join repeats the owner, so the file deleted is certainly this caller's.
+  const row = await one(
+    `select g.id, g.asset_id, a.s3_key
+       from generations g
+       join assets a on a.id = g.asset_id and a.user_id = g.user_id
+      where g.id = $1 and g.user_id = $2`,
+    [generationId, user.id],
+  )
+  if (!row) return res.status(204).end()   // already gone
 
-  try {
-    const { data: row, error } = await db
-      .from('generations')
-      .select('id, asset_id, assets!inner(id, s3_key, user_id)')
-      .eq('id', generationId)
-      .eq('user_id', user.id)
-      .maybeSingle()
+  // Otherwise the job that produced it could be collected again by the worker.
+  await forgetSource(user.id, row.asset_id)
+  await deleteObject(row.s3_key)
 
-    if (error) throw error
-    if (!row) return res.status(204).end()   // already gone
+  await transaction(async client => {
+    await client.query('delete from generations where id = $1 and user_id = $2', [row.id, user.id])
+    await client.query('delete from assets where id = $1 and user_id = $2', [row.asset_id, user.id])
+  })
 
-    const asset = row.assets
-
-    // Otherwise the job that produced it could be collected again by the worker.
-    if (row.asset_id) await forgetSource(db, user.id, row.asset_id)
-
-    // Guard against a mismatched join before touching the object.
-    if (asset?.s3_key && asset.user_id === user.id) {
-      await deleteObject(asset.s3_key)
-    }
-
-    await db.from('generations').delete().eq('id', row.id).eq('user_id', user.id)
-    if (row.asset_id) {
-      await db.from('assets').delete().eq('id', row.asset_id).eq('user_id', user.id)
-    }
-
-    return res.status(204).end()
-  } catch (e) {
-    return sendServerError(res, e, { tag: '[generations/delete]', message: 'Could not delete that item. Please try again.' })
-  }
-}
+  res.status(204).end()
+}, { tag: '[generations/delete]', message: 'Could not delete that item. Please try again.' })

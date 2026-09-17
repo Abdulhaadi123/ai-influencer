@@ -29,7 +29,7 @@ import { useFocusEffect } from '@react-navigation/native'
 import { useAuth } from '@core/auth/AuthContext'
 import {
   listJobs, isActive, isCollectable, isExpired, isDeleted,
-  markCollected, removeJob, clearSettled, subscribe as subscribeToJobs,
+  removeJob, clearSettled, subscribe as subscribeToJobs,
 } from '@core/data/jobs'
 import { useInfluencers } from '@core/store'
 import { persistGenerated } from '@core/platform/persistMedia'
@@ -109,8 +109,6 @@ export default function QueueScreen() {
         kind: job.kind === 'image' ? 'image' : 'video',
         influencerId: job.influencerId,
       })
-
-      await markCollected(job.taskId, assetId)
 
       if (job.influencerId) {
         await addGeneration({

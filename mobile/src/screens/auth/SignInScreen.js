@@ -59,7 +59,7 @@ export default function SignInScreen({ navigation }) {
     setError(null)
     try {
       await resendConfirmation(email)
-      setResent(`A new confirmation link is on its way to ${email.trim()}. Open it on this phone.`)
+      setResent(`A new confirmation link is on its way to ${email.trim()}. Open it, then sign in here.`)
     } catch (e) {
       setError(userMessage(e, 'Could not send the email. Please try again.'))
     } finally {

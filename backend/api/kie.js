@@ -1,8 +1,8 @@
 /**
  * /api/kie — authenticated proxy to api.kie.ai
  *
- * Callers pass the upstream path in `__kiepath` (injected by the vercel.json
- * rewrite) and this attaches the server-side key.
+ * Callers pass the upstream path in `__kiepath` (set from the URL by
+ * server/index.js) and this attaches the server-side key.
  *
  * ── What changed and why ─────────────────────────────────────────────────────
  *
@@ -10,7 +10,7 @@
  * the account's generation credits, and the mobile app skipped it entirely,
  * shipping EXPO_PUBLIC_KIE_API_KEY inside the .apk where anyone could extract
  * it. Both are now closed — the key exists only here, and every request must
- * carry a valid Supabase session.
+ * carry a valid session.
  *
  * It also moved off the edge runtime so it can share the same JWT verification
  * as every other endpoint. The responses are small JSON payloads, so nothing of

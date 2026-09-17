@@ -63,6 +63,9 @@ export function s3() {
   if (!_client) {
     _client = new S3Client({
       region: REGION,
+      // Only for S3-compatible storage other than AWS (MinIO, say) or a local
+      // stand-in during tests. Unset, the SDK uses AWS's own endpoint.
+      ...(process.env.S3_ENDPOINT ? { endpoint: process.env.S3_ENDPOINT, forcePathStyle: true } : {}),
       // Without this, SDK releases from 3.729 on sign a CRC32 checksum into every
       // presigned PUT — computed over an EMPTY body, because the bytes do not
       // exist when the URL is minted. S3 then rejects every real upload for not

@@ -136,8 +136,8 @@ export function StoreProvider({ children }) {
 
   // ── Operations ─────────────────────────────────────────────────────────────
 
-  const addInfluencer = useCallback(async record => {
-    const created = await influencerRepo.create(record)
+  const addInfluencer = useCallback(async (record, options) => {
+    const created = await influencerRepo.create(record, options)
     if (alive.current) setInfluencersState(prev => [created, ...prev])
     return created
   }, [])

@@ -27,9 +27,8 @@
  *     video does not have to fit inside a serverless function's limits.
  */
 
-import { supabase } from '../supabase'
 import { apiFetch } from '../api/client'
-import { AppError, dbError } from '../errors'
+import { AppError } from '../errors'
 import { uploadToPresignedUrl, getByteSize } from '../platform/uploader'
 
 /** The server's cap per download-url request (backend/api/storage/download-url.js). */
@@ -233,28 +232,6 @@ export async function uploadLocal({ uri, kind, contentType, byteSize, influencer
   await apiFetch('/api/storage/confirm', { method: 'POST', body: { assetId } })
 
   return { assetId }
-}
-
-/**
- * Attach files to an influencer created after they were stored.
- *
- * The create wizard uploads its reference and stores the generated image before
- * the influencer row exists, so neither carried an influencer id — and deleting
- * the influencer, which sweeps storage by that id, left both behind for good.
- * Only files not already linked are touched, so this can never move a file from
- * one influencer to another.
- */
-export async function linkToInfluencer(assetIds, influencerId) {
-  const ids = [...new Set((assetIds || []).filter(Boolean).map(String))]
-  if (!influencerId || ids.length === 0) return
-
-  const { error } = await supabase
-    .from('assets')
-    .update({ influencer_id: influencerId })
-    .in('id', ids)
-    .is('influencer_id', null)
-
-  if (error) throw dbError('link the files to the influencer', error)
 }
 
 /** Permanently delete an asset and its S3 object. */

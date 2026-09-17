@@ -1,50 +1,54 @@
-// Lightweight in-memory "speed bump" against bot floods.
+// In-memory rate limiting.
 //
-// Goal: be completely invisible to real people — even someone aggressively
-// spam-clicking "generate" — while tripping on automated abuse (a script firing
-// hundreds of requests). State lives in memory per running server instance and
-// resets when that instance recycles. That's intentional: this is a speed bump
-// to blunt obvious abuse cheaply, not a bank vault. For bulletproof,
-// cross-instance limiting you'd add a shared store (e.g. Upstash/Vercel KV) —
-// not needed for a hobby project.
+// State lives in this process and resets when it restarts. That is enough for
+// one API container: it stops a script hammering sign-in or an endpoint, which
+// is the case worth stopping. Several API containers would each count
+// separately — at that point move this to a shared store (Postgres or Redis).
+//
+// A refused request is not counted, so waiting out the window always works.
 
-const hits = new Map() // caller key -> number[] of recent request timestamps (ms)
+const LONGEST_DEFAULT = 60_000
 
-// Two tiers, both generous on purpose:
-//  - burst guard: stops an instant flood (a human can't click this fast)
-//  - sustained guard: stops a steady hammer while easily covering heavy
-//    legit use (image/video polling, multiple jobs at once)
-const RULES = [
-  { windowMs: 3000,  max: 30  }, // up to 30 requests in any 3 seconds
-  { windowMs: 60000, max: 300 }, // up to 300 requests in any 60 seconds
-]
+/**
+ * @param {Array<{windowMs: number, max: number}>} rules  all must pass
+ * @returns {(key: string) => {ok: true} | {ok: false, retryAfter: number}}
+ */
+export function createRateLimiter(rules) {
+  const hits = new Map() // key -> number[] of recent request timestamps (ms)
+  const longest = Math.max(LONGEST_DEFAULT, ...rules.map(r => r.windowMs))
 
-const LONGEST = Math.max(...RULES.map(r => r.windowMs))
+  return function limit(callerKey) {
+    const now = Date.now()
+    const key = callerKey || 'unknown'
+    const times = (hits.get(key) || []).filter(t => now - t < longest)
 
-// Keyed by the caller's verified user id (e.g. `user:<id>`), never by IP.
-// Returns { ok: true } to allow, or { ok: false, retryAfter } (seconds) to block.
-export function rateLimit(callerKey) {
-  const now = Date.now()
-  const key = callerKey || 'unknown'
-  let times = (hits.get(key) || []).filter(t => now - t < LONGEST)
-
-  for (const rule of RULES) {
-    const inWindow = times.filter(t => now - t < rule.windowMs).length
-    if (inWindow >= rule.max) {
-      hits.set(key, times)
-      return { ok: false, retryAfter: Math.ceil(rule.windowMs / 1000) }
+    for (const rule of rules) {
+      const inWindow = times.filter(t => now - t < rule.windowMs)
+      if (inWindow.length >= rule.max) {
+        hits.set(key, times)
+        // Seconds until the oldest hit in this window stops counting.
+        const retryAfter = Math.max(1, Math.ceil((rule.windowMs - (now - inWindow[0])) / 1000))
+        return { ok: false, retryAfter }
+      }
     }
-  }
 
-  times.push(now)
-  hits.set(key, times)
+    times.push(now)
+    hits.set(key, times)
 
-  // Opportunistic cleanup so the Map can't grow without bound.
-  if (hits.size > 5000) {
-    for (const [k, v] of hits) {
-      if (v.every(t => now - t >= LONGEST)) hits.delete(k)
+    // Opportunistic cleanup so the map cannot grow without bound.
+    if (hits.size > 5000) {
+      for (const [k, v] of hits) {
+        if (v.every(t => now - t >= longest)) hits.delete(k)
+      }
     }
-  }
 
-  return { ok: true }
+    return { ok: true }
+  }
 }
+
+// Generous general-purpose limit for authenticated API use: invisible to a
+// person, even one tapping fast, but it trips on a script.
+export const rateLimit = createRateLimiter([
+  { windowMs: 3000, max: 30 },    // up to 30 requests in any 3 seconds
+  { windowMs: 60000, max: 300 },  // up to 300 requests in any 60 seconds
+])

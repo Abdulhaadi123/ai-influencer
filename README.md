@@ -68,19 +68,19 @@ src/
     platform/      Web impls of storage / apiUrl / media (RN swaps these)
     store.jsx      App state (React contexts)
   context/         React contexts (theme — web only)
-api/               Vercel serverless functions (KIE proxy, image proxy, Claude proxy)
+backend/           API, worker, PostgreSQL schema, Docker deployment (see backend/README.md)
 docs/              Prompt engineering reference docs
 ```
 
 ---
 
-## Deployment (optional)
-   
-The repo is Vercel-ready. Connect the GitHub repo at vercel.com → it
-auto-detects Vite + the `api/` folder and deploys in ~60 seconds. Add
-`KIE_API_KEY` as an environment variable in the Vercel project settings
-(**not** `VITE_KIE_API_KEY` — that prefix would expose the key in the
-browser). End users don't need any account of their own.
+## Deployment
+
+The mobile app is the product; it talks only to the backend in `backend/`,
+which runs with Docker Compose on a server (PostgreSQL, API, worker, daily
+backups, HTTPS). See `backend/README.md` for the step-by-step EC2 setup, and
+`mobile/SHARING.md` for getting the app onto phones. The web UI in this folder
+is kept for reference only.
 
 ---
 

@@ -17,14 +17,17 @@ Everything below runs from the `mobile/` folder.
 npx eas-cli login
 ```
 
-**2. Give the build the API key.**
+**2. Tell the build where the backend is.**
 
-`mobile/.env` is gitignored, so EAS never uploads it. The key has to be stored
-as a build secret instead — this keeps it out of the repo:
+`mobile/.env` is gitignored, so EAS never uploads it. The app needs one value —
+the backend's address — set as an EAS environment variable for the profile you
+build with. It is not a secret; no key of any kind goes into the app.
 
 ```bash
-npx eas-cli secret:create --scope project --name EXPO_PUBLIC_KIE_API_KEY --value "PASTE_THE_KEY_FROM_mobile/.env"
+npx eas-cli env:create --name EXPO_PUBLIC_API_BASE --value "https://api.your-domain.com" --environment preview --visibility plaintext
 ```
+
+Without it the build installs fine and opens on a "Not configured" screen.
 
 **3. Build it:**
 
@@ -77,8 +80,9 @@ mismatch) or a simulator on a Mac. Android is the practical route today.
   - `CAMERA`, `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, `INTERNET`
   - iOS `NSCameraUsageDescription` / `NSPhotoLibraryUsageDescription`, written
     by the `expo-image-picker` plugin
-- **No backend.** The app calls `api.kie.ai` directly, so nothing needs
-  deploying and no server has to stay up.
+- **A backend is required.** Accounts, data, files and generation all go
+  through `backend/`, which must be deployed and reachable at
+  `EXPO_PUBLIC_API_BASE` — see `backend/README.md`.
 
 Verified by running `expo prebuild` locally and reading the generated
 `AndroidManifest.xml`.
@@ -95,10 +99,8 @@ build.
 
 ---
 
-## Security note, before you send that link to anyone
+## Security note
 
-The KIE API key is compiled **into** the app. Anyone who installs the `.apk`
-can extract it and spend the account's credits, and revoking it means rotating
-the key and shipping a new build.
-
-That is fine for handing to colleagues. Do not post the build link publicly.
+The app contains no API key, database credential or storage key — only the
+backend's address. Everything else is behind sign-in on the server, so a build
+link can be shared without handing anyone the account's credits.

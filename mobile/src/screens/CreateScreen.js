@@ -20,10 +20,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useInfluencers } from '@core/store'
 import { generateThreeImages, STILL_RUNNING } from '@core/services/generation'
-import { uploadLocal, resolveUrl, remove as removeAsset, linkToInfluencer } from '@core/data/assets'
+import { uploadLocal, resolveUrl, remove as removeAsset } from '@core/data/assets'
 import { COPY_ATTRIBUTES, buildImagePrompts } from '@core/prompts/influencerPrompts'
 import { buildNewInfluencer, buildCreationParams } from '@core/newInfluencer'
-import { saveCreationParams } from '@core/data/settings'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { userMessage } from '@core/errors'
 
@@ -245,33 +244,26 @@ export default function CreateScreen({ navigation }) {
     try {
       const chosen = variations[selectedIdx]
 
-      const created = await addInfluencer(buildNewInfluencer({
-        data,
-        mainAssetId: chosen.assetId,
-        referenceAssetId: data.referenceAssetId || null,
-        prompt: promptsRef.current[0] || '',
-      }))
-
-      // Both files were stored before the influencer existed, so neither carried
-      // its id — and deleting the influencer left them in storage for good.
-      try {
-        await linkToInfluencer([chosen.assetId, data.referenceAssetId], created.id)
-      } catch (e) {
-        console.warn('[create] files not linked to the influencer:', e?.message ?? e)
-      }
-
-      // Written after the influencer exists, because it is keyed on the id the
-      // database just generated. A failure here costs "Regenerate" later, not
-      // the influencer itself, so it must not undo the save.
-      try {
-        await saveCreationParams(created.id, buildCreationParams({
+      // One save on the server: the influencer, the two files stored before it
+      // existed (linked so deleting the influencer deletes them), and what it
+      // was generated from (so Regenerate makes the same person). All of it or
+      // none of it.
+      await addInfluencer(
+        buildNewInfluencer({
           data,
-          aspectRatio: ASPECT_RATIO,
+          mainAssetId: chosen.assetId,
           referenceAssetId: data.referenceAssetId || null,
-        }))
-      } catch (e) {
-        console.warn('[create] creation params not saved:', e?.message ?? e)
-      }
+          prompt: promptsRef.current[0] || '',
+        }),
+        {
+          linkAssetIds: [chosen.assetId, data.referenceAssetId],
+          creationParams: buildCreationParams({
+            data,
+            aspectRatio: ASPECT_RATIO,
+            referenceAssetId: data.referenceAssetId || null,
+          }),
+        },
+      )
 
       // A clean wizard for the next influencer. Left as it was, the tab reopened
       // on this one's last step, and "Save influencer" created a duplicate.

@@ -20,8 +20,14 @@ export class ServiceUnavailableError extends Error {
   }
 }
 
-/** Thrown by adminClient() and s3() when their environment variables are absent. */
+/** Thrown by db(), s3() and friends when their environment variables are absent. */
 const NOT_CONFIGURED = /must be set|is not set/i
+
+/** Postgres refusing our credentials or database name: a server setup problem. */
+const DB_MISCONFIGURED = new Set(['28P01', '28000', '3D000'])
+
+/** Postgres up but not taking connections, or the connection failing outright. */
+const DB_UNAVAILABLE = new Set(['57P03', '53300', '08001', '08004', '08006'])
 
 /** AWS SDK error names that mean "storage refused us", not "the request was bad". */
 const STORAGE_REFUSED = new Set([
@@ -29,8 +35,8 @@ const STORAGE_REFUSED = new Set([
   'ExpiredToken', 'InvalidToken', 'NoSuchBucket', 'PermanentRedirect', 'AuthorizationHeaderMalformed',
 ])
 
-/** Node and supabase-js wordings for a connection that never happened. */
-const UNREACHABLE = /fetch failed|network request failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up/i
+/** Node and pg wordings for a connection that never happened. */
+const UNREACHABLE = /fetch failed|network request failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|timeout exceeded when trying to connect|Connection terminated/i
 
 /**
  * @returns {{status: number, code: string, error: string} | null} null for a
@@ -40,7 +46,10 @@ export function classifyServerError(e) {
   if (e instanceof ServiceUnavailableError) {
     return { status: 503, code: e.code, error: e.message }
   }
-  if (NOT_CONFIGURED.test(e?.message || '')) {
+  if (e?.name === 'EngineKeyRejectedError') {
+    return { status: 502, code: 'ENGINE_KEY_REJECTED', error: e.message }
+  }
+  if (NOT_CONFIGURED.test(e?.message || '') || DB_MISCONFIGURED.has(e?.code)) {
     return {
       status: 503,
       code: 'SERVER_NOT_CONFIGURED',
@@ -55,7 +64,7 @@ export function classifyServerError(e) {
     }
   }
   const text = [e?.message, e?.details, e?.code, e?.cause?.code, e?.cause?.message].filter(Boolean).join(' ')
-  if (UNREACHABLE.test(text)) {
+  if (UNREACHABLE.test(text) || DB_UNAVAILABLE.has(e?.code)) {
     return {
       status: 503,
       code: 'UPSTREAM_UNAVAILABLE',

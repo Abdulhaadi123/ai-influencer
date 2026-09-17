@@ -13,7 +13,7 @@
  * and revoking it means rotating the key and shipping a new build to everyone.
  *
  * So both platforms now go through the proxy, which holds the only copy of the
- * key and requires a valid Supabase session. There is nothing platform-specific
+ * key and requires a valid session. There is nothing platform-specific
  * left, which is why the `.native.js` variant is gone: the only difference was
  * the base URL, and getApiUrl already handles that.
  *

@@ -3,7 +3,7 @@
  * Session storage — REACT NATIVE (see authStorage.js for web).
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * The Supabase session — access token, refresh token, user — is a bearer
+ * The session — access token, refresh token, user — is a bearer
  * credential. Anything holding it can act as the user until it expires, so it
  * does NOT go in the same place as ordinary app data.
  *
@@ -15,10 +15,10 @@
  *
  * ── The 2048-byte problem ────────────────────────────────────────────────────
  *
- * SecureStore warns above 2048 bytes and iOS can refuse outright. A Supabase
- * session is comfortably larger than that — the JWT alone carries claims, and
- * the payload includes the user object. So values are split across numbered
- * chunks and reassembled on read. The chunk count lives in its own key, and a
+ * SecureStore warns above 2048 bytes and iOS can refuse outright. A session
+ * holds two tokens and the user object, and must never be cut off by that
+ * limit as it grows, so values are split across numbered chunks and
+ * reassembled on read. The chunk count lives in its own key, and a
  * write always clears the previous chunks first: shrinking from five chunks to
  * three must not leave chunks four and five behind to be concatenated onto the
  * next read.
@@ -37,9 +37,8 @@ const countKey = key => `${key}__chunks`
 const chunkKey = (key, i) => `${key}__${i}`
 
 /**
- * SecureStore rejects keys outside [A-Za-z0-9._-]. Supabase's own key contains
- * a hyphen and dots, which are fine, but a project ref or a future key shape
- * could not be; normalising here avoids a silent write failure.
+ * SecureStore rejects keys outside [A-Za-z0-9._-]. The session key is fine as it
+ * is, but a future key might not be; normalising here avoids a silent write failure.
  */
 function safeKey(key) {
   return String(key).replace(/[^A-Za-z0-9._-]/g, '_')

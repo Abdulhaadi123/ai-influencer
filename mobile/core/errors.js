@@ -119,35 +119,6 @@ export function notifySessionEnded() {
   }
 }
 
-/** For a write that found no signed-in user: signs out, and says so. */
-export function signedOutError() {
-  notifySessionEnded()
-  return new AppError(SESSION_ENDED_MESSAGE, { code: ERROR_CODES.NOT_AUTHENTICATED })
-}
-
-
-// ── Database ─────────────────────────────────────────────────────────────────
-
-/**
- * Turn a supabase-js error into an AppError for `action` ("load your
- * influencers"). The raw message goes to the log; the person gets a sentence.
- */
-export function dbError(action, error) {
-  const message = error?.message || ''
-  console.warn(`[db] could not ${action}:`, message, error?.code || '')
-
-  if (isNetworkFailure(error)) {
-    return new AppError(NETWORK_MESSAGE, { code: ERROR_CODES.NETWORK, cause: error })
-  }
-  if (/jwt|token is expired|invalid claim/i.test(message) || /^PGRST30/.test(error?.code || '')) {
-    notifySessionEnded()
-    return new AppError(SESSION_ENDED_MESSAGE, { code: ERROR_CODES.NOT_AUTHENTICATED, cause: error })
-  }
-  if (error?.code === '42501' || /row-level security|permission denied/i.test(message)) {
-    return new AppError(`You do not have permission to ${action}.`, { code: ERROR_CODES.FORBIDDEN, cause: error })
-  }
-  return new AppError(`Could not ${action}. Please try again.`, { code: ERROR_CODES.DATABASE, cause: error })
-}
 
 
 // ── Our API, by status ───────────────────────────────────────────────────────

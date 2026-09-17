@@ -2,7 +2,7 @@ import { kieFetch } from '../../../platform/kieTransport'
 import { IMAGE_MODEL_ID, VIDEO_MODEL_KLING, VIDEO_MODEL_VEO, MOTION_MODEL_KIE } from '../../../config/generation'
 import { getVideoModel, getMotionModel } from '../../../config/videoModels'
 import { compressImage } from '../../../platform/media'
-import { registerJobs, applyStatus } from '../../../data/jobs'
+import { registerJobs, syncJob } from '../../../data/jobs'
 import { urlForGeneration } from '../../../data/assets'
 import { replaceImageTags } from '../../../prompts/videoPrompt'
 import { AppError, ERROR_CODES, generatorMessage, isSessionEnded } from '../../../errors'
@@ -16,13 +16,6 @@ import { AppError, ERROR_CODES, generatorMessage, isSessionEnded } from '../../.
  * taskId and can collect the result whenever it is ready.
  */
 export const STILL_RUNNING = 'STILL_RUNNING'
-
-/**
- * Last state written for a taskId, so a poll tick only touches the database
- * when something changed. Process-local and unbounded in principle, but a
- * session generates tens of jobs, not thousands.
- */
-const _lastState = new Map()
 
 /**
  * The error for a request to start work that was refused.
@@ -88,30 +81,25 @@ function referenceError(what) {
  *                    completeTime:number|null, creditsConsumed:number|null}>}
  */
 export async function fetchTaskStatus(taskId) {
-  const res = await kieFetch('/api/v1/jobs/recordInfo', { query: { taskId } })
-
-  if (res.status === 429) return { state: 'ratelimited', resultUrls: [], failMsg: null }
-  if (!res.ok) return { state: 'unknown', resultUrls: [], failMsg: `HTTP ${res.status}` }
-
-  const json = await res.json().catch(() => null)
-  if (!json) return { state: 'unknown', resultUrls: [], failMsg: 'Unreadable response' }
-  if (json.code === 429) return { state: 'ratelimited', resultUrls: [], failMsg: null }
-  if (json.code !== 200) {
-    return { state: 'unknown', resultUrls: [], failMsg: generatorMessage(json.code) }
+  // The server asks KIE and records the answer on the job itself, so polling
+  // here keeps the Queue current without the app ever writing a job's state.
+  let result
+  try {
+    result = await syncJob(taskId)
+  } catch (e) {
+    if (e?.status === 429 || e?.code === 'RATE_LIMITED') return { state: 'ratelimited', resultUrls: [], failMsg: null, job: null }
+    // An ended session must still end the watch; anything else is "try again later".
+    if (isSessionEnded(e)) throw e
+    return { state: 'unknown', resultUrls: [], failMsg: e?.message ?? null, job: null }
   }
 
-  const d = json.data || {}
-  let resultUrls = []
-  if (d.resultJson) {
-    try { resultUrls = JSON.parse(d.resultJson).resultUrls || [] } catch {}
-  }
-
+  const { status, job } = result
   return {
-    state: d.state || 'unknown',
-    resultUrls,
-    failMsg: d.failMsg || null,
-    completeTime: d.completeTime || null,
-    creditsConsumed: d.creditsConsumed ?? null,
+    state: status?.state || 'unknown',
+    resultUrls: status?.resultUrls || [],
+    failMsg: status?.failMsg || null,
+    completeTime: status?.completeTime || null,
+    job,
   }
 }
 
@@ -127,13 +115,12 @@ export async function refreshJobs(taskIds) {
   for (const taskId of taskIds) {
     try {
       const status = await fetchTaskStatus(taskId)
-      // Nothing is known about the task, so leave the stored row untouched.
+      // Nothing is known about the task this time; try it again next pass.
       if (status.state === 'ratelimited' || status.state === 'unknown') {
         await new Promise(r => setTimeout(r, 1200))
         continue
       }
-      const job = await applyStatus(taskId, status)
-      if (job) updated.push(job)
+      if (status.job) updated.push(status.job)
     } catch (e) {
       console.warn('[KIE] refresh failed for', taskId, e?.message ?? e)
     }
@@ -358,16 +345,6 @@ export async function pollAllJobs(jobIds, total, onProgress, _staleTolerance = 8
         }
         backoff = 0
 
-        // Keep the stored row current so the Queue tab is accurate even while
-        // this foreground loop is the thing doing the watching — but only when
-        // something actually changed. Writing "generating" over itself every
-        // two seconds is a database round trip and a Realtime broadcast to
-        // every one of the user's devices, carrying no new information.
-        if (_lastState.get(jobId) !== status.state) {
-          _lastState.set(jobId, status.state)
-          await applyStatus(jobId, status)
-        }
-
         if (status.state === 'success' && status.resultUrls[0]) {
           pending.delete(jobId)
           const resultUrl = status.resultUrls[0]
@@ -454,11 +431,6 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
             break
           }
           backoff = 0
-
-          if (_lastState.get(jobId) !== status.state) {
-            _lastState.set(jobId, status.state)
-            await applyStatus(jobId, status)
-          }
 
           if (status.state === 'success' && status.resultUrls[0]) {
             pending.delete(jobId)

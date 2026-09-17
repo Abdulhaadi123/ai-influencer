@@ -21,7 +21,7 @@ export function getApiUrl(path) {
   if (!API_BASE) {
     throw new Error(
       'EXPO_PUBLIC_API_BASE is not set. The mobile app needs an absolute URL ' +
-      'for the backend (e.g. https://your-app.vercel.app). Add it to ' +
+      'for the backend (e.g. https://api.your-domain.com). Add it to ' +
       'mobile/.env and restart the dev server.',
     )
   }

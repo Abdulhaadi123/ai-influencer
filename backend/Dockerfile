@@ -17,9 +17,10 @@ RUN npm install --omit=dev --no-audit --no-fund
 COPY api ./api
 COPY lib ./lib
 COPY server ./server
+COPY db ./db
 
-# Never run as root. A container escape from a process holding the AWS and
-# Supabase service-role credentials is bad enough without it starting as root.
+# Never run as root. A container escape from a process holding the AWS keys and
+# the database password is bad enough without it starting as root.
 USER node
 
 ENV NODE_ENV=production

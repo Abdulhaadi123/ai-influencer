@@ -6,47 +6,26 @@
  * ── The shape contract ───────────────────────────────────────────────────────
  *
  * Screens keep working with the field names they always used — `mainImage`,
- * `characterSheetImage`, `generationHistory` — even though the database stores
+ * `characterSheetImage`, `generationHistory` — even though the server stores
  * asset ids and the files live in S3. This module is the translation layer:
- * rows and asset ids go in, displayable objects come out.
- *
- * That is a deliberate choice. Renaming every field across a dozen screens at
- * the same time as moving to a backend would have made a large change
- * unreviewable, and the image fields carry a signed URL now rather than a
- * file:// path — same name, same use, different provenance.
+ * rows and asset ids come from the API, displayable objects come out.
  *
  * Each record also carries the raw `*AssetId` values, because a writer needs
  * the id (a signed URL is not a durable reference) and because deleting an
- * influencer has to know which objects to remove.
+ * influencer has to know which files belong to it.
  *
- * ── Why reads do not filter by user_id ───────────────────────────────────────
- *
- * They do not need to. Row Level Security adds `user_id = auth.uid()` to every
- * statement inside Postgres. Adding a client-side `.eq('user_id', …)` would
- * imply the filter is what protects the data, which would be wrong and would
- * rot the moment someone removed it. Writes DO set user_id, because a row has
- * to be stamped with an owner for the insert policy to accept it.
+ * The server decides whose rows these are from the session; nothing here sends
+ * a user id.
  */
 
-import { supabase, requireUserId } from '../supabase'
-import { dbError } from '../errors'
+import { apiFetch } from '../api/client'
 import { resolveUrls } from './assets'
 
-/** Columns the app reads. Explicit so a schema addition cannot silently bloat every query. */
-const COLUMNS = `
-  id, user_id, name, gender, age, type,
-  niche, niches, niche_custom, backstory, intro_extrovert, physical_desc, vibe_words,
-  main_asset_id, prompt, reference_asset_id, copy_attributes,
-  character_sheet_asset_id, closeup1_asset_id, closeup2_asset_id,
-  audience, clothing_style, hobbies, location, palette, voice, dream_brands, content_pillars,
-  wardrobe_slots, created_at, updated_at
-`
-
 /**
- * DB row → the object screens consume.
+ * API row → the object screens consume.
  * @param {object} row
  * @param {Map<string,string>} urls  assetId → signed URL
- * @param {object[]} history         this influencer's generations, newest first
+ * @param {object[]} history         this influencer's gallery entries, newest first
  */
 function toApp(row, urls, history = []) {
   const url = id => (id ? urls.get(String(id)) ?? null : null)
@@ -102,7 +81,19 @@ function toApp(row, urls, history = []) {
   }
 }
 
-/** App patch → DB columns. Only keys actually present are translated, so a
+/** A gallery row → the entry shape the gallery renders. */
+export function toGalleryEntry(row, url) {
+  return {
+    id: row.id,
+    type: row.kind === 'video' ? 'video' : 'image',
+    label: row.label,
+    url: url ?? null,
+    assetId: row.asset_id,
+    date: new Date(row.created_at).getTime(),
+  }
+}
+
+/** App patch → API columns. Only keys actually present are translated, so a
  *  partial update stays partial and cannot blank a field by omission. */
 function toRow(patch) {
   const row = {}
@@ -247,44 +238,20 @@ function collectAssetIds(rows, generations) {
 }
 
 /**
- * Load the signed-in user's whole roster, generations attached.
- *
- * Three round trips regardless of how many influencers there are: the rows,
- * their generations, and one batch of signed URLs. Resolving URLs per record
- * would be a request per image.
+ * The signed-in user's whole roster, gallery attached. Two round trips however
+ * many influencers there are: the rows, and one batch of signed URLs.
  */
 export async function list() {
-  const { data: rows, error } = await supabase
-    .from('influencers')
-    .select(COLUMNS)
-    .order('created_at', { ascending: false })
+  const { influencers: rows = [], generations = [] } = await apiFetch('/api/influencers')
+  if (!rows.length) return []
 
-  if (error) throw dbError('load your influencers', error)
-  if (!rows?.length) return []
-
-  const { data: gens, error: genError } = await supabase
-    .from('generations')
-    .select('id, influencer_id, asset_id, kind, label, created_at')
-    .in('influencer_id', rows.map(r => r.id))
-    .order('created_at', { ascending: false })
-
-  if (genError) console.warn('[influencers] generations load:', genError.message)
-
-  const generations = gens || []
   const urls = await resolveUrls(collectAssetIds(rows, generations))
 
   const historyByInfluencer = new Map()
   for (const g of generations) {
-    const list = historyByInfluencer.get(g.influencer_id) || []
-    list.push({
-      id: g.id,
-      type: g.kind === 'video' ? 'video' : 'image',
-      label: g.label,
-      url: urls.get(String(g.asset_id)) ?? null,
-      assetId: g.asset_id,
-      date: new Date(g.created_at).getTime(),
-    })
-    historyByInfluencer.set(g.influencer_id, list)
+    const entries = historyByInfluencer.get(g.influencer_id) || []
+    entries.push(toGalleryEntry(g, urls.get(String(g.asset_id))))
+    historyByInfluencer.set(g.influencer_id, entries)
   }
 
   return rows.map(r => toApp(r, urls, historyByInfluencer.get(r.id) || []))
@@ -293,53 +260,41 @@ export async function list() {
 /**
  * Create an influencer.
  *
- * `user_id` is set from the session rather than trusted from the caller — the
- * insert policy would reject a mismatch anyway, but sending someone else's id
- * should be impossible by construction, not merely refused.
+ * @param {object} record  app-shaped fields (buildNewInfluencer)
+ * @param {object} [opts]
+ * @param {string[]} [opts.linkAssetIds]   files stored before the influencer
+ *        existed (the create wizard's reference and generated image), so that
+ *        deleting the influencer deletes them too
+ * @param {object} [opts.creationParams]   what it was generated from, for Regenerate
+ *
+ * All of it is saved in one transaction on the server, or none of it.
  */
-export async function create(record) {
-  const userId = await requireUserId()
-
-  const row = { ...toRow(record), user_id: userId }
-
-  const { data, error } = await supabase
-    .from('influencers')
-    .insert(row)
-    .select(COLUMNS)
-    .single()
-
-  if (error) throw dbError('save the influencer', error)
-
-  const urls = await resolveUrls(collectAssetIds([data], []))
-  return toApp(data, urls, [])
+export async function create(record, { linkAssetIds = [], creationParams = null } = {}) {
+  const { influencer } = await apiFetch('/api/influencers/create', {
+    method: 'POST',
+    body: {
+      record: toRow(record),
+      linkAssetIds: linkAssetIds.filter(Boolean),
+      creationParams,
+    },
+  })
+  const urls = await resolveUrls(collectAssetIds([influencer], []))
+  return toApp(influencer, urls, [])
 }
 
 export async function update(id, patch) {
   const row = toRow(patch)
   if (Object.keys(row).length === 0) return null
 
-  const { data, error } = await supabase
-    .from('influencers')
-    .update(row)
-    .eq('id', id)
-    .select(COLUMNS)
-    .single()
-
-  if (error) throw dbError('save your change', error)
-
-  const urls = await resolveUrls(collectAssetIds([data], []))
-  return toApp(data, urls, [])
+  const { influencer } = await apiFetch('/api/influencers/update', { method: 'POST', body: { id, patch: row } })
+  const urls = await resolveUrls(collectAssetIds([influencer], []))
+  return toApp(influencer, urls, [])
 }
 
 /**
- * Delete an influencer and everything hanging off it.
- *
- * The database cascades the rows — generations, jobs, settings, assets. The S3
- * objects are swept by the API, which is why this goes through our endpoint
- * rather than deleting the row directly: a plain row delete would leave the
- * files behind, paid for and unreachable.
+ * Delete an influencer and everything hanging off it. The server removes the
+ * files from S3 before the rows, so nothing is left behind still billed.
  */
 export async function remove(id) {
-  const { apiFetch } = await import('../api/client')
   await apiFetch('/api/influencers/delete', { method: 'POST', body: { influencerId: id } })
 }

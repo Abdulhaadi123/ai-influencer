@@ -1,65 +1,44 @@
 /**
- * POST /api/storage/ingest
+ * POST /api/storage/ingest  { sourceUrl, influencerId? } → { assetId, reused }
  *
  * Copy a generated file from KIE into the caller's own S3 space.
  *
  * KIE deletes its result URLs about 24 hours after completion, so a result is
- * not really the user's until the bytes are somewhere we control. Doing the
- * copy server-side rather than on the device means a phone that dies, loses
- * signal, or is killed by the OS mid-download does not lose work that has
- * already been paid for.
+ * not really the user's until the bytes are somewhere we control. Copying on the
+ * server means a phone that dies or loses signal mid-download does not lose work
+ * already paid for.
  *
- * The copy itself lives in _lib/results.js, shared with the worker. It is
- * idempotent: asking twice for the same result returns the asset already
- * stored (`reused: true`) rather than a second copy, and the queue row that
- * produced the URL is marked collected as part of the same request. That URL
- * is untrusted input — see the SSRF note in results.js.
- *
- * Body: { sourceUrl, kind?, influencerId?, contentType? }
- * → { assetId, reused }
+ * The copy lives in _lib/results.js, shared with the worker. It is idempotent —
+ * asking twice returns the stored copy (`reused: true`) — and it marks the queue
+ * row collected. The URL is untrusted input; see the SSRF note there.
  */
 
-import { requireUser, adminClient, applyCors } from '../_lib/auth.js'
-import { sendServerError } from '../_lib/errors.js'
+import { one } from '../_lib/db.js'
+import { userRoute, badRequest, forbidden, HttpError } from '../_lib/http.js'
 import { storeGeneratedResult, isAllowedResultSource, ResultError } from '../_lib/results.js'
+import { isUuid } from '../_lib/validate.js'
 
-export default async function handler(req, res) {
-  if (applyCors(req, res)) return
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-
-  const user = await requireUser(req, res)
-  if (!user) return
-
+export default userRoute(async (req, res, user) => {
   const { sourceUrl, influencerId = null } = req.body || {}
 
-  if (!sourceUrl || !isAllowedResultSource(sourceUrl)) {
-    return res.status(400).json({ error: 'That source is not allowed.', code: 'BAD_SOURCE' })
+  if (typeof sourceUrl !== 'string' || !isAllowedResultSource(sourceUrl)) {
+    throw badRequest('That source is not allowed.', 'BAD_SOURCE')
+  }
+  if (influencerId !== null && !isUuid(influencerId)) throw badRequest('influencerId is not valid.')
+  if (influencerId && !(await one('select 1 from influencers where id = $1 and user_id = $2', [influencerId, user.id]))) {
+    throw forbidden('That influencer is not yours.')
   }
 
-  const db = adminClient()
-
   try {
-    if (influencerId) {
-      const { data: owned, error: ownError } = await db
-        .from('influencers').select('id')
-        .eq('id', influencerId).eq('user_id', user.id).maybeSingle()
-      // A failed lookup is a server problem, not proof the influencer is someone else's.
-      if (ownError) throw ownError
-      if (!owned) return res.status(403).json({ error: 'That influencer is not yours.', code: 'FORBIDDEN' })
-    }
-
-    const { assetId, reused } = await storeGeneratedResult(db, {
+    const { assetId, reused } = await storeGeneratedResult({
       userId: user.id,
       influencerId,
       sourceUrl,
       enforceQuota: true,
     })
-
-    return res.status(200).json({ assetId, reused })
+    res.json({ assetId, reused })
   } catch (e) {
-    if (e instanceof ResultError) {
-      return res.status(e.status).json({ error: e.message, code: e.code })
-    }
-    return sendServerError(res, e, { tag: '[ingest]', message: 'Could not save the generated file. Please try again.' })
+    if (e instanceof ResultError) throw new HttpError(e.status, e.message, e.code)
+    throw e
   }
-}
+}, { tag: '[storage/ingest]', message: 'Could not save the generated file. Please try again.' })

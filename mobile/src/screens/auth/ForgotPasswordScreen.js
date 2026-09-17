@@ -47,7 +47,7 @@ export default function ForgotPasswordScreen({ navigation }) {
     return (
       <AuthShell
         title="Check your inbox"
-        subtitle="Follow the link in the email to choose a new password. It expires in an hour."
+        subtitle="The link in the email opens a page where you choose a new password. Then sign in here with it."
         footer={<LinkButton title="Back to sign in" onPress={() => navigation.navigate('SignIn')} />}
       >
         <FormNotice>

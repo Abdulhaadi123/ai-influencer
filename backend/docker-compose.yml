@@ -1,36 +1,80 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Deployment for an Ubuntu box.
+# Deployment for an Ubuntu server (e.g. AWS EC2).
 #
-#   caddy   — TLS termination, automatic certificates
-#   api     — the endpoints (same files Vercel would serve)
-#   worker  — the always-on job collector
+#   postgres — the database; not reachable from outside this network
+#   api      — the endpoints; applies database migrations when it starts
+#   worker   — the always-on job collector (exactly one)
+#   backup   — dumps the database to S3 once a day
+#   caddy    — TLS termination, automatic certificates
 #
-# Secrets come from .env on the host and are never baked into the image.
+# Secrets come from .env next to this file and are never baked into an image.
 # ─────────────────────────────────────────────────────────────────────────────
+
+x-database-url: &database-url
+  DATABASE_URL: postgres://app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/app
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Deliberately no `ports:` — only the containers below can reach it.
+
   api:
     build: .
     restart: unless-stopped
     env_file: .env
     environment:
+      <<: *database-url
       PORT: 8080
     expose:
       - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 20s
 
   worker:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      <<: *database-url
     command: ["node", "server/worker.js"]
+    # The API creates the tables on start, so the worker waits for it.
+    depends_on:
+      api:
+        condition: service_healthy
     # Exactly one. Two workers would double the request rate against KIE's
-    # per-account limit and race each other to collect the same result.
+    # per-account limit.
     deploy:
       replicas: 1
+
+  backup:
+    build: ./backup
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *database-url
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   caddy:
     image: caddy:2-alpine
@@ -46,5 +90,6 @@ services:
       - api
 
 volumes:
+  postgres_data:
   caddy_data:
   caddy_config:

@@ -6,7 +6,7 @@
  * someone pick the shortest thing that passes; showing it live lets them get it
  * right the first time.
  *
- * Whether a confirmation email is required is a Supabase project setting, not
+ * Whether a confirmation email is required is a server setting (REQUIRE_EMAIL_CONFIRMATION), not
  * something this screen decides — so it handles both outcomes rather than
  * assuming one.
  */
@@ -62,7 +62,7 @@ export default function SignUpScreen({ navigation }) {
 
       if (needsEmailConfirmation) {
         setSentTo(email.trim())
-        setNotice(`Account created. Check ${email.trim()} for a confirmation link and open it on this phone.`)
+        setNotice(`Account created. Check ${email.trim()} for a confirmation link, then come back here and sign in.`)
       }
       // Otherwise the session arrives and the auth gate swaps the navigator —
       // nothing to do here.
