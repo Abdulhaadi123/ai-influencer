@@ -8,7 +8,7 @@
  */
 
 import { useMemo } from 'react'
-import { View, Text, Image, FlatList, Pressable, StyleSheet } from 'react-native'
+import { View, Text, Image, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 
 import { useBottomInset } from '../hooks/useBottomInset'
 import { mediaSource } from '../lib/seedMedia'
@@ -20,13 +20,40 @@ import { useTheme, space, radius } from '../theme'
 export default function InfluencersScreen({ navigation }) {
   const { colors } = useTheme()
   const bottomInset = useBottomInset()
-  const [influencers] = useInfluencers()
+  const roster = useInfluencers()
+  const [influencers] = roster
 
   // Stable ordering so the list doesn't reshuffle between renders.
   const data = useMemo(
     () => [...(influencers || [])].sort((a, b) => (a.name || '').localeCompare(b.name || '')),
     [influencers]
   )
+
+  if (!data.length && roster.loading) {
+    return (
+      <View style={[styles.empty, { backgroundColor: colors.bg }]}>
+        <ActivityIndicator size="large" color={colors.brand} />
+      </View>
+    )
+  }
+
+  // Not "No influencers yet": a load that failed is not an empty roster, and
+  // that screen invited people to create duplicates of what they already had.
+  if (!data.length && roster.error) {
+    return (
+      <View style={[styles.empty, { backgroundColor: colors.bg }]}>
+        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Your influencers did not load</Text>
+        <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>{roster.error}</Text>
+        <Pressable
+          onPress={roster.refresh}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.emptyCta, { backgroundColor: colors.brand, opacity: pressed ? 0.85 : 1 }]}
+        >
+          <Text style={styles.emptyCtaText}>Try again</Text>
+        </Pressable>
+      </View>
+    )
+  }
 
   if (!data.length) {
     return (

@@ -46,6 +46,50 @@ export const VOICE_PRESETS = {
   ],
 }
 
+/**
+ * What each reference is called in a prompt for a model that cannot read
+ * `@image_N` tags.
+ *
+ * Keyed by ROLE, not position. Position depends on which images survived the
+ * model's image cap, so the old fixed mapping ("@image_2 is the wardrobe")
+ * called the product the wardrobe whenever an influencer had no reference
+ * sheets — which is every influencer until sheets are generated.
+ */
+const ROLE_WORDS = {
+  identity: 'the presenter',
+  wardrobe: 'the wardrobe',
+  charsheet: 'the wardrobe',
+  closeup1: 'the face details',
+  closeup2: 'the features',
+  home: 'the location',
+  product1: 'the product',
+  product2: 'the second product',
+  product3: 'the third product',
+}
+
+/** The fixed positional names, for callers that do not say which image is which. */
+const LEGACY_WORDS = [
+  'the presenter', 'the wardrobe', 'the face details', 'the features',
+  'the product', 'the product', 'the product', 'the product',
+]
+
+/**
+ * Replace `@image_N` and `@audio_1` tags with words.
+ *
+ * @param {string} prompt
+ * @param {string[]|null} roles  each sent image's role, in send order (from
+ *        selectVideoReferences); null keeps the legacy positional names
+ */
+export function replaceImageTags(prompt, roles = null) {
+  const words = Array.isArray(roles) ? roles.map(r => ROLE_WORDS[r] || 'the reference') : LEGACY_WORDS
+  let out = String(prompt ?? '')
+  // Highest number first, so @image_1 can never match the front of @image_10.
+  for (let n = Math.max(words.length, LEGACY_WORDS.length); n >= 1; n--) {
+    out = out.replace(new RegExp(`@image_${n}(?![0-9])`, 'g'), words[n - 1] || 'the reference')
+  }
+  return out.replace(/@audio_1/g, 'the audio').replace(/@/g, '')
+}
+
 function parseAdditionalNotes(notes, durationSecs) {
   if (!notes.trim()) return { actionBeats: [], directionNotes: '' }
 
@@ -290,6 +334,9 @@ export function buildVideoPrompt(influencer, settings) {
     shotMode = 'oner', duration = 15, camera = 'Handheld',
     videoTimeOfDay = 'afternoon', envKey = '',
     audioDataUrl = null, voicePreset = '',
+    // What each image in the request is, in the order it is sent — from
+    // selectVideoReferences. Absent (the web studio), the legacy layout below.
+    sentRoles = null,
   } = settings || {}
 
   // These four are read with .trim(), and a default only fills in `undefined`
@@ -321,6 +368,11 @@ export function buildVideoPrompt(influencer, settings) {
     // Start frame mode: @image_1 = start frame (identity + outfit baked in), @image_2+ = products
     tagMap['identity'] = '@image_1'
     prodImgs.forEach((prod, i) => { tagMap[prod.role] = `@image_${i + 2}` })
+  } else if (Array.isArray(sentRoles)) {
+    // The request carries exactly these images, in this order. Tag them to
+    // match, and give nothing a tag that was not sent: a line describing a
+    // reference the model never received makes it invent one.
+    sentRoles.forEach((role, i) => { tagMap[role] = `@image_${i + 1}` })
   } else {
     const infImgs = [
       influencer.mainImage && { role: 'identity', url: influencer.mainImage },
@@ -474,13 +526,19 @@ export function buildVideoPrompt(influencer, settings) {
   if (!startFrameUrl && tagMap.closeup2) subjectParts.push(`${tagMap.closeup2} for feature-level accuracy — lip shape, brow arch, skin tone.`)
 
   // WARDROBE — in start frame mode the outfit is baked into @image_1
+  // With sent roles and no outfit reference among them, the main image is the
+  // outfit reference. The slot-name fallback is for the web studio, where slots
+  // carry real names; on influencers the app creates they are the placeholders
+  // "Wardrobe 1, Wardrobe 2, Wardrobe 3", which read to the model as the outfit.
   const wardrobeLine = startFrameUrl
     ? `Continue outfit from @image_1 exactly — same silhouette, fabric, color, styling throughout. Zero variation.`
     : tagMap.wardrobe
       ? `Match outfit from ${tagMap.wardrobe} exactly — silhouette, fabric, color, styling, zero variation. Outfit comes from ${tagMap.wardrobe} only, not @image_1.`
       : tagMap.charsheet
         ? `Match ${tagMap.charsheet} exactly — same outfit silhouette, fabric, color, styling throughout. Zero variation.`
-        : ((influencer.wardrobeSlots||[]).filter(s=>s.name).map(s=>s.name).join(', ') || 'Casual, stylish, consistent throughout.')
+        : sentRoles && tagMap.identity
+          ? `Match the outfit worn in ${tagMap.identity} exactly — same silhouette, fabric, color, styling throughout. Zero variation.`
+          : ((influencer.wardrobeSlots||[]).filter(s=>s.name).map(s=>s.name).join(', ') || 'Casual, stylish, consistent throughout.')
 
   const allPresets = [...(VOICE_PRESETS.female || []), ...(VOICE_PRESETS.male || [])]
   const deliveryLine = audioDataUrl

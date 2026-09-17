@@ -6,7 +6,7 @@ import { generateThreeImages } from '../../mobile/core/services/generation'
 import { compressImage } from '../../mobile/core/platform/media'
 import { gColor } from '../../mobile/core/utils/influencerUtils'
 import { COPY_ATTRIBUTES, buildImagePrompts } from '../../mobile/core/prompts/influencerPrompts'
-import { saveCreationParams } from '../../mobile/core/creationParams'
+import { saveCreationParams } from '../../mobile/core/data/settings'
 import { buildNewInfluencer, buildCreationParams } from '../../mobile/core/newInfluencer'
 
 const STEPS = ['Basics', 'Reference', 'Generate']

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { checkKieConnection, isKieConnected } from '../../mobile/core/api/kieAuth'
+import { checkKieConnection } from '../../mobile/core/api/kieAuth'
 import { useTheme } from '../context/theme'
 
 function Section({ title, children }) {
@@ -19,7 +19,7 @@ const CLAUDE_KEY = 'claude_api_key'
 export default function Settings() {
   const location = useLocation()
   const { theme, toggle } = useTheme()
-  const [kieConnected, setKieConnected] = useState(isKieConnected)
+  const [kieConnected, setKieConnected] = useState(false)
   const [checking, setChecking] = useState(false)
   const [claudeKey, setClaudeKey] = useState(() => localStorage.getItem(CLAUDE_KEY) || '')
   const [claudeInput, setClaudeInput] = useState('')

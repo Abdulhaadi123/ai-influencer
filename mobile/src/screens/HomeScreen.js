@@ -10,7 +10,7 @@
  */
 
 import { useMemo } from 'react'
-import { View, Text, ScrollView, Image, Pressable, StyleSheet } from 'react-native'
+import { View, Text, ScrollView, Image, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 
 import { useBottomInset } from '../hooks/useBottomInset'
 import { isServable, mediaSource } from '../lib/seedMedia'
@@ -46,7 +46,9 @@ const FEATURES = [
 export default function HomeScreen({ navigation }) {
   const { colors } = useTheme()
   const bottomInset = useBottomInset()
-  const [influencers] = useInfluencers()
+  const roster = useInfluencers()
+  const [influencers] = roster
+  const { loading, error, refresh } = roster
 
   const recent = useMemo(
     () => (influencers || []).filter(i => isServable(i.mainImage)).slice(0, 6),
@@ -73,6 +75,16 @@ export default function HomeScreen({ navigation }) {
         </Text>
       </LinearGradient>
 
+      {/* A failed load used to read as "0 influencers" — to someone who has ten. */}
+      {error ? (
+        <View style={[styles.errorBanner, { borderColor: colors.danger }]}>
+          <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
+          <Pressable onPress={refresh} hitSlop={8} accessibilityRole="button">
+            <Text style={[styles.retry, { color: colors.brandDeep }]}>Try again</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* What you already have */}
       <Pressable
         onPress={() => navigation.navigate('Influencers')}
@@ -83,7 +95,11 @@ export default function HomeScreen({ navigation }) {
       >
         <View style={styles.statTop}>
           <View>
-            <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{count}</Text>
+            {loading && count === 0 ? (
+              <ActivityIndicator size="small" color={colors.brand} style={styles.statLoading} />
+            ) : (
+              <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{count}</Text>
+            )}
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
               {count === 1 ? 'influencer' : 'influencers'} ready to use
             </Text>
@@ -146,6 +162,10 @@ const styles = StyleSheet.create({
   heroSub: { color: 'rgba(255,255,255,0.92)', fontSize: 14, lineHeight: 20 },
 
   statCard: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, padding: space.lg, marginBottom: space.xl, gap: space.md },
+  statLoading: { alignSelf: 'flex-start', marginVertical: space.sm },
+  errorBanner: { borderWidth: 1, borderRadius: radius.md, padding: space.md, marginBottom: space.lg, gap: space.sm },
+  errorText: { fontSize: 13.5, lineHeight: 19 },
+  retry: { fontSize: 14, fontWeight: '600' },
   statTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   statNumber: { fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
   statLabel: { fontSize: 14, marginTop: 2 },

@@ -10,7 +10,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { View, Text, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
 
 import { useInfluencers } from '@core/store'
 
@@ -28,9 +28,10 @@ const TABS = [
   { label: 'Gallery', value: 'gallery' },
 ]
 
-export default function InfluencerDetailScreen({ route }) {
+export default function InfluencerDetailScreen({ route, navigation }) {
   const { colors } = useTheme()
-  const [influencers] = useInfluencers()
+  const roster = useInfluencers()
+  const [influencers] = roster
   const [tab, setTab] = useState('profile')
 
   const id = route?.params?.id
@@ -39,6 +40,14 @@ export default function InfluencerDetailScreen({ route }) {
     () => (influencers || []).find(i => String(i.id) === String(id)),
     [influencers, id]
   )
+
+  if (!influencer && roster.loading) {
+    return (
+      <View style={[styles.missing, { backgroundColor: colors.bg }]}>
+        <ActivityIndicator size="large" color={colors.brand} />
+      </View>
+    )
+  }
 
   if (!influencer) {
     return (
@@ -57,7 +66,7 @@ export default function InfluencerDetailScreen({ route }) {
       </View>
 
       {tab === 'profile' ? (
-        <ProfileTab influencer={influencer} />
+        <ProfileTab influencer={influencer} navigation={navigation} />
       ) : tab === 'videos' ? (
         <VideosTab influencer={influencer} />
       ) : tab === 'motion' ? (

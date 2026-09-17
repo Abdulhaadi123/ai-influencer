@@ -23,6 +23,7 @@
  */
 
 import { kieFetch } from '../platform/kieTransport'
+import { userMessage } from '../errors'
 import { IMAGE_MODEL_ID, VIDEO_MODEL_KLING, MOTION_MODEL_KIE } from '../config/generation'
 
 /** A 1x1 transparent PNG — the smallest thing that exercises the upload path. */
@@ -30,15 +31,24 @@ const TINY_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
 const ok = (label, detail) => ({ label, status: 'ok', detail })
+
+/**
+ * Our own API refused before the generator was asked — signed out, server not
+ * configured, no connection. Its message says which. Without this check a
+ * refusal fell through and the model checks reported OK.
+ */
+const refusedByServer = res => !res.ok && res.error && (typeof res.error.code === 'string' || !res.status)
 const bad = (label, detail) => ({ label, status: 'fail', detail })
 
 async function checkCredits() {
   try {
     const res = await kieFetch('/api/v1/chat/credit')
+    if (refusedByServer(res)) return bad('API key', userMessage(res.error))
     if (!res.ok) return bad('API key', `HTTP ${res.status} — key rejected`)
     const json = await res.json()
     if (json?.code !== 200) return bad('API key', json?.msg || 'rejected by KIE')
-    return ok('API key', `valid · ${json.data} credits remaining`)
+    // The server withholds the balance unless EXPOSE_CREDIT_BALANCE is on.
+    return ok('API key', json.data == null ? 'valid' : `valid · ${json.data} credits remaining`)
   } catch (e) {
     return bad('API key', e?.message ?? 'could not reach KIE')
   }
@@ -54,6 +64,7 @@ async function checkUpload() {
         fileName: `diagnostic_${Date.now()}.png`,
       }),
     })
+    if (refusedByServer(res)) return bad('File upload', userMessage(res.error))
     if (!res.ok) return bad('File upload', `HTTP ${res.status}`)
     const json = await res.json()
     const url = json?.data?.downloadUrl || json?.downloadUrl
@@ -75,6 +86,7 @@ async function checkModel(label, model) {
       method: 'POST',
       body: JSON.stringify({ model, input: {} }),
     })
+    if (refusedByServer(res)) return bad(label, userMessage(res.error))
     const json = await res.json().catch(() => null)
 
     if (json?.code === 422) return bad(label, `KIE does not know "${model}"`)

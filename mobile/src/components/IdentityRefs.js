@@ -17,15 +17,17 @@ import { View, Text, Image, Pressable, ActivityIndicator, StyleSheet, Alert } fr
 
 import { IDENTITY_SLOTS, generateIdentityRef, NO_MAIN_IMAGE } from '@core/identityRefs'
 import { STILL_RUNNING } from '@core/services/generation'
-import { markSavedByResultUrl } from '@core/jobQueue'
-import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
-import { downloadImage } from '@core/platform/media'
-import { useInfluencers, generateId } from '@core/store'
+import { uploadLocal } from '@core/data/assets'
+import { persistGenerated } from '@core/platform/persistMedia'
+import { userMessage } from '@core/errors'
+import { useInfluencers } from '@core/store'
 
 import { useTheme, space, radius } from '../theme'
 import { Section, Button } from '../components/ui'
 import { mediaSource } from '../lib/seedMedia'
 import { pickImageWithPrompt } from '../lib/picker'
+import { shareMedia } from '../lib/share'
+import { usePendingResult } from '../hooks/usePendingResult'
 
 export default function IdentityRefs({ influencer }) {
   return (
@@ -49,65 +51,111 @@ export default function IdentityRefs({ influencer }) {
 
 function RefSlot({ slot, influencer, last }) {
   const { colors } = useTheme()
-  const [, setInfluencers] = useInfluencers()
+  const { updateInfluencer, addGeneration } = useInfluencers()
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState(null)
+  /** A sheet that outlived the foreground poll, watched until it lands. */
+  const [pendingTaskId, setPendingTaskId] = useState(null)
 
   const value = influencer[slot.field]
   const source = mediaSource(value)
 
-  const save = useCallback(url => {
-    setInfluencers(prev => prev.map(i => i.id === influencer.id
-      ? {
-          ...i,
-          [slot.field]: url,
-          // Recorded in the gallery like any other generation, so it is
-          // browsable and shareable rather than only living in this slot.
-          generationHistory: url
-            ? [{ id: generateId(), type: 'image', label: slot.label, url, date: Date.now() }, ...(i.generationHistory || [])]
-            : (i.generationHistory || []),
-        }
-      : i))
-  }, [influencer.id, slot.field, slot.label, setInfluencers])
+  /**
+   * Point the slot at an asset, and record it in the gallery.
+   *
+   * Two writes, in this order. The slot assignment is the one that matters —
+   * it is what video generation reads — so the gallery entry is best-effort
+   * behind it. A failed gallery write should not leave the sheet unset.
+   */
+  const save = useCallback(async assetId => {
+    await updateInfluencer(influencer.id, { [slot.assetField]: assetId })
+    if (!assetId) return
+    try {
+      await addGeneration({
+        influencerId: influencer.id, assetId, kind: 'image', label: slot.label,
+      })
+    } catch (e) {
+      console.warn('[identityRefs] gallery entry not recorded:', e?.message ?? e)
+    }
+  }, [influencer.id, slot.assetField, slot.label, updateInfluencer, addGeneration])
 
   const generate = useCallback(async () => {
     setBusy(true); setError(null); setProgress(0)
+    let taskId = null
     try {
       const url = await generateIdentityRef(influencer, slot.key, {
         onProgress: setProgress,
+        onJobIds: ids => { taskId = ids?.[0] ?? null },
         queueMeta: { influencerId: influencer.id, influencerName: influencer.name, label: slot.label },
       })
-      // KIE deletes result URLs within a day, so copy it onto the device
-      // before it is stored — same as every other generated file.
-      const local = await persistMedia(url, mediaFilename('image', `${slot.key}_${Date.now()}`, 'jpg'))
-      markSavedByResultUrl(url, local)
-      save(local)
+      // KIE deletes result URLs within a day, so the server copies the file
+      // into this user's storage — same as every other generated file.
+      const { assetId } = await persistGenerated({
+        sourceUrl: url, kind: 'image', influencerId: influencer.id,
+      })
+      await save(assetId)
     } catch (e) {
-      setError(
-        e?.message === NO_MAIN_IMAGE
-          ? 'Add a main image first — it is the face reference.'
-          : e?.message === STILL_RUNNING
-          ? 'Still generating — not failed. Collect it from the Queue tab when it is ready.'
-          : (e?.message ?? 'Generation failed.'))
+      if (e?.message === STILL_RUNNING && taskId) {
+        // Not failed. Watched below so it is set in THIS slot when it lands.
+        // Collecting it from the Queue only filed it in the gallery, and people
+        // generated — and paid for — the sheet a second time.
+        setPendingTaskId(taskId)
+      } else {
+        setError(
+          e?.message === NO_MAIN_IMAGE
+            ? 'Add a main image first — it is the face reference.'
+            : e?.message === STILL_RUNNING
+            ? 'Still generating — not failed. It will be saved to the gallery when it finishes.'
+            : userMessage(e, `The ${slot.label.toLowerCase()} could not be generated. Please try again.`))
+      }
     } finally {
       setBusy(false); setProgress(0)
     }
   }, [influencer, slot.key, save])
 
+  usePendingResult(pendingTaskId, {
+    kind: 'image',
+    influencerId: influencer.id,
+    onReady: ({ assetId }) => {
+      setPendingTaskId(null)
+      save(assetId).catch(e =>
+        setError(userMessage(e, `The ${slot.label.toLowerCase()} finished but could not be set here. Please try again.`)))
+    },
+    onFailed: message => {
+      setPendingTaskId(null)
+      setError(message)
+    },
+  })
+
   const replace = useCallback(async () => {
     const uri = await pickImageWithPrompt()
-    if (uri) save(uri)
-  }, [save])
+    if (!uri) return
+    setBusy(true); setError(null)
+    try {
+      const { assetId } = await uploadLocal({
+        uri, kind: 'image', contentType: 'image/jpeg', influencerId: influencer.id,
+      })
+      await save(assetId)
+    } catch (e) {
+      setError(userMessage(e, 'Could not upload that image. Please try again.'))
+    } finally {
+      setBusy(false)
+    }
+  }, [save, influencer.id])
 
   const remove = useCallback(() => {
     Alert.alert(`Remove ${slot.label}?`, 'The generated image stays in the gallery.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => {
-        setInfluencers(prev => prev.map(i => i.id === influencer.id ? { ...i, [slot.field]: null } : i))
+        // Clears the slot only. The file stays in the gallery, which is what
+        // the dialog promises — removing it here would delete a generation the
+        // user may still want.
+        updateInfluencer(influencer.id, { [slot.assetField]: null })
+          .catch(e => setError(userMessage(e, 'Could not remove it. Please try again.')))
       } },
     ])
-  }, [influencer.id, slot.field, slot.label, setInfluencers])
+  }, [influencer.id, slot.assetField, slot.label, updateInfluencer])
 
   return (
     <View style={[styles.slot, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSubtle }]}>
@@ -131,11 +179,13 @@ function RefSlot({ slot, influencer, last }) {
         />
       ) : null}
 
-      {busy ? (
+      {busy || pendingTaskId ? (
         <View style={[styles.progressBox, { borderColor: colors.borderSubtle }]}>
           <ActivityIndicator size="small" color={colors.brand} />
           <Text style={[styles.progressText, { color: colors.textSecondary }]}>
-            {progress > 0 ? `Generating… ${Math.round(progress)}%` : 'Generating…'}
+            {pendingTaskId
+              ? 'Still generating — slower than usual, not failed. It will appear here when it finishes.'
+              : progress > 0 ? `Generating… ${Math.round(progress)}%` : 'Generating…'}
           </Text>
         </View>
       ) : (
@@ -153,9 +203,9 @@ function RefSlot({ slot, influencer, last }) {
         </View>
       )}
 
-      {source && !busy ? (
+      {source && !busy && !pendingTaskId ? (
         <View style={styles.subActions}>
-          <Pressable onPress={() => downloadImage(value, `${(influencer.name || 'ref').toLowerCase()}-${slot.key}.jpg`)} hitSlop={8}>
+          <Pressable onPress={() => shareMedia(value, `${(influencer.name || 'ref').toLowerCase()}-${slot.key}.jpg`)} hitSlop={8}>
             <Text style={[styles.subAction, { color: colors.brandDeep }]}>Save or share</Text>
           </Pressable>
           <Pressable onPress={remove} hitSlop={8}>

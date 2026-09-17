@@ -1,0 +1,50 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Deployment for an Ubuntu box.
+#
+#   caddy   — TLS termination, automatic certificates
+#   api     — the endpoints (same files Vercel would serve)
+#   worker  — the always-on job collector
+#
+# Secrets come from .env on the host and are never baked into the image.
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8080
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    command: ["node", "server/worker.js"]
+    # Exactly one. Two workers would double the request rate against KIE's
+    # per-account limit and race each other to collect the same result.
+    deploy:
+      replicas: 1
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  caddy_data:
+  caddy_config:

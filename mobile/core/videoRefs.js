@@ -37,6 +37,8 @@
  * @param {number}   maxImages    the chosen model's declared limit
  * @returns {{
  *   images: string[],            what to send, already trimmed to maxImages
+ *   roles: string[],             what each sent image is, in the same order —
+ *                                buildVideoPrompt and generateVideo tag by these
  *   dropped: string[],           labels of the references that did not fit
  *   productsIncluded: number,    how many product photos survived
  *   productsDropped: number,     how many did not
@@ -46,12 +48,12 @@ export function selectVideoReferences(influencer, products = [], maxImages = 2) 
   const cleanProducts = (products || []).filter(Boolean)
 
   const ranked = [
-    { label: 'Main image',      url: influencer?.mainImage,           isProduct: false },
-    { label: 'Product',         url: cleanProducts[0],                isProduct: true  },
-    { label: 'Character sheet', url: influencer?.characterSheetImage, isProduct: false },
-    { label: 'Close-up',        url: influencer?.closeUpImage1,       isProduct: false },
-    { label: 'Feature sheet',   url: influencer?.closeUpImage2,       isProduct: false },
-    ...cleanProducts.slice(1).map(url => ({ label: 'Product', url, isProduct: true })),
+    { label: 'Main image',      role: 'identity',  url: influencer?.mainImage,           isProduct: false },
+    { label: 'Product',         role: 'product1',  url: cleanProducts[0],                isProduct: true  },
+    { label: 'Character sheet', role: 'charsheet', url: influencer?.characterSheetImage, isProduct: false },
+    { label: 'Close-up',        role: 'closeup1',  url: influencer?.closeUpImage1,       isProduct: false },
+    { label: 'Feature sheet',   role: 'closeup2',  url: influencer?.closeUpImage2,       isProduct: false },
+    ...cleanProducts.slice(1).map((url, i) => ({ label: 'Product', role: `product${i + 2}`, url, isProduct: true })),
   ].filter(r => !!r.url)
 
   const limit = Math.max(1, maxImages || 1)
@@ -60,6 +62,7 @@ export function selectVideoReferences(influencer, products = [], maxImages = 2) 
 
   return {
     images: kept.map(r => r.url),
+    roles: kept.map(r => r.role),
     dropped: lost.map(r => r.label),
     productsIncluded: kept.filter(r => r.isProduct).length,
     productsDropped: lost.filter(r => r.isProduct).length,

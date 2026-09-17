@@ -21,21 +21,22 @@ import { useBottomInset } from '../hooks/useBottomInset'
 import { useVideoPlayer, VideoView } from 'expo-video'
 
 import { generateMotionCopy, STILL_RUNNING } from '@core/services/generation'
-import { markSavedByResultUrl } from '@core/jobQueue'
+import { uploadLocal, resolveUrl } from '@core/data/assets'
 import { MOTION_MODELS, DEFAULT_MOTION_MODEL, getMotionModel } from '@core/config/videoModels'
-import { downloadImage } from '@core/platform/media'
-import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
-import { useInfluencers, generateId } from '@core/store'
+import { userMessage } from '@core/errors'
+import { persistGenerated } from '@core/platform/persistMedia'
+import { useInfluencers } from '@core/store'
 
 import { useTheme, space, radius } from '../theme'
 import { Section, Button, Segmented, Collapsible, Field } from '../components/ui'
 import { pickImageWithPrompt, pickVideo } from '../lib/picker'
 import ModelPicker from '../components/ModelPicker'
+import { shareMedia } from '../lib/share'
 
 export default function MotionCopyScreen({ influencer }) {
   const { colors } = useTheme()
   const bottomInset = useBottomInset()
-  const [, setInfluencers] = useInfluencers()
+  const { addGeneration } = useInfluencers()
 
   // Same character sources the web studio offers.
   const characterOptions = useMemo(() => [
@@ -45,8 +46,11 @@ export default function MotionCopyScreen({ influencer }) {
   ].filter(Boolean), [influencer])
 
   const [characterImage, setCharacterImage] = useState(() => characterOptions[0]?.url || null)
-  const [drivingVideo, setDrivingVideo] = useState(null) // data URL
+  // The uploaded driving video: a local URI for the preview, and the signed URL
+  // KIE will fetch it from.
+  const [drivingVideo, setDrivingVideo] = useState(null)     // { previewUri, fetchUrl }
   const [videoName, setVideoName] = useState('')
+  const [uploadingVideo, setUploadingVideo] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [mode, setMode] = useState('pro') // 'std' = 720p, 'pro' = 1080p
   const [model, setModel] = useState(DEFAULT_MOTION_MODEL)
@@ -63,23 +67,53 @@ export default function MotionCopyScreen({ influencer }) {
 
   const chooseCharacter = useCallback(async () => {
     const uri = await pickImageWithPrompt()
-    if (uri) setCharacterImage(uri)
-  }, [])
+    if (!uri) return
+    setError(null)
+    try {
+      // KIE fetches the character itself, so it needs a URL. Uploading first
+      // also means the picked photo is stored under this user rather than
+      // living only in memory for the length of one screen.
+      const { assetId } = await uploadLocal({
+        uri, kind: 'image', contentType: 'image/jpeg', influencerId: influencer?.id ?? null,
+      })
+      setCharacterImage(await resolveUrl(assetId))
+    } catch (e) {
+      setError(userMessage(e, 'Could not upload that image. Please try again.'))
+    }
+  }, [influencer?.id])
 
   const chooseVideo = useCallback(async () => {
+    setError(null)
+    let picked
     try {
-      setError(null)
-      const picked = await pickVideo()
-      if (!picked) return
-      setDrivingVideo(picked.dataUrl)
-      setVideoName(picked.name)
+      picked = await pickVideo()
     } catch (e) {
       // The size guard throws with a message written for the user.
-      setError(e?.message ?? 'Could not load that video.')
+      setError(userMessage(e, 'Could not open that video. Try a different one.'))
+      return
     }
-  }, [])
+    if (!picked) return
 
-  const canGenerate = !!characterImage && !!drivingVideo && !generating
+    setVideoName(picked.name)
+    setUploadingVideo(true)
+    try {
+      const { assetId } = await uploadLocal({
+        uri: picked.uri,
+        kind: 'video',
+        contentType: picked.contentType,
+        byteSize: picked.size,
+        influencerId: influencer?.id ?? null,
+      })
+      setDrivingVideo({ previewUri: picked.uri, fetchUrl: await resolveUrl(assetId) })
+    } catch (e) {
+      setVideoName('')
+      setError(userMessage(e, 'Could not upload that video. Please try again.'))
+    } finally {
+      setUploadingVideo(false)
+    }
+  }, [influencer?.id])
+
+  const canGenerate = !!characterImage && !!drivingVideo?.fetchUrl && !generating && !uploadingVideo
 
   const generate = useCallback(async () => {
     if (!canGenerate) return
@@ -89,13 +123,13 @@ export default function MotionCopyScreen({ influencer }) {
     try {
       const { urls } = await generateMotionCopy({
         characterImage,
-        drivingVideo,
+        // A signed URL, not base64 — KIE pulls the file itself.
+        drivingVideo: drivingVideo.fetchUrl,
         prompt,
         mode,
         model,
         onProgress: setProgress,
         isCancelled: () => cancelRef.current,
-        pendingKey: influencer?.id,
         queueMeta: { influencerId: influencer?.id, influencerName: influencer?.name, label: 'Motion Copy' },
       })
 
@@ -103,31 +137,27 @@ export default function MotionCopyScreen({ influencer }) {
       if (cancelRef.current) return
       if (!url) { setError('No video was returned — please try again.'); return }
 
-      // KIE deletes results within a day or so — copy it onto the device first,
-      // otherwise the saved entry becomes a dead link.
-      const entryId = generateId()
-      const localUri = await persistMedia(url, mediaFilename('motion', entryId, 'mp4'))
-      markSavedByResultUrl(url, localUri)
+      // KIE deletes results within a day, so the server copies the file into
+      // this user's storage before the entry is recorded.
+      const { assetId, url: storedUrl } = await persistGenerated({
+        sourceUrl: url, kind: 'video', influencerId: influencer?.id ?? null,
+      })
       if (cancelRef.current) return
 
-      setResult(localUri)
+      setResult(storedUrl)
 
       if (influencer?.id) {
-        setInfluencers(prev => prev.map(inf => inf.id === influencer.id ? {
-          ...inf,
-          generationHistory: [
-            { id: entryId, type: 'video', label: 'Motion Copy', url: localUri, date: Date.now() },
-            ...(inf.generationHistory || []),
-          ],
-        } : inf))
+        await addGeneration({
+          influencerId: influencer.id, assetId, kind: 'video', label: 'Motion Copy',
+        })
       }
     } catch (e) {
       if (e?.message === STILL_RUNNING) setHandedOff(true)
-      else if (e?.message !== 'CANCELLED') setError(e?.message ?? String(e))
+      else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'The motion copy could not be generated. Please try again.'))
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }
-  }, [canGenerate, characterImage, drivingVideo, prompt, mode, model, influencer, setInfluencers])
+  }, [canGenerate, characterImage, drivingVideo, prompt, mode, model, influencer, addGeneration])
 
   const cancel = useCallback(() => {
     cancelRef.current = true
@@ -188,7 +218,7 @@ export default function MotionCopyScreen({ influencer }) {
         <View style={styles.padded}>
           {drivingVideo ? (
             <View style={{ gap: space.md }}>
-              <VideoPreview uri={drivingVideo} />
+              <VideoPreview uri={drivingVideo.previewUri} />
               <Text style={[styles.fileName, { color: colors.textSecondary }]} numberOfLines={1}>
                 {videoName}
               </Text>
@@ -203,7 +233,11 @@ export default function MotionCopyScreen({ influencer }) {
               </View>
             </View>
           ) : (
-            <Button title="Choose a motion video" onPress={chooseVideo} />
+            <Button
+              title={uploadingVideo ? 'Uploading…' : 'Choose a motion video'}
+              onPress={chooseVideo}
+              disabled={uploadingVideo}
+            />
           )}
         </View>
       </Section>
@@ -287,7 +321,7 @@ export default function MotionCopyScreen({ influencer }) {
             <Button
               title="Save or share"
               variant="secondary"
-              onPress={() => downloadImage(result, `${(influencer?.name || 'motion').toLowerCase()}-motion.mp4`)}
+              onPress={() => shareMedia(result, `${(influencer?.name || 'motion').toLowerCase()}-motion.mp4`)}
             />
           </View>
         </Section>

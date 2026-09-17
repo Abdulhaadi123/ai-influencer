@@ -24,12 +24,15 @@ import { generateSingleImage } from './services/generation'
 
 /**
  * The three reference slots, in the order the video prompt expects them.
- * `field` is the influencer property; `label` is what the gallery records.
+ * `field` is the displayable URL on the influencer record; `assetField` is the
+ * column that stores the durable reference. Both are needed: one renders, the
+ * other is what gets written.
  */
 export const IDENTITY_SLOTS = [
   {
     key: 'sheet',
     field: 'characterSheetImage',
+    assetField: 'characterSheetAssetId',
     label: 'Character Sheet',
     blurb: 'Four full-body views — front, side, back, three-quarter.',
     aspectRatio: '16:9',
@@ -38,6 +41,7 @@ export const IDENTITY_SLOTS = [
   {
     key: 'closeup',
     field: 'closeUpImage1',
+    assetField: 'closeUpImage1AssetId',
     label: 'Close Up',
     blurb: 'Straight-on studio headshot. Fixes the face for every clip.',
     aspectRatio: '4:5',
@@ -46,6 +50,7 @@ export const IDENTITY_SLOTS = [
   {
     key: 'feature',
     field: 'closeUpImage2',
+    assetField: 'closeUpImage2AssetId',
     label: 'Feature Sheet',
     blurb: 'Macro detail — eyes, brow, lips, skin, hair, hands.',
     aspectRatio: '2:3',
@@ -69,7 +74,7 @@ export const NO_MAIN_IMAGE = 'NO_MAIN_IMAGE'
  *
  * @returns {Promise<string>} the generated image URL
  */
-export async function generateIdentityRef(influencer, slotKey, { onProgress, isCancelled, queueMeta } = {}) {
+export async function generateIdentityRef(influencer, slotKey, { onProgress, isCancelled, queueMeta, onJobIds } = {}) {
   if (!influencer?.mainImage) throw new Error(NO_MAIN_IMAGE)
 
   const slot = getIdentitySlot(slotKey)
@@ -80,6 +85,8 @@ export async function generateIdentityRef(influencer, slotKey, { onProgress, isC
     onProgress: onProgress || (() => {}),
     isCancelled: isCancelled || (() => false),
     queueMeta,
+    // Lets the caller keep watching a sheet that outlives the foreground poll.
+    onJobIds,
   })
 
   if (!url) throw new Error('No image was returned — please try again.')

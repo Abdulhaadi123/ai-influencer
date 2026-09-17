@@ -22,12 +22,21 @@
 import { useEffect } from 'react'
 import { AppState } from 'react-native'
 
+import { useAuth } from '@core/auth/AuthContext'
+
 import { syncActiveJobs } from '../lib/queueSync'
 
 const DEFAULT_INTERVAL_MS = 30000
 
 export function useQueueSync(intervalMs = DEFAULT_INTERVAL_MS) {
+  const { isSignedIn } = useAuth()
+
   useEffect(() => {
+    // Every call here reads the user's rows and hits our authenticated API, so
+    // there is nothing to do — and nothing it is allowed to do — while signed
+    // out. Without this guard a signed-out app would fire a 401 every 30s.
+    if (!isSignedIn) return
+
     syncActiveJobs()
 
     const id = setInterval(() => { syncActiveJobs() }, intervalMs)
@@ -42,5 +51,5 @@ export function useQueueSync(intervalMs = DEFAULT_INTERVAL_MS) {
       clearInterval(id)
       sub.remove()
     }
-  }, [intervalMs])
+  }, [intervalMs, isSignedIn])
 }

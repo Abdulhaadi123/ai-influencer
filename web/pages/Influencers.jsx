@@ -11,7 +11,7 @@ import { buildThreeVariationPrompts } from '../../mobile/core/prompts/systemProm
 import { gColor, pLabel } from '../../mobile/core/utils/influencerUtils'
 import { getNiches } from '../../mobile/core/niches'
 import { buildVideoPrompt, VOICE_PRESETS } from '../../mobile/core/prompts/videoPrompt'
-import { loadStudioSettings, saveStudioSettings } from '../../mobile/core/studioSettings'
+import { loadStudioSettings, saveStudioSettings } from '../../mobile/core/data/settings'
 import { ENV_PRESETS as CS_ENV_PRESETS, VIBES as CS_VIBES, CAMERAS as CS_CAMERAS } from '../../mobile/core/studioOptions'
 import { regenerateMainImage, NO_CREATION_PARAMS } from '../../mobile/core/regenerate'
 import { useTheme } from '../context/theme'

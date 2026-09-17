@@ -28,3 +28,7 @@ ios/
 
 # JetBrains IDE
 .idea/
+
+# Backend (deployable on its own — see backend/README.md)
+backend/node_modules
+backend/.env

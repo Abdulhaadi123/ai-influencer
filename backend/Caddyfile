@@ -1,0 +1,6 @@
+# Replace with your domain. Caddy obtains and renews the TLS certificate
+# automatically — the API must be HTTPS because it carries session tokens.
+api.example.com {
+	encode gzip
+	reverse_proxy api:8080
+}

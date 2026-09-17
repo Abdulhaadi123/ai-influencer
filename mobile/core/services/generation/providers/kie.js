@@ -1,9 +1,11 @@
 import { kieFetch } from '../../../platform/kieTransport'
 import { IMAGE_MODEL_ID, VIDEO_MODEL_KLING, VIDEO_MODEL_VEO, MOTION_MODEL_KIE } from '../../../config/generation'
 import { getVideoModel, getMotionModel } from '../../../config/videoModels'
-import * as storage from '../../../platform/storage'
 import { compressImage } from '../../../platform/media'
-import { registerJobs, applyStatus } from '../../../jobQueue'
+import { registerJobs, applyStatus } from '../../../data/jobs'
+import { urlForGeneration } from '../../../data/assets'
+import { replaceImageTags } from '../../../prompts/videoPrompt'
+import { AppError, ERROR_CODES, generatorMessage, isSessionEnded } from '../../../errors'
 
 /**
  * Thrown when foreground polling gives up while KIE is still working.
@@ -16,25 +18,59 @@ import { registerJobs, applyStatus } from '../../../jobQueue'
 export const STILL_RUNNING = 'STILL_RUNNING'
 
 /**
- * KIE's documented response codes. A bare "generation failed" hides the
- * difference between an empty wallet, a bad model id and a maintenance window
- * — all three need a different reaction from the user.
+ * Last state written for a taskId, so a poll tick only touches the database
+ * when something changed. Process-local and unbounded in principle, but a
+ * session generates tens of jobs, not thousands.
  */
-const CODE_MESSAGES = {
-  401: 'The API key was rejected. Check EXPO_PUBLIC_KIE_API_KEY in mobile/.env.',
-  402: 'Out of KIE credits — top up the account to keep generating.',
-  404: 'KIE could not find that resource.',
-  422: 'KIE rejected the request parameters (often an unsupported model id).',
-  429: 'Too many requests to KIE right now — wait a moment and try again.',
-  433: 'This API subkey has hit its usage limit.',
-  455: 'KIE is under maintenance. Try again shortly.',
-  500: 'KIE had a server error.',
-  501: 'The generation itself failed on KIE.',
-  505: 'That feature is disabled on this KIE account.',
+const _lastState = new Map()
+
+/**
+ * The error for a request to start work that was refused.
+ *
+ * Two different things refuse. Our own API — the session ended, the server is
+ * not configured, the connection dropped — answers with a sentence already
+ * written for people, carried on `res.error`. The generator answers with a
+ * numeric code, which generatorMessage() words for people. Treating the two
+ * alike is how an ended session once read "the generation engine rejected our
+ * key", and a misconfigured server "Image generate failed (HTTP 503)".
+ */
+async function refusal(res) {
+  const own = res.error
+  if (own && (typeof own.code === 'string' || !res.status)) return own
+  const body = await res.json().catch(() => null)
+  return generatorError(body?.code ?? res.status, body?.msg)
 }
 
-function messageForCode(code, fallback) {
-  return CODE_MESSAGES[code] || fallback || `KIE returned code ${code}.`
+/** A generator answer that did not start a job. */
+function generatorError(code, detail) {
+  if (detail) console.warn(`[KIE] code ${code}: ${detail}`)
+  return new AppError(
+    code === 200 ? 'The generator did not start the job. Please try again.' : generatorMessage(code),
+    { code: `GENERATOR_${code}` },
+  )
+}
+
+/** Every job came back failed: say so, with the generator's reason when it gave one. */
+function failedGeneration(reasons) {
+  const reason = String(reasons.find(Boolean) || '').trim().slice(0, 240)
+  return new AppError(
+    reason
+      ? `The generator could not create this: ${reason}`
+      : 'The generator could not create this. Try again, or change the prompt.',
+    { code: ERROR_CODES.GENERATION_FAILED },
+  )
+}
+
+/**
+ * Thrown BEFORE a job starts when an input it depends on is unavailable. The
+ * upload helpers return null on failure, and callers used to carry on without
+ * the input — generating a stranger instead of this influencer, and paying for it.
+ */
+function referenceError(what) {
+  return new AppError(
+    `The ${what} could not be prepared, so nothing was generated. Please try again.`,
+    { code: ERROR_CODES.REFERENCE_FAILED },
+  )
 }
 
 /**
@@ -61,7 +97,7 @@ export async function fetchTaskStatus(taskId) {
   if (!json) return { state: 'unknown', resultUrls: [], failMsg: 'Unreadable response' }
   if (json.code === 429) return { state: 'ratelimited', resultUrls: [], failMsg: null }
   if (json.code !== 200) {
-    return { state: 'unknown', resultUrls: [], failMsg: messageForCode(json.code, json.msg) }
+    return { state: 'unknown', resultUrls: [], failMsg: generatorMessage(json.code) }
   }
 
   const d = json.data || {}
@@ -96,7 +132,7 @@ export async function refreshJobs(taskIds) {
         await new Promise(r => setTimeout(r, 1200))
         continue
       }
-      const job = applyStatus(taskId, status)
+      const job = await applyStatus(taskId, status)
       if (job) updated.push(job)
     } catch (e) {
       console.warn('[KIE] refresh failed for', taskId, e?.message ?? e)
@@ -119,79 +155,30 @@ function capVideoPrompt(p) {
   return p.slice(0, KIE_VIDEO_PROMPT_MAX - 3) + '...'
 }
 
-const PENDING_KEY = 'kie_pending_gens'
-const PENDING_VIDEO_KEY = 'kie_pending_videos'
+// ── Reference-upload cache ──────────────────────────────────────────
+//
+// Uploading the same reference photo twice in one session is pure waste, so
+// the KIE upload URL is remembered against a fingerprint of the source.
+//
+// Memory only, deliberately. It used to be written to device storage, which
+// meant a fingerprint of the user's own photos sat on disk in plaintext and
+// outlived the session it belonged to. The saving was never worth that: the
+// cache exists to avoid a duplicate upload inside one burst of generations,
+// and it does that just as well without being persisted.
+const _mediaCache = new Map()
 
-// ── Media caching to avoid double uploading ────────────────────────
-const MEDIA_CACHE_KEY = 'kie_media_cache'
-const _mediaCache = (() => {
-  try {
-    const raw = JSON.parse(storage.getItem(MEDIA_CACHE_KEY) || '{}')
-    const map = new Map()
-    const now = Date.now()
-    const expiry = 24 * 60 * 60 * 1000 // 24 hours
-    let hasLegacy = false
-    for (const [k, v] of Object.entries(raw)) {
-      // Ignore legacy string values or expired entries
-      if (v && typeof v === 'object' && v.url && (now - v.uploadedAt < expiry)) {
-        map.set(k, v)
-      } else {
-        hasLegacy = true
-      }
-    }
-    if (hasLegacy) {
-      try { storage.setItem(MEDIA_CACHE_KEY, JSON.stringify(Object.fromEntries(map))) } catch {}
-    }
-    return map
-  }
-  catch { return new Map() }
-})()
-
-function _mediaCacheSave() {
-  try { storage.setItem(MEDIA_CACHE_KEY, JSON.stringify(Object.fromEntries(_mediaCache))) }
-  catch { /* cache in memory only */ }
-}
-
+/** Cheap content fingerprint — length plus both ends. Good enough to spot the
+ *  identical data URL again; it is a cache key, not a checksum. */
 function mediaFingerprint(dataUrl) {
   return `${dataUrl.length}:${dataUrl.slice(0, 48)}:${dataUrl.slice(-24)}`
 }
 
-// ── Pending generation helpers ──────────────────────────────────────
-export function savePendingGen(influencerId, slot, jobIds) {
-  const list = JSON.parse(storage.getItem(PENDING_KEY) || '[]')
-  const filtered = list.filter(j => !(j.influencerId === influencerId && j.slot === slot))
-  filtered.push({ influencerId, slot, jobIds, startedAt: Date.now() })
-  storage.setItem(PENDING_KEY, JSON.stringify(filtered))
-}
+/** No-op retained so the upload helpers below read unchanged. */
+function _mediaCacheSave() {}
 
-export function clearPendingGen(influencerId, slot) {
-  const list = JSON.parse(storage.getItem(PENDING_KEY) || '[]')
-  storage.setItem(PENDING_KEY, JSON.stringify(
-    list.filter(j => !(j.influencerId === influencerId && j.slot === slot))
-  ))
-}
-
-export function getPendingGens() {
-  return JSON.parse(storage.getItem(PENDING_KEY) || '[]')
-}
-
-export function savePendingVideo(influencerId, jobIds, count) {
-  const list = JSON.parse(storage.getItem(PENDING_VIDEO_KEY) || '[]')
-  const next = list.filter(j => j.influencerId !== influencerId)
-  next.push({ influencerId, jobIds, count, startedAt: Date.now() })
-  storage.setItem(PENDING_VIDEO_KEY, JSON.stringify(next))
-}
-
-export function clearPendingVideo(influencerId) {
-  const list = JSON.parse(storage.getItem(PENDING_VIDEO_KEY) || '[]')
-  storage.setItem(PENDING_VIDEO_KEY, JSON.stringify(
-    list.filter(j => j.influencerId !== influencerId)
-  ))
-}
-
-export function getPendingVideo(influencerId) {
-  const list = JSON.parse(storage.getItem(PENDING_VIDEO_KEY) || '[]')
-  return list.find(j => j.influencerId === influencerId) || null
+/** Called on sign-out so one user's uploads are never reused for the next. */
+export function clearMediaCache() {
+  _mediaCache.clear()
 }
 
 export const initSession = async () => {} // No MCP session to initialize
@@ -200,9 +187,9 @@ export const initSession = async () => {} // No MCP session to initialize
 /**
  * Resolve whatever an influencer record holds into base64 the uploader accepts.
  *
- * Stored results are LOCAL FILE PATHS, not URLs: persistMedia copies each
- * generated file onto the device because KIE deletes its result URLs within a
- * day. So `mainImage` and friends look like "file:///data/.../image_123.jpg".
+ * Stored media is not handled here: it reaches the generator as a signed https
+ * URL, which uploadRefImage passes straight through. What arrives here is a
+ * picked photo that was never uploaded — a data URL, or a file:// URI.
  * The upload endpoint takes base64, and the old code only special-cased http,
  * so a file path fell through and the path STRING was POSTed as image data —
  * every upload failed, and Motion Copy reported "Failed to upload the
@@ -222,7 +209,8 @@ async function toBase64(source) {
 
 async function uploadRefImage(source) {
   if (!source) return null
-  if (source.startsWith('http')) return source
+  // Our own S3 links are re-signed to outlive KIE's queue; others pass through.
+  if (source.startsWith('http')) return urlForGeneration(source)
 
   // Key the cache on the ORIGINAL reference so a repeat upload skips the
   // conversion too, not just the network call.
@@ -278,7 +266,7 @@ async function uploadRefImage(source) {
 // Uploads an audio data URL to KIE's file API and returns the CDN URL.
 async function uploadAudioFile(base64Data) {
   if (!base64Data) return null
-  if (base64Data.startsWith('http')) return base64Data
+  if (base64Data.startsWith('http')) return urlForGeneration(base64Data)
   // Guard the same trap uploadRefImage fell into: anything that is not already
   // base64 would otherwise be POSTed as audio data as a literal string.
   if (!base64Data.startsWith('data:')) {
@@ -350,6 +338,7 @@ async function uploadAudioFile(base64Data) {
 export async function pollAllJobs(jobIds, total, onProgress, _staleTolerance = 8, isCancelled = null, onPartialResults = null) {
   const pending = new Set(jobIds)
   const urls = []
+  const failures = []
   let backoff = 0
 
   for (let round = 0; round < 200 && pending.size > 0 && urls.length < total; round++) {
@@ -370,8 +359,14 @@ export async function pollAllJobs(jobIds, total, onProgress, _staleTolerance = 8
         backoff = 0
 
         // Keep the stored row current so the Queue tab is accurate even while
-        // this foreground loop is the thing doing the watching.
-        applyStatus(jobId, status)
+        // this foreground loop is the thing doing the watching — but only when
+        // something actually changed. Writing "generating" over itself every
+        // two seconds is a database round trip and a Realtime broadcast to
+        // every one of the user's devices, carrying no new information.
+        if (_lastState.get(jobId) !== status.state) {
+          _lastState.set(jobId, status.state)
+          await applyStatus(jobId, status)
+        }
 
         if (status.state === 'success' && status.resultUrls[0]) {
           pending.delete(jobId)
@@ -383,6 +378,7 @@ export async function pollAllJobs(jobIds, total, onProgress, _staleTolerance = 8
           }
         } else if (status.state === 'fail') {
           pending.delete(jobId)
+          failures.push(status.failMsg)
           console.warn(`[KIE Poll] Job ${jobId} failed: ${status.failMsg || ''}`)
         }
       } catch (e) {
@@ -397,6 +393,9 @@ export async function pollAllJobs(jobIds, total, onProgress, _staleTolerance = 8
     return urls.slice(0, total)
   }
   if (jobIds.length === 0) throw new Error('No job IDs to poll')
+  // Every job came back failed. This used to fall through to STILL_RUNNING, so
+  // a job the generator had rejected was reported as "still generating".
+  if (pending.size === 0 && failures.length > 0) throw failedGeneration(failures)
   // Not a failure — just longer than we were willing to stand and watch.
   console.warn('[KIE Poll] Handing off to the queue; task still running.')
   throw new Error(STILL_RUNNING)
@@ -413,6 +412,7 @@ export async function pollAllJobs(jobIds, total, onProgress, _staleTolerance = 8
 async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCancelled) {
   const pending = new Set(launched.map(l => l.taskId))
   const urls = []
+  const failures = []
   let backoff = 0
 
   for (let round = 0; round < 450 && pending.size > 0 && urls.length < total; round++) {
@@ -443,6 +443,7 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
             }
           } else if (status === 2 || status === 3) {
             pending.delete(jobId)
+            failures.push(json.data?.errorMessage || null)
             console.warn(`Veo video job ${jobId} failed`)
           }
         } else {
@@ -454,7 +455,10 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
           }
           backoff = 0
 
-          applyStatus(jobId, status)
+          if (_lastState.get(jobId) !== status.state) {
+            _lastState.set(jobId, status.state)
+            await applyStatus(jobId, status)
+          }
 
           if (status.state === 'success' && status.resultUrls[0]) {
             pending.delete(jobId)
@@ -466,6 +470,7 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
             }
           } else if (status.state === 'fail') {
             pending.delete(jobId)
+            failures.push(status.failMsg)
             console.warn(`Kling video job ${jobId} failed: ${status.failMsg || ''}`)
           }
         }
@@ -480,6 +485,8 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
     onProgress?.(100)
     return { urls: urls.slice(0, total), shareUrls: [] }
   }
+  // Every job failed — see pollAllJobs.
+  if (pending.size === 0 && failures.length > 0) throw failedGeneration(failures)
   // Still alive on KIE — the queue holds the taskId and will collect it.
   throw new Error(STILL_RUNNING)
 }
@@ -490,6 +497,52 @@ export async function resumeVideoJob(jobIds, count, onProgress, onPartialResults
     isVeo: id.startsWith('veo')
   }))
   return pollVideoJobs(launched, count, onProgress, onPartialResults, isCancelled)
+}
+
+// ── Recording jobs ───────────────────────────────────────────────────────────
+//
+// From the moment KIE accepts a task the credits are spent, and the queue row is
+// the only way to find the result again — KIE has no endpoint that lists tasks.
+// So writing the row is retried instead of given up on the first failure, and a
+// failure no longer stops the screen from watching for the result it paid for.
+
+const RECORD_RETRY_DELAYS_MS = [1000, 3000]
+
+/** @returns {Promise<boolean>} whether the queue rows were written */
+async function recordJobs(entries) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await registerJobs(entries)
+      return true
+    } catch (e) {
+      // Genuinely signed out: our API would refuse the polling as well.
+      if (isSessionEnded(e)) throw e
+      if (attempt >= RECORD_RETRY_DELAYS_MS.length) {
+        console.warn('[KIE] could not record the job; still watching it:', e?.message ?? e)
+        return false
+      }
+      await new Promise(r => setTimeout(r, RECORD_RETRY_DELAYS_MS[attempt]))
+    }
+  }
+}
+
+/**
+ * Watch jobs through `poll`. When their rows could not be written, try once
+ * more before handing them to the queue — the queue can only recover a job it
+ * has a row for — and say so plainly if that still fails, rather than sending
+ * the user to a Queue tab that will never show it.
+ */
+async function watchJobs(recorded, entries, poll) {
+  try {
+    return await poll()
+  } catch (e) {
+    if (e?.message !== STILL_RUNNING || recorded) throw e
+    if (await recordJobs(entries).catch(() => false)) throw e
+    throw new AppError(
+      'This is still generating, but the connection dropped before it could be added to your queue, so it will not appear there. Check your connection before generating again.',
+      { code: ERROR_CODES.NETWORK },
+    )
+  }
 }
 
 // ── Public Image Generation APIs ────────────────────────────────────
@@ -511,17 +564,19 @@ async function launchImageJob(prompt, imageUrls, aspectRatio) {
       method: 'POST',
     body: JSON.stringify({ model: IMAGE_MODEL_ID, input }),
   })
-  if (!res.ok) throw new Error(messageForCode(res.status, `Image generate failed (HTTP ${res.status})`))
+  if (!res.ok) throw await refusal(res)
   const json = await res.json()
-  if (json.code !== 200 || !json.data?.taskId) throw new Error(messageForCode(json.code, json.msg))
+  if (json.code !== 200 || !json.data?.taskId) throw generatorError(json.code, json.msg)
   return json.data.taskId
 }
 
-export async function generateSingleImage({ prompt, aspectRatio = '16:9', resolution = '4k', referenceImage = null, outfitImage = null, onProgress, pendingKey = null, onJobIds = null, isCancelled = null, queueMeta = null }) {
+export async function generateSingleImage({ prompt, aspectRatio = '16:9', resolution = '4k', referenceImage = null, outfitImage = null, onProgress, onJobIds = null, isCancelled = null, queueMeta = null }) {
   onProgress?.(5)
   const faceUrl = referenceImage ? await uploadRefImage(referenceImage) : null
+  if (referenceImage && !faceUrl) throw referenceError('reference image')
   onProgress?.(15)
   const outfitUrl = outfitImage ? await uploadRefImage(outfitImage) : null
+  if (outfitImage && !outfitUrl) throw referenceError('outfit image')
   onProgress?.(25)
 
   const taskId = await launchImageJob(prompt, [faceUrl, outfitUrl], aspectRatio)
@@ -530,25 +585,22 @@ export async function generateSingleImage({ prompt, aspectRatio = '16:9', resolu
 
   // Recorded before polling starts: from here on the task exists on KIE and is
   // costing credits, so it must be recoverable even if the app dies now.
-  registerJobs([{ taskId, kind: 'image', model: IMAGE_MODEL_ID, ...(queueMeta || {}) }])
+  const entries = [{ taskId, kind: 'image', model: IMAGE_MODEL_ID, ...(queueMeta || {}) }]
+  const recorded = await recordJobs(entries)
 
-  if (pendingKey) savePendingGen(pendingKey.influencerId, pendingKey.slot, jobIds)
-  
-  try {
-    const urls = await pollAllJobs(jobIds, 1, onProgress, 16, isCancelled)
-    onProgress?.(100)
-    return urls[0] ?? null
-  } finally {
-    if (pendingKey) clearPendingGen(pendingKey.influencerId, pendingKey.slot)
-  }
+  const urls = await watchJobs(recorded, entries, () => pollAllJobs(jobIds, 1, onProgress, 16, isCancelled))
+  onProgress?.(100)
+  return urls[0] ?? null
 }
 
-export async function generateThreeImages({ prompts, aspectRatio = '9:16', model = 'gpt_image_2', faceRef = null, styleRef = null, physicalDesc = '', faceRefNote = '', styleRefNote = '', onProgress, onPartialResults, queueMeta = null }) {
+export async function generateThreeImages({ prompts, aspectRatio = '9:16', model = 'gpt_image_2', faceRef = null, styleRef = null, physicalDesc = '', faceRefNote = '', styleRefNote = '', onProgress, onPartialResults, onJobIds = null, queueMeta = null }) {
   onProgress?.(5)
   const faceUrl = faceRef ? await uploadRefImage(faceRef) : null
+  if (faceRef && !faceUrl) throw referenceError('reference image')
   console.log('[KIE] faceUrl:', faceUrl ? 'uploaded ✓' : 'none')
   onProgress?.(12)
   const styleUrl = styleRef ? await uploadRefImage(styleRef) : null
+  if (styleRef && !styleUrl) throw referenceError('style image')
   console.log('[KIE] styleUrl:', styleUrl ? 'uploaded ✓' : 'none')
   onProgress?.(20)
   
@@ -556,21 +608,28 @@ export async function generateThreeImages({ prompts, aspectRatio = '9:16', model
 
   const jobIds = await Promise.all(launchPromises)
   console.log('[KIE] All image taskIds launched:', jobIds)
-  registerJobs(jobIds.map(taskId => ({ taskId, kind: 'image', model: IMAGE_MODEL_ID, ...(queueMeta || {}) })))
+  // Lets a caller keep watching a job that outlives the foreground poll.
+  onJobIds?.(jobIds)
+  // Awaited like every other launch path: the tasks are already costing credits,
+  // and an unwritten row is a job the Queue can never recover.
+  const entries = jobIds.map(taskId => ({ taskId, kind: 'image', model: IMAGE_MODEL_ID, ...(queueMeta || {}) }))
+  const recorded = await recordJobs(entries)
   onProgress?.(30)
   
-  const urls = await pollAllJobs(jobIds, prompts.length, onProgress, 16, null, onPartialResults)
+  const urls = await watchJobs(recorded, entries, () =>
+    pollAllJobs(jobIds, prompts.length, onProgress, 16, null, onPartialResults))
   onProgress?.(100)
   return urls.slice(0, prompts.length)
 }
 
 // ── Public Video Generation API ─────────────────────────────────────
-export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8, count = 1, referenceImages = [], audioRef = null, hasVoice = false, startFrameUrl = null, model = VIDEO_MODEL_KLING, resolution = '1080p', onProgress, onPartialResults, isCancelled, pendingKey = null, queueMeta = null }) {
+export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8, count = 1, referenceImages = [], referenceRoles = null, audioRef = null, hasVoice = false, startFrameUrl = null, model = VIDEO_MODEL_KLING, resolution = '1080p', onProgress, onPartialResults, isCancelled, queueMeta = null }) {
   onProgress?.(5)
   const imageUrls = []
   if (referenceImages && referenceImages.length) {
     const urls = await Promise.all(referenceImages.filter(Boolean).map(img => uploadRefImage(img)))
-    imageUrls.push(...urls.filter(Boolean))
+    if (urls.some(u => !u)) throw referenceError('reference images')
+    imageUrls.push(...urls)
   }
   onProgress?.(20)
 
@@ -579,8 +638,9 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
   if (audioRef) {
     console.log('[KIE Video] Uploading audio for lip-sync...')
     audioUrl = await uploadAudioFile(audioRef)
-    if (audioUrl) console.log('[KIE Video] Audio ready:', audioUrl.slice(0, 80))
-    else console.warn('[KIE Video] Audio upload failed — video will be silent')
+    // A silent clip is not what was asked for, and it would still be charged.
+    if (!audioUrl) throw referenceError('audio')
+    console.log('[KIE Video] Audio ready:', audioUrl.slice(0, 80))
   }
   onProgress?.(25)
   
@@ -604,14 +664,9 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
     const promptSuffix = i === 0 ? '' : '​'.repeat(i)
     let finalPrompt = prompt + promptSuffix
     if (!isVeo) {
-      finalPrompt = finalPrompt
-        .replace(/@image_1/g, 'the presenter')
-        .replace(/@image_2/g, 'the wardrobe')
-        .replace(/@image_3/g, 'the face details')
-        .replace(/@image_4/g, 'the features')
-        .replace(/@image_[5-8]/g, 'the product')
-        .replace(/@audio_1/g, 'the audio')
-        .replace(/@/g, '');
+      // These models take plain text, so tags become words — chosen by what
+      // each image is (referenceRoles), not by where it landed in the list.
+      finalPrompt = replaceImageTags(finalPrompt, referenceRoles)
     }
     finalPrompt = capVideoPrompt(finalPrompt)
     
@@ -626,9 +681,9 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
         method: 'POST',
         body: JSON.stringify(body)
       })
-      if (!res.ok) throw new Error(messageForCode(res.status, `Veo generate failed (HTTP ${res.status})`))
+      if (!res.ok) throw await refusal(res)
       const json = await res.json()
-      if (json.code !== 200 || !json.data?.taskId) throw new Error(messageForCode(json.code, json.msg))
+      if (json.code !== 200 || !json.data?.taskId) throw generatorError(json.code, json.msg)
       return { taskId: json.data.taskId, isVeo: true }
     } else {
       // Each model declares how to map this request onto its own fields —
@@ -653,31 +708,25 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
       method: 'POST',
         body: JSON.stringify(body)
       })
-      if (!res.ok) throw new Error(messageForCode(res.status, `Video generate failed (HTTP ${res.status})`))
+      if (!res.ok) throw await refusal(res)
       const json = await res.json()
-      if (json.code !== 200 || !json.data?.taskId) throw new Error(messageForCode(json.code, json.msg))
+      if (json.code !== 200 || !json.data?.taskId) throw generatorError(json.code, json.msg)
       return { taskId: json.data.taskId, isVeo: false }
     }
   })
   
   const launched = await Promise.all(launchPromises)
   jobIds.push(...launched.map(l => l.taskId))
-  registerJobs(jobIds.map(taskId => ({
+  const entries = jobIds.map(taskId => ({
     taskId, kind: 'video', label: 'Video', model, ...(queueMeta || {}),
-  })))
+  }))
+  const recorded = await recordJobs(entries)
   onProgress?.(30)
 
-  if (pendingKey) savePendingVideo(pendingKey, jobIds, count)
-  
-  try {
-    const result = await pollVideoJobs(launched, count, onProgress, onPartialResults, isCancelled)
-    onProgress?.(100)
-    if (pendingKey) clearPendingVideo(pendingKey)
-    return result
-  } catch (e) {
-    if (pendingKey && e.message !== 'CANCELLED') clearPendingVideo(pendingKey)
-    throw e
-  }
+  const result = await watchJobs(recorded, entries, () =>
+    pollVideoJobs(launched, count, onProgress, onPartialResults, isCancelled))
+  onProgress?.(100)
+  return result
 }
 
 // ── Motion Copy (Kling 3.0 Motion Control) ──────────────────────────
@@ -690,7 +739,7 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
 
 async function uploadRefVideo(base64Data) {
   if (!base64Data) return null
-  if (base64Data.startsWith('http')) return base64Data
+  if (base64Data.startsWith('http')) return urlForGeneration(base64Data)
   // Guard the same trap uploadRefImage fell into: anything that is not already
   // base64 would otherwise be POSTed as video data as a literal string.
   if (!base64Data.startsWith('data:')) {
@@ -722,16 +771,16 @@ async function uploadRefVideo(base64Data) {
   }
 }
 
-export async function generateMotionCopy({ characterImage, drivingVideo, prompt = '', mode = 'pro', model = MOTION_MODEL_KIE, onProgress, onPartialResults, isCancelled, pendingKey = null, queueMeta = null }) {
+export async function generateMotionCopy({ characterImage, drivingVideo, prompt = '', mode = 'pro', model = MOTION_MODEL_KIE, onProgress, onPartialResults, isCancelled, queueMeta = null }) {
   if (!characterImage) throw new Error('A character image is required')
   if (!drivingVideo)  throw new Error('A driving (motion) video is required')
 
   onProgress?.(5)
   const imageUrl = await uploadRefImage(characterImage)
-  if (!imageUrl) throw new Error('Failed to upload the character image')
+  if (!imageUrl) throw referenceError('character image')
   onProgress?.(20)
   const videoUrl = await uploadRefVideo(drivingVideo)
-  if (!videoUrl) throw new Error('Failed to upload the driving video')
+  if (!videoUrl) throw referenceError('motion video')
   onProgress?.(30)
 
   // Kling 3.0 Motion Control schema (KIE docs): input_urls = character image(s),
@@ -753,22 +802,17 @@ export async function generateMotionCopy({ characterImage, drivingVideo, prompt 
       method: 'POST',
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`Motion Control failed: status ${res.status}`)
+  if (!res.ok) throw await refusal(res)
   const json = await res.json()
-  if (json.code !== 200 || !json.data?.taskId) throw new Error(messageForCode(json.code, json.msg))
+  if (json.code !== 200 || !json.data?.taskId) throw generatorError(json.code, json.msg)
 
   const taskId = json.data.taskId
-  registerJobs([{ taskId, kind: 'motion', label: 'Motion Copy', model, ...(queueMeta || {}) }])
-  if (pendingKey) savePendingVideo(pendingKey, [taskId], 1)
+  const entries = [{ taskId, kind: 'video', label: 'Motion Copy', model, ...(queueMeta || {}) }]
+  const recorded = await recordJobs(entries)
   onProgress?.(35)
 
-  try {
-    const result = await pollVideoJobs([{ taskId, isVeo: false }], 1, onProgress, onPartialResults, isCancelled)
-    onProgress?.(100)
-    if (pendingKey) clearPendingVideo(pendingKey)
-    return result // { urls, shareUrls }
-  } catch (e) {
-    if (pendingKey && e.message !== 'CANCELLED') clearPendingVideo(pendingKey)
-    throw e
-  }
+  const result = await watchJobs(recorded, entries, () =>
+    pollVideoJobs([{ taskId, isVeo: false }], 1, onProgress, onPartialResults, isCancelled))
+  onProgress?.(100)
+  return result // { urls, shareUrls }
 }

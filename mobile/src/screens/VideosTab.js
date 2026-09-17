@@ -6,8 +6,8 @@
  * SHARED buildVideoPrompt and sent through the SHARED generateVideo, so both
  * platforms issue identical requests.
  *
- * Settings persist per influencer through core/studioSettings, in the same
- * shape and under the same key the web studio uses.
+ * Settings persist per influencer through core/data/settings (the
+ * studio_settings table), in the same shape the web studio uses.
  *
  * Scope note: this covers the generate flow. The web studio additionally has a
  * history browser with a lightbox and per-slot regeneration; results here are
@@ -24,15 +24,16 @@ import { useBottomInset } from '../hooks/useBottomInset'
 import { useVideoPlayer, VideoView } from 'expo-video'
 
 import { generateVideo, STILL_RUNNING } from '@core/services/generation'
-import { markSavedByResultUrl } from '@core/jobQueue'
+import { uploadLocal, resolveUrl, remove as removeAsset } from '@core/data/assets'
 import { buildVideoPrompt, VOICE_PRESETS } from '@core/prompts/videoPrompt'
-import { loadStudioSettings, saveStudioSettings } from '@core/studioSettings'
+import { loadStudioSettings, saveStudioSettings, DEFAULT_STUDIO_SETTINGS } from '@core/data/settings'
 import { ENV_PRESETS, ENV_KEYS, VIBES, CAMERAS, TIMES_OF_DAY, DURATIONS } from '@core/studioOptions'
 import { VIDEO_MODELS, DEFAULT_VIDEO_MODEL, getVideoModel } from '@core/config/videoModels'
 import { selectVideoReferences, describeDroppedReferences } from '@core/videoRefs'
-import { downloadImage } from '@core/platform/media'
-import { persistMedia, mediaFilename } from '@core/platform/persistMedia'
-import { useInfluencers, generateId } from '@core/store'
+import { hasActiveJobs } from '@core/data/jobs'
+import { userMessage } from '@core/errors'
+import { persistGenerated } from '@core/platform/persistMedia'
+import { useInfluencers } from '@core/store'
 
 import { useTheme, space, radius } from '../theme'
 import { Section, Button, Segmented, Collapsible, Field } from '../components/ui'
@@ -40,17 +41,30 @@ import { pickImageWithPrompt } from '../lib/picker'
 import PromptSuggestion from '../components/PromptSuggestion'
 import { usePromptSuggestion } from '../hooks/usePromptSuggestion'
 import ModelPicker from '../components/ModelPicker'
+import { shareMedia } from '../lib/share'
+import { showError } from '../lib/alerts'
 
 const MAX_PRODUCTS = 3
+
+/** Studio settings are saved once edits pause for this long. */
+const SETTINGS_SAVE_DELAY_MS = 800
 
 export default function VideosTab({ influencer }) {
   const { colors } = useTheme()
   const bottomInset = useBottomInset()
-  const [, setInfluencers] = useInfluencers()
+  const { addGeneration } = useInfluencers()
 
-  // Load whatever was last set up for this influencer.
-  const [settings, setSettings] = useState(() => loadStudioSettings(influencer.id))
+  // Defaults first, stored values when they arrive. A network read cannot
+  // happen in a useState initialiser, and blocking the whole studio behind a
+  // remembered dropdown would be the wrong trade.
+  const [settings, setSettings] = useState(DEFAULT_STUDIO_SETTINGS)
+  // Which influencer `settings` were loaded for. A boolean "loaded" stayed true
+  // for one render after switching influencer, long enough to save the previous
+  // influencer's settings under the new one's id.
+  const [settingsFor, setSettingsFor] = useState(null)
+  /** [{ assetId, url }] — uploaded, so KIE can fetch them. */
   const [products, setProducts] = useState([])
+  const [uploadingProduct, setUploadingProduct] = useState(false)
 
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -62,16 +76,73 @@ export default function VideosTab({ influencer }) {
   const cancelRef = useRef(false)
   useEffect(() => () => { cancelRef.current = true }, [])
 
-  // Persist on every change, same behaviour as the web studio.
-  useEffect(() => { saveStudioSettings(influencer.id, settings) }, [influencer.id, settings])
+  useEffect(() => {
+    let cancelled = false
+    loadStudioSettings(influencer.id).then(loaded => {
+      if (cancelled) return
+      setSettings(loaded)
+      setSettingsFor(influencer.id)
+    })
+    return () => { cancelled = true }
+  }, [influencer.id])
+
+  // Persist once edits pause — and only once this influencer's stored values
+  // have arrived, or the defaults would be written over them.
+  //
+  // Not on every change: the script box is part of the settings, so that was a
+  // database write per keystroke.
+  const pendingSave = useRef(null)
+  useEffect(() => {
+    if (settingsFor !== influencer.id) return
+    pendingSave.current = { id: influencer.id, settings }
+    const timer = setTimeout(() => {
+      pendingSave.current = null
+      saveStudioSettings(influencer.id, settings)
+    }, SETTINGS_SAVE_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [influencer.id, settings, settingsFor])
+
+  // Leaving the screen mid-edit still saves the last change.
+  useEffect(() => () => {
+    const pending = pendingSave.current
+    if (pending) saveStudioSettings(pending.id, pending.settings)
+  }, [])
 
   const set = useCallback((key, value) => setSettings(s => ({ ...s, [key]: value })), [])
 
   const addProduct = useCallback(async () => {
-    if (products.length >= MAX_PRODUCTS) return
+    if (products.length >= MAX_PRODUCTS || uploadingProduct) return
     const uri = await pickImageWithPrompt()
-    if (uri) setProducts(p => [...p, uri])
-  }, [products.length])
+    if (!uri) return
+
+    setUploadingProduct(true)
+    try {
+      const { assetId } = await uploadLocal({
+        uri, kind: 'image', contentType: 'image/jpeg', influencerId: influencer.id,
+      })
+      const url = await resolveUrl(assetId)
+      setProducts(p => [...p, { assetId, url }])
+    } catch (e) {
+      showError('Could not upload that image', e, 'The product image did not upload. Please try again.')
+    } finally {
+      setUploadingProduct(false)
+    }
+  }, [products.length, uploadingProduct, influencer.id])
+
+  /**
+   * Remove a product, and its uploaded photo with it: product photos belong to
+   * this studio session only, so a removed one was left in storage counting
+   * against the quota. The photo is kept while any of this influencer's jobs
+   * is running — the generator downloads references when a job starts, which
+   * can be well after it was queued — and goes with the influencer instead.
+   */
+  const removeProduct = useCallback(product => {
+    if (generating) return
+    setProducts(p => p.filter(x => x.assetId !== product.assetId))
+    hasActiveJobs(influencer.id)
+      .then(active => (active ? null : removeAsset(product.assetId)))
+      .catch(e => console.warn('[videos] could not delete a removed product photo:', e?.message ?? e))
+  }, [generating, influencer.id])
 
   const canGenerate = !generating && (
     (settings.dialogue || '').trim().length > 0 || products.length > 0 || !!influencer.mainImage
@@ -82,7 +153,7 @@ export default function VideosTab({ influencer }) {
   // and cannot drift apart.
   const chosenModel = getVideoModel(settings.videoModel || DEFAULT_VIDEO_MODEL)
   const selection = useMemo(
-    () => selectVideoReferences(influencer, products, chosenModel.maxImages),
+    () => selectVideoReferences(influencer, products.map(p => p.url), chosenModel.maxImages),
     [influencer, products, chosenModel.maxImages],
   )
   const dropWarning = describeDroppedReferences(selection, chosenModel.label)
@@ -102,7 +173,7 @@ export default function VideosTab({ influencer }) {
       // to present a product whose image was trimmed away is what made the
       // original bug invisible — the model just invented an object and the
       // clip looked plausible.
-      const sentProducts = products.slice(0, selection.productsIncluded)
+      const sentProducts = products.slice(0, selection.productsIncluded).map(p => p.url)
 
       const prompt = buildVideoPrompt(influencer, {
         ...settings,
@@ -110,6 +181,8 @@ export default function VideosTab({ influencer }) {
         productRef2: sentProducts[1] || null,
         productRef3: sentProducts[2] || null,
         environment: ENV_PRESETS[settings.envKey] || settings.envCustom || '',
+        // Tags follow what is actually sent, in the order it is sent.
+        sentRoles: selection.roles,
       })
 
       const { urls } = await generateVideo({
@@ -119,44 +192,45 @@ export default function VideosTab({ influencer }) {
         model: settings.videoModel || DEFAULT_VIDEO_MODEL,
         count: 1,
         referenceImages,
+        referenceRoles: selection.roles,
         hasVoice: !!(settings.voicePreset || (settings.voiceCustom || '').trim()),
         onProgress: setProgress,
         onPartialResults: partial => { if (!cancelRef.current) setResults([...partial]) },
         isCancelled: () => cancelRef.current,
-        pendingKey: influencer.id,
         queueMeta: { influencerId: influencer.id, influencerName: influencer.name, label: 'Video' },
       })
 
       if (cancelRef.current) return
       if (!urls?.length) { setError('No video was returned — please try again.'); return }
 
-      // KIE deletes results within a day or so, so copy each onto the device
-      // before storing it — otherwise history fills up with dead links.
-      const entries = await Promise.all(urls.map(async url => {
-        const id = generateId()
-        const localUri = await persistMedia(url, mediaFilename('video', id, 'mp4'))
-        // Tell the queue this one is already collected, so it does not sit in
-        // the Queue tab asking to be saved a second time.
-        markSavedByResultUrl(url, localUri)
-        return { id, type: 'video', label: 'Video', url: localUri, date: Date.now() }
-      }))
+      // KIE deletes results within a day or so, so the server copies each into
+      // this user's storage. The same request marks the queue row collected, so
+      // it does not sit in the Queue tab asking to be saved a second time.
+      const stored = []
+      for (const url of urls) {
+        const { assetId, url: storedUrl } = await persistGenerated({
+          sourceUrl: url, kind: 'video', influencerId: influencer.id,
+        })
+        stored.push({ assetId, url: storedUrl })
+      }
 
       if (cancelRef.current) return
-      setResults(entries.map(e => e.url))
+      setResults(stored.map(s => s.url))
 
-      setInfluencers(prev => prev.map(i => i.id === influencer.id ? {
-        ...i,
-        generationHistory: [...entries, ...(i.generationHistory || [])],
-      } : i))
+      for (const { assetId } of stored) {
+        await addGeneration({
+          influencerId: influencer.id, assetId, kind: 'video', label: 'Video',
+        })
+      }
     } catch (e) {
       // A slow job is not a failed one. The task is still alive on KIE and the
       // queue is holding its taskId, so say that instead of showing an error.
       if (e?.message === STILL_RUNNING) setHandedOff(true)
-      else if (e?.message !== 'CANCELLED') setError(e?.message ?? String(e))
+      else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'The video could not be generated. Please try again.'))
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }
-  }, [canGenerate, influencer, settings, products, setInfluencers])
+  }, [canGenerate, influencer, settings, products, selection, addGeneration])
 
   const voicePresets = influencer.gender === 'Male' ? VOICE_PRESETS.male : VOICE_PRESETS.female
 
@@ -192,12 +266,13 @@ export default function VideosTab({ influencer }) {
         <View style={styles.padded}>
           {products.length ? (
             <View style={styles.productRow}>
-              {products.map((uri, i) => (
-                <View key={uri + i}>
-                  <Image source={{ uri }} style={styles.product} resizeMode="cover" />
+              {products.map((product, i) => (
+                <View key={product.assetId}>
+                  <Image source={{ uri: product.url }} style={styles.product} resizeMode="cover" />
                   <Pressable
-                    onPress={() => setProducts(p => p.filter((_, idx) => idx !== i))}
-                    style={[styles.remove, { backgroundColor: colors.danger }]}
+                    onPress={() => removeProduct(product)}
+                    disabled={generating}
+                    style={[styles.remove, { backgroundColor: colors.danger, opacity: generating ? 0.4 : 1 }]}
                   >
                     <Text style={styles.removeText}>×</Text>
                   </Pressable>
@@ -207,7 +282,12 @@ export default function VideosTab({ influencer }) {
           ) : null}
           {products.length < MAX_PRODUCTS ? (
             <View style={{ marginTop: products.length ? space.md : 0 }}>
-              <Button title="Add a product image" variant="secondary" onPress={addProduct} />
+              <Button
+                title={uploadingProduct ? 'Uploading…' : 'Add a product image'}
+                variant="secondary"
+                onPress={addProduct}
+                disabled={uploadingProduct}
+              />
             </View>
           ) : null}
           {products.length ? (
@@ -372,7 +452,7 @@ export default function VideosTab({ influencer }) {
                 <Button
                   title="Save or share"
                   variant="secondary"
-                  onPress={() => downloadImage(url, `${(influencer.name || 'video').toLowerCase()}.mp4`)}
+                  onPress={() => shareMedia(url, `${(influencer.name || 'video').toLowerCase()}.mp4`)}
                 />
               </View>
             ))}

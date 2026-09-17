@@ -15,6 +15,8 @@ import { File } from 'expo-file-system'
 import { Alert } from 'react-native'
 import { compressImage } from '@core/platform/media'
 
+import { showError } from './alerts'
+
 /** Matches the web studio's guard so both platforms reject the same files. */
 export const MAX_VIDEO_BYTES = 60 * 1024 * 1024
 
@@ -48,7 +50,7 @@ export async function pickImage(source = 'library') {
     return await compressImage(result.assets[0].uri)
   } catch (e) {
     console.warn('[picker] image failed:', e?.message ?? e)
-    Alert.alert('Could not load image', e?.message ?? 'Please try again.')
+    showError('Could not load image', e, 'That image could not be opened. Try a different one.')
     return null
   }
 }
@@ -67,7 +69,12 @@ export function pickImageWithPrompt() {
 /**
  * Pick a motion/driving video.
  *
- * @returns {Promise<{dataUrl: string, name: string, size: number}|null>}
+ * Returns the file URI rather than a data URL. Base64-encoding a 60 MB video
+ * inflates it to ~80 MB of JavaScript string, which on a mid-range Android
+ * phone is enough to be killed by the OS — and it was pure waste, because the
+ * uploader streams the file natively.
+ *
+ * @returns {Promise<{uri: string, name: string, size: number, contentType: string}|null>}
  * @throws {Error} with a user-facing message when the video is too large
  */
 export async function pickVideo() {
@@ -83,8 +90,6 @@ export async function pickVideo() {
   const asset = result.assets[0]
   const file = new File(asset.uri)
 
-  // Check the size BEFORE reading — base64 of a huge file would balloon memory
-  // roughly 4/3x and can take the app down.
   const size = file.size ?? 0
   if (size > MAX_VIDEO_BYTES) {
     throw new Error(
@@ -92,11 +97,11 @@ export async function pickVideo() {
     )
   }
 
-  const base64 = await file.base64()
   return {
-    dataUrl: `data:${mimeForUri(asset.uri)};base64,${base64}`,
+    uri: asset.uri,
     name: asset.fileName || uriBasename(asset.uri),
     size,
+    contentType: mimeForUri(asset.uri),
   }
 }
 
@@ -104,7 +109,9 @@ function mimeForUri(uri) {
   const ext = (uri.split('.').pop() || '').toLowerCase()
   if (ext === 'mov') return 'video/quicktime'
   if (ext === 'webm') return 'video/webm'
-  if (ext === 'm4v') return 'video/x-m4v'
+  // An MP4 container. Labelled video/x-m4v it was refused by the server, which
+  // only stores the types in its allow-list.
+  if (ext === 'm4v') return 'video/mp4'
   return 'video/mp4'
 }
 

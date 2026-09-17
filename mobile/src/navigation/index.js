@@ -1,20 +1,28 @@
 /**
- * Navigation shell — bottom tabs, the standard mobile pattern.
+ * Navigation shell.
  *
- * The web app navigates with react-router and a top nav bar; that idiom does
- * not belong on a phone, so this is a native structure rather than a port:
- * a tab bar for the top-level destinations, with a native stack inside the
- * Influencers tab for drilling into one influencer.
+ * Two navigators and a gate between them: signed out gets the auth stack,
+ * signed in gets the tab bar. Swapping the whole navigator rather than pushing
+ * a modal is what makes the boundary real — there is no back gesture from the
+ * app into a signed-out state, and no screen inside the tabs ever renders
+ * without a session.
  *
- * Home is the landing tab: opening straight onto a list gives no sense of what
- * the app is for, so Home explains the three features and routes into them.
+ * ── The splash matters ───────────────────────────────────────────────────────
+ *
+ * On a cold start the session has to come out of the Keychain (native) or an
+ * httpOnly cookie (web), which takes a moment. Rendering the sign-in screen
+ * during that moment would flash it at every returning user on every launch, so
+ * `initialising` gets its own state.
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { View, Text, ActivityIndicator, StyleSheet } from 'react-native'
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { Text } from 'react-native'
+
+import { useAuth } from '@core/auth/AuthContext'
+import { countActive, subscribe as subscribeToJobs } from '@core/data/jobs'
 
 import HomeScreen from '../screens/HomeScreen'
 import InfluencersScreen from '../screens/InfluencersScreen'
@@ -22,19 +30,71 @@ import InfluencerDetailScreen from '../screens/InfluencerDetailScreen'
 import CreateScreen from '../screens/CreateScreen'
 import QueueScreen from '../screens/QueueScreen'
 import SettingsScreen from '../screens/SettingsScreen'
-import { countActive } from '@core/jobQueue'
+
+import SignInScreen from '../screens/auth/SignInScreen'
+import SignUpScreen from '../screens/auth/SignUpScreen'
+import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen'
+import ResetPasswordScreen from '../screens/auth/ResetPasswordScreen'
+import ConfirmEmailScreen from '../screens/auth/ConfirmEmailScreen'
+
 import { useQueueSync } from '../hooks/useQueueSync'
-import { useTheme } from '../theme'
+import { useCollectedResults } from '../hooks/useCollectedResults'
+import { useAssetUrlRefresh } from '../hooks/useAssetUrlRefresh'
+import { useTheme, space } from '../theme'
 
 const Tab = createBottomTabNavigator()
 const Stack = createNativeStackNavigator()
+const AuthStack = createNativeStackNavigator()
 
 /**
- * Emoji tab icons keep this dependency-free for now. Swapping in a proper icon
- * set (@expo/vector-icons) is a drop-in change to this one component.
+ * Deep links. Two come from emails, and each exact URL must be listed in
+ * Supabase → Authentication → URL Configuration → Redirect URLs:
+ *
+ *   aiinfluencer://reset-password?code=…   the password-reset email
+ *   aiinfluencer://confirm-email?code=…    the sign-up confirmation email
+ *
+ * The code (or Supabase's error_code) lands in route.params.
  */
+const linking = {
+  prefixes: ['aiinfluencer://'],
+  config: {
+    screens: {
+      SignIn: 'sign-in',
+      SignUp: 'sign-up',
+      ForgotPassword: 'forgot-password',
+      ResetPassword: 'reset-password',
+      ConfirmEmail: 'confirm-email',
+    },
+  },
+}
+
 function TabIcon({ glyph, color }) {
   return <Text style={{ fontSize: 20, color }}>{glyph}</Text>
+}
+
+/**
+ * Live count of running jobs for the Queue badge.
+ *
+ * Pushed rather than polled. The count used to be re-read from device storage
+ * every three seconds; against a database that would be a request every three
+ * seconds per client, forever, almost always returning the same number.
+ * Postgres tells us when something changes instead.
+ */
+function useActiveJobCount(userId) {
+  const [n, setN] = useState(0)
+
+  const recount = useCallback(async () => {
+    if (!userId) { setN(0); return }
+    try { setN(await countActive()) } catch { /* badge only; never worth surfacing */ }
+  }, [userId])
+
+  useEffect(() => {
+    recount()
+    if (!userId) return
+    return subscribeToJobs(userId, recount)
+  }, [userId, recount])
+
+  return n
 }
 
 function InfluencersStack() {
@@ -58,30 +118,111 @@ function InfluencersStack() {
   )
 }
 
-/**
- * Live count of running jobs, for the Queue tab badge.
- *
- * Polled from local storage rather than pushed: the queue is written from the
- * generation layer, which has no React binding, and reading a handful of rows
- * every few seconds is far cheaper than threading a context through it.
- */
-function useActiveJobCount() {
-  const [n, setN] = useState(() => countActive())
-  useEffect(() => {
-    const id = setInterval(() => setN(countActive()), 3000)
-    return () => clearInterval(id)
-  }, [])
-  return n
+function MainTabs() {
+  const { colors } = useTheme()
+  const { userId } = useAuth()
+
+  // Keeps KIE moving jobs forward while the app is open; the badge and the
+  // Queue screen learn about the results through Realtime.
+  useQueueSync()
+  // Results the server's worker saved while the app was open reach the gallery
+  // without a reload.
+  useCollectedResults()
+  // Signed media URLs expire after ten minutes; this keeps the roster's fresh.
+  useAssetUrlRefresh()
+
+  const activeJobs = useActiveJobCount(userId)
+
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.bg },
+        headerTintColor: colors.textPrimary,
+        headerTitleStyle: { fontWeight: '600' },
+        tabBarActiveTintColor: colors.brand,
+        tabBarInactiveTintColor: colors.textTertiary,
+        tabBarStyle: { backgroundColor: colors.bgSecondary, borderTopColor: colors.borderSubtle },
+        sceneStyle: { backgroundColor: colors.bg },
+      }}
+    >
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{
+          title: 'AI Influencer Studio',
+          tabBarLabel: 'Home',
+          tabBarIcon: ({ color }) => <TabIcon glyph="🏠" color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="Influencers"
+        component={InfluencersStack}
+        options={{ headerShown: false, tabBarIcon: ({ color }) => <TabIcon glyph="👥" color={color} /> }}
+      />
+      <Tab.Screen
+        name="Create"
+        component={CreateScreen}
+        options={{ tabBarIcon: ({ color }) => <TabIcon glyph="✨" color={color} /> }}
+      />
+      <Tab.Screen
+        name="Queue"
+        component={QueueScreen}
+        options={{
+          title: 'Generation queue',
+          tabBarLabel: 'Queue',
+          tabBarBadge: activeJobs > 0 ? activeJobs : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.brand, color: '#FFFFFF', fontSize: 11 },
+          tabBarIcon: ({ color }) => <TabIcon glyph="🕓" color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{ tabBarIcon: ({ color }) => <TabIcon glyph="⚙️" color={color} /> }}
+      />
+    </Tab.Navigator>
+  )
+}
+
+function AuthFlow() {
+  return (
+    <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+      <AuthStack.Screen name="SignIn" component={SignInScreen} />
+      <AuthStack.Screen name="SignUp" component={SignUpScreen} />
+      <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <AuthStack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+      <AuthStack.Screen name="ConfirmEmail" component={ConfirmEmailScreen} />
+    </AuthStack.Navigator>
+  )
+}
+
+function Splash({ message }) {
+  const { colors } = useTheme()
+  return (
+    <View style={[styles.splash, { backgroundColor: colors.bg }]}>
+      <ActivityIndicator size="large" color={colors.brand} />
+      {message ? (
+        <Text style={[styles.splashText, { color: colors.textSecondary }]}>{message}</Text>
+      ) : null}
+    </View>
+  )
+}
+
+/** A misconfigured build should say so, not fail as "cannot sign in". */
+function ConfigError({ message }) {
+  const { colors } = useTheme()
+  return (
+    <View style={[styles.splash, { backgroundColor: colors.bg }]}>
+      <Text style={[styles.configTitle, { color: colors.danger }]}>Not configured</Text>
+      <Text style={[styles.splashText, { color: colors.textSecondary }]}>{message}</Text>
+    </View>
+  )
 }
 
 export default function RootNavigator() {
   const { colors, scheme } = useTheme()
-  // Runs app-wide so the badge below is right even when nobody has opened the
-  // Queue tab — see useQueueSync for why that matters.
-  useQueueSync()
-  const activeJobs = useActiveJobCount()
+  const { isSignedIn, initialising, configError } = useAuth()
 
-  // Feed our palette into React Navigation so its own chrome matches.
   const base = scheme === 'dark' ? DarkTheme : DefaultTheme
   const navTheme = {
     ...base,
@@ -95,66 +236,18 @@ export default function RootNavigator() {
     },
   }
 
+  if (configError) return <ConfigError message={configError} />
+  if (initialising) return <Splash />
+
   return (
-    <NavigationContainer theme={navTheme}>
-      <Tab.Navigator
-        screenOptions={{
-          headerStyle: { backgroundColor: colors.bg },
-          headerTintColor: colors.textPrimary,
-          headerTitleStyle: { fontWeight: '600' },
-          tabBarActiveTintColor: colors.brand,
-          tabBarInactiveTintColor: colors.textTertiary,
-          tabBarStyle: { backgroundColor: colors.bgSecondary, borderTopColor: colors.borderSubtle },
-          sceneStyle: { backgroundColor: colors.bg },
-        }}
-      >
-        <Tab.Screen
-          name="Home"
-          component={HomeScreen}
-          options={{
-            // Full name in the header, short label in the tab bar — the full
-            // one is wider than a quarter of a 375px screen and gets clipped.
-            title: 'AI Influencer Studio',
-            tabBarLabel: 'Home',
-            tabBarIcon: ({ color }) => <TabIcon glyph="🏠" color={color} />,
-          }}
-        />
-        <Tab.Screen
-          name="Influencers"
-          component={InfluencersStack}
-          options={{
-            headerShown: false,
-            tabBarIcon: ({ color }) => <TabIcon glyph="👥" color={color} />,
-          }}
-        />
-        <Tab.Screen
-          name="Create"
-          component={CreateScreen}
-          options={{
-            tabBarIcon: ({ color }) => <TabIcon glyph="✨" color={color} />,
-          }}
-        />
-        <Tab.Screen
-          name="Queue"
-          component={QueueScreen}
-          options={{
-            title: 'Generation queue',
-            tabBarLabel: 'Queue',
-            // The badge is the whole point of the tab: it is how someone who
-            // walked away from a slow job learns the result is waiting.
-            tabBarBadge: activeJobs > 0 ? activeJobs : undefined,
-            tabBarBadgeStyle: { backgroundColor: colors.brand, color: '#FFFFFF', fontSize: 11 },
-            tabBarIcon: ({ color }) => <TabIcon glyph="🕓" color={color} />,
-          }}
-        />
-        <Tab.Screen
-          name="Settings"
-          component={SettingsScreen}
-          options={{
-            tabBarIcon: ({ color }) => <TabIcon glyph="⚙️" color={color} />,
-          }}
-        />
-      </Tab.Navigator>
+    <NavigationContainer theme={navTheme} linking={linking} fallback={<Splash />}>
+      {isSignedIn ? <MainTabs /> : <AuthFlow />}
     </NavigationContainer>
   )
 }
+
+const styles = StyleSheet.create({
+  splash: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.lg },
+  splashText: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
+  configTitle: { fontSize: 18, fontWeight: '700' },
+})

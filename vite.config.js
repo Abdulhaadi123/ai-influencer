@@ -124,6 +124,28 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), imgProxyPlugin, claudePlugin, kiePlugin],
+
+    /**
+     * The shared core reads configuration from `process.env.EXPO_PUBLIC_*`,
+     * because Expo inlines those names and Metro cannot parse `import.meta`.
+     * Vite has no process.env at all, so the same three values are injected
+     * here under the same names — one accessor in core, no platform fork.
+     *
+     * Only PUBLIC values may appear in this list. The anon key is public by
+     * design (Row Level Security is what protects the data); the service-role
+     * key, the KIE key and any AWS credential must never be defined here, or
+     * they end up in the browser bundle.
+     */
+    define: {
+      'process.env.EXPO_PUBLIC_SUPABASE_URL': JSON.stringify(env.SUPABASE_URL || ''),
+      'process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY || ''),
+      // Same origin in the browser, so a relative base is correct.
+      'process.env.EXPO_PUBLIC_API_BASE': JSON.stringify(''),
+      'process.env.EXPO_PUBLIC_PASSWORD_RESET_REDIRECT': JSON.stringify(
+        env.PASSWORD_RESET_REDIRECT || '',
+      ),
+    },
+
     server: {
       proxy: {},
     },

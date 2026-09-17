@@ -24,8 +24,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useVideoPlayer, VideoView } from 'expo-video'
 
-import { downloadImage } from '@core/platform/media'
+import { shareMedia } from '../lib/share'
+import { showError } from '../lib/alerts'
 import { useInfluencers } from '@core/store'
+import { assetUses } from '@core/data/influencers'
 
 import { useBottomInset } from '../hooks/useBottomInset'
 import { isServable, mediaSource } from '../lib/seedMedia'
@@ -36,9 +38,11 @@ export default function GalleryTab({ influencer }) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const bottomInset = useBottomInset()
-  const [, setInfluencers] = useInfluencers()
+  const { removeGeneration } = useInfluencers()
   const [filter, setFilter] = useState('all')
-  const [openId, setOpenId] = useState(null)
+  // The entry as it was when opened. The roster re-signs its URLs every few
+  // minutes, and handing the player a new URL would restart a clip mid-view.
+  const [openEntry, setOpenEntry] = useState(null)
 
   const history = influencer.generationHistory
 
@@ -62,33 +66,46 @@ export default function GalleryTab({ influencer }) {
     [all, filter],
   )
 
-  const open = useMemo(() => all.find(e => e.id === openId) || null, [all, openId])
+  // Closes by itself if the entry disappears from the gallery.
+  const open = openEntry && all.some(e => e.id === openEntry.id) ? openEntry : null
 
   const remove = useCallback(entry => {
+    // A reference sheet is the same file as its gallery entry, so deleting one
+    // deletes the other. That used to happen without a word.
+    const uses = assetUses(influencer, entry.assetId)
     Alert.alert(
       'Delete this clip?',
-      'It will be removed from the gallery. This cannot be undone.',
+      uses.length
+        ? `This file is also ${influencer.name || 'this influencer'}'s ${uses.join(' and ')}. Deleting it removes it there too, permanently.`
+        : 'The file is deleted permanently. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            setOpenId(null)
-            setInfluencers(prev => prev.map(i => i.id === influencer.id
-              ? { ...i, generationHistory: (i.generationHistory || []).filter(e => e.id !== entry.id) }
-              : i))
+          onPress: async () => {
+            setOpenEntry(null)
+            try {
+              // Removes the row AND the stored file. "Delete" has to mean
+              // deleted — leaving the object behind would keep billing for a
+              // clip the user believes is gone.
+              await removeGeneration(influencer.id, entry.id)
+            } catch (e) {
+              showError('Could not delete', e, 'The clip was not deleted. Please try again.')
+            }
           },
         },
       ],
     )
-  }, [influencer.id, setInfluencers])
+  }, [influencer, removeGeneration])
 
   const share = useCallback(entry => {
     const isVideo = (entry.type || 'video') === 'video'
     const base = (influencer.name || 'clip').toLowerCase().replace(/\s+/g, '-')
-    downloadImage(entry.url, base + '-' + entry.id + (isVideo ? '.mp4' : '.jpg'))
-  }, [influencer.name])
+    // The freshest URL for this entry, not the one pinned when the lightbox opened.
+    const current = all.find(e => e.id === entry.id) || entry
+    shareMedia(current.url, base + '-' + entry.id + (isVideo ? '.mp4' : '.jpg'))
+  }, [influencer.name, all])
 
   // Nothing generated yet at all — a single, calm empty state rather than an
   // empty grid with a filter bar above it that does nothing.
@@ -157,7 +174,7 @@ export default function GalleryTab({ influencer }) {
         ) : (
           <View style={styles.grid}>
             {items.map(entry => (
-              <Tile key={entry.id} entry={entry} onPress={() => setOpenId(entry.id)} />
+              <Tile key={entry.id} entry={entry} onPress={() => setOpenEntry(entry)} />
             ))}
           </View>
         )}
@@ -166,7 +183,7 @@ export default function GalleryTab({ influencer }) {
       <Lightbox
         entry={open}
         influencerName={influencer.name}
-        onClose={() => setOpenId(null)}
+        onClose={() => setOpenEntry(null)}
         onShare={() => open && share(open)}
         onDelete={() => open && remove(open)}
       />

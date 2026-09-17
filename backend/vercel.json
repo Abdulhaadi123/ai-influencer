@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/api/kie/(.*)", "destination": "/api/kie?__kiepath=$1" }
+  ]
+}
