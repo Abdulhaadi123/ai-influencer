@@ -60,7 +60,7 @@ export default function ProfileTab({ influencer, navigation }) {
   /** Patch this influencer. Optimistic locally, reconciled with the server. */
   const update = useCallback(patch => {
     updateInfluencer(influencer.id, patch).catch(e => {
-      showError('Could not save', e, 'Your change was not saved. Please try again.')
+      showError('Unable to save', e, 'Your changes could not be saved. Please try again.')
     })
   }, [influencer.id, updateInfluencer])
 
@@ -96,7 +96,7 @@ export default function ProfileTab({ influencer, navigation }) {
       })
       await setMainImage(assetId)
     } catch (e) {
-      showError('Could not upload that image', e, 'The image did not upload. Please try again.')
+      showError('Upload failed', e, 'The image could not be uploaded. Please try again.')
     } finally {
       setRegenerating(false)
     }
@@ -120,8 +120,8 @@ export default function ProfileTab({ influencer, navigation }) {
         // Not necessarily an old influencer: the record can also be missing
         // because saving it failed when the influencer was created.
         Alert.alert(
-          'Nothing to regenerate from',
-          'There is no record of what this influencer was generated from, so a matching image cannot be made. Replace the image manually instead.'
+          'Unable to regenerate',
+          'The settings this influencer was generated from are not available, so a matching image cannot be created. Upload a new image instead.'
         )
       } else if (e?.message === STILL_RUNNING && taskId) {
         // Watched below, so it still becomes the main image when it lands.
@@ -130,10 +130,10 @@ export default function ProfileTab({ influencer, navigation }) {
       } else if (e?.message === STILL_RUNNING) {
         Alert.alert(
           'Still generating',
-          'This is taking longer than usual, but it has not failed. It will be saved to the gallery when it finishes.'
+          'This is taking longer than usual. The image will be saved to the gallery when it is ready.'
         )
       } else {
-        showError('Regeneration failed', e, 'A new image could not be generated. Please try again.')
+        showError('Regeneration failed', e, 'Unable to generate a new image. Please try again.')
       }
     } finally {
       setRegenerating(false)
@@ -146,7 +146,7 @@ export default function ProfileTab({ influencer, navigation }) {
     onReady: ({ assetId }) => {
       setPendingTaskId(null)
       setMainImage(assetId).catch(e =>
-        showError('Could not save', e, 'The new image finished but could not be set as the main image.'))
+        showError('Unable to update', e, 'The new image was generated but could not be set as the main image.'))
     },
     onFailed: message => {
       setPendingTaskId(null)
@@ -163,7 +163,7 @@ export default function ProfileTab({ influencer, navigation }) {
   const confirmDelete = useCallback(() => {
     Alert.alert(
       `Delete ${influencer.name || 'this influencer'}?`,
-      'Every generation and file belonging to them is deleted too. This cannot be undone.',
+      'This will permanently delete this influencer and all of their images and videos. This action cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -175,7 +175,7 @@ export default function ProfileTab({ influencer, navigation }) {
               await removeInfluencer(influencer.id)
               navigation?.goBack?.()
             } catch (e) {
-              showError('Could not delete', e, 'The influencer was not deleted. Please try again.')
+              showError('Unable to delete', e, 'The influencer could not be deleted. Please try again.')
               setDeleting(false)
             }
           },
@@ -201,7 +201,7 @@ export default function ProfileTab({ influencer, navigation }) {
                 {regenerating || pendingTaskId ? (
                   <View style={styles.heroOverlay}>
                     <ActivityIndicator size="large" color="#FFFFFF" />
-                    <Text style={styles.heroOverlayText}>{pendingTaskId ? 'Still generating…' : 'Regenerating…'}</Text>
+                    <Text style={styles.heroOverlayText}>{pendingTaskId ? 'Still generating…' : 'Generating…'}</Text>
                   </View>
                 ) : null}
               </View>
@@ -214,7 +214,7 @@ export default function ProfileTab({ influencer, navigation }) {
                 </View>
               </View>
               <Button
-                title="Save or share"
+                title="Share"
                 variant="secondary"
                 onPress={() => shareMedia(influencer.mainImage, `${(influencer.name || 'influencer').toLowerCase()}.jpg`)}
               />
@@ -222,9 +222,9 @@ export default function ProfileTab({ influencer, navigation }) {
           ) : (
             <View style={{ gap: space.md }}>
               <Text style={[styles.empty, { color: colors.textSecondary }]}>
-                {influencer.name} has no image yet.
+                {influencer.name} does not have an image yet.
               </Text>
-              <Button title="Add an image" onPress={replaceImage} />
+              <Button title="Upload image" onPress={replaceImage} />
             </View>
           )}
         </View>
@@ -293,7 +293,7 @@ export default function ProfileTab({ influencer, navigation }) {
       </Section>
 
       {nicheOpen ? (
-        <Section title="Choose a niche">
+        <Section title="Select a niche">
           <View style={[styles.padded, styles.nicheWrap]}>
             {niches.map(n => {
               const on = influencer.niche === n
@@ -315,33 +315,33 @@ export default function ProfileTab({ influencer, navigation }) {
       ) : null}
 
       <Collapsible title="Details" subtitle="Appearance, backstory and prompt">
-        <Field label="Appearance" hint="Used as the description when regenerating images.">
+        <Field label="Appearance" hint="Used as the description when regenerating the image.">
           <DraftInput
             value={influencer.physicalDesc ?? ''}
             onCommit={v => update({ physicalDesc: v })}
-            placeholder="e.g. mid-20s, long dark curly hair, warm smile"
+            placeholder="e.g. Mid-20s, long dark curly hair, warm smile"
             placeholderTextColor={colors.textTertiary}
             multiline
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
           />
         </Field>
 
-        <Field label="Backstory" hint="Optional. Adds personality for scripts.">
+        <Field label="Backstory" hint="Optional. Adds personality to scripts.">
           <DraftInput
             value={influencer.backstory ?? ''}
             onCommit={v => update({ backstory: v })}
-            placeholder="Where they're from, what they care about…"
+            placeholder="Background, interests and values"
             placeholderTextColor={colors.textTertiary}
             multiline
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
           />
         </Field>
 
-        <Field label="Prompt" hint="What this influencer's image was generated from.">
+        <Field label="Prompt" hint="The prompt used to generate this influencer's image.">
           <DraftInput
             value={influencer.prompt ?? ''}
             onCommit={v => update({ prompt: v })}
-            placeholder="Paste a prompt here"
+            placeholder="Enter a prompt"
             placeholderTextColor={colors.textTertiary}
             multiline
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
@@ -350,8 +350,8 @@ export default function ProfileTab({ influencer, navigation }) {
       </Collapsible>
 
       <Section
-        title="Danger zone"
-        footer="Deleting removes this influencer, every generation made with them, and every stored file. It cannot be undone."
+        title="Delete influencer"
+        footer="Permanently delete this influencer and all of their images and videos. This action cannot be undone."
       >
         <View style={styles.padded}>
           <Button title="Delete influencer" variant="danger" onPress={confirmDelete} disabled={deleting} />

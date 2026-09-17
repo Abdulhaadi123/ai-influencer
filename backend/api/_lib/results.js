@@ -108,9 +108,17 @@ function findStored(userId, sourceUrl) {
  * deleted. A job holding a link and no asset looks uncollected, and the worker
  * would store the deleted file again. Throws, so the delete does not go ahead
  * while that is still possible.
+ *
+ * Pass the delete's transaction client, so no one sees the job changed while
+ * its asset still exists. Rows whose link is already clear are left alone: an
+ * update that changes nothing still moves `updated_at`, the app's change feed
+ * then reports the job — asset still attached — as freshly collected, and the
+ * gallery entry being deleted is put straight back on screen.
  */
-export async function forgetSource(userId, assetId) {
-  await query('update generation_jobs set result_url = null where user_id = $1 and asset_id = $2', [userId, assetId])
+export async function forgetSource(userId, assetId, client = null) {
+  const sql = `update generation_jobs set result_url = null
+                where user_id = $1 and asset_id = $2 and result_url is not null`
+  await (client ? client.query(sql, [userId, assetId]) : query(sql, [userId, assetId]))
 }
 
 /** Best-effort: the bytes are already safe, so a failure here is logged, not thrown. */

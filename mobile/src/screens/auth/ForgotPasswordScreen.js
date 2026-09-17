@@ -37,7 +37,7 @@ export default function ForgotPasswordScreen({ navigation }) {
     } catch (e) {
       // Only genuine problems reach here — a malformed address, or this device
       // being rate limited. "No such user" deliberately does not.
-      setError(userMessage(e, 'Could not send the reset link. Please try again.'))
+      setError(userMessage(e, 'Unable to send the reset link. Please try again.'))
     } finally {
       setBusy(false)
     }
@@ -46,16 +46,16 @@ export default function ForgotPasswordScreen({ navigation }) {
   if (sent) {
     return (
       <AuthShell
-        title="Check your inbox"
-        subtitle="The link in the email opens a page where you choose a new password. Then sign in here with it."
+        title="Check your email"
+        subtitle="Follow the link in the email to set a new password, then sign in with it."
         footer={<LinkButton title="Back to sign in" onPress={() => navigation.navigate('SignIn')} />}
       >
         <FormNotice>
-          If there is an account for {email.trim()}, a reset link is on its way.
-          Nothing arrived? Check spam, then try again in a minute.
+          If an account exists for {email.trim()}, you will receive a password reset link
+          shortly. If you don't see it, check your spam folder.
         </FormNotice>
         <View>
-          <PrimaryButton title="Send it again" onPress={() => { setSent(false) }} />
+          <PrimaryButton title="Resend link" onPress={() => { setSent(false) }} />
         </View>
       </AuthShell>
     )
@@ -63,8 +63,8 @@ export default function ForgotPasswordScreen({ navigation }) {
 
   return (
     <AuthShell
-      title="Reset your password"
-      subtitle="Tell us the address on your account and we will email you a link."
+      title="Reset password"
+      subtitle="Enter the email address for your account and we will send you a link to reset your password."
       footer={<LinkButton title="Back to sign in" onPress={() => navigation.navigate('SignIn')} />}
     >
       <FormError>{error}</FormError>
@@ -73,14 +73,14 @@ export default function ForgotPasswordScreen({ navigation }) {
         label="Email"
         value={email}
         onChangeText={setEmail}
-        placeholder="you@example.com"
+        placeholder="name@example.com"
         returnKeyType="go"
         onSubmitEditing={submit}
         {...emailProps}
       />
 
       <View>
-        <PrimaryButton title="Email me a link" onPress={submit} loading={busy} disabled={!email.trim()} />
+        <PrimaryButton title="Send reset link" onPress={submit} loading={busy} disabled={!email.trim()} />
       </View>
     </AuthShell>
   )

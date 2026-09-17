@@ -83,7 +83,6 @@ export function AuthProvider({ children }) {
   const signIn = useCallback((...args) => auth.signIn(...args), [])
   const signUp = useCallback((...args) => auth.signUp(...args), [])
   const signOut = useCallback(() => auth.signOut(), [])
-  const signOutEverywhere = useCallback(() => auth.signOutEverywhere(), [])
   const deleteAccount = useCallback((...args) => auth.deleteAccount(...args), [])
   const requestPasswordReset = useCallback((...args) => auth.requestPasswordReset(...args), [])
   const resendConfirmation = useCallback((...args) => auth.resendConfirmation(...args), [])
@@ -116,7 +115,6 @@ export function AuthProvider({ children }) {
     signIn,
     signUp,
     signOut,
-    signOutEverywhere,
     deleteAccount,
     requestPasswordReset,
     resendConfirmation,
@@ -124,7 +122,7 @@ export function AuthProvider({ children }) {
     refreshProfile,
   }), [
     session, user, initialising, configError, notice, clearNotice,
-    signIn, signUp, signOut, signOutEverywhere, deleteAccount,
+    signIn, signUp, signOut, deleteAccount,
     requestPasswordReset, resendConfirmation, changePassword, refreshProfile,
   ])
 

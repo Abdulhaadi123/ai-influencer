@@ -136,6 +136,12 @@ export function newKey({ userId, contentType }) {
  * The length is signed into the URL, so S3 refuses an upload of any other size.
  * Without it the size a client declared when asking for the URL was only a
  * claim: declare one byte, send 5 GB, and the quota counted one byte.
+ *
+ * No `ServerSideEncryption` here. The presigner cannot move that header into
+ * the query string, so it would become a header the app must send with exactly
+ * this value — the app sends only Content-Type, and S3 would reject every
+ * upload with SignatureDoesNotMatch. S3 encrypts every new object with
+ * S3-managed keys (AES256) by default anyway.
  */
 export function presignPut({ key, contentType, byteSize }) {
   return getSignedUrl(
@@ -145,9 +151,6 @@ export function presignPut({ key, contentType, byteSize }) {
       Key: key,
       ContentType: contentType,
       ContentLength: byteSize,
-      // Encrypted at rest with S3-managed keys. Costs nothing and means a
-      // stolen disk image is not a data breach.
-      ServerSideEncryption: 'AES256',
     }),
     { expiresIn: UPLOAD_TTL_SECONDS },
   )

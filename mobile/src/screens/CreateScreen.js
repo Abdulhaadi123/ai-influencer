@@ -128,7 +128,7 @@ export default function CreateScreen({ navigation }) {
       // Put the previous reference back, so the thumbnail keeps matching what
       // will actually be sent.
       set('referenceImage', previous.image)
-      showError('Could not upload that image', e, 'The image did not upload. Please try again.')
+      showError('Upload failed', e, 'The image could not be uploaded. Please try again.')
     } finally {
       setUploadingRef(false)
     }
@@ -185,7 +185,7 @@ export default function CreateScreen({ navigation }) {
       })
 
       if (cancelledRef.current) return
-      if (!urls?.[0]) { setError('No image was returned — please try again.'); return }
+      if (!urls?.[0]) { setError('No image was returned. Please try again.'); return }
 
       // KIE deletes results within a day, so the server copies the file into
       // this user's storage before anything else happens to it — and marks the
@@ -202,8 +202,8 @@ export default function CreateScreen({ navigation }) {
         // for a second generation instead.
         setPendingTaskId(taskId)
       } else if (e?.message === STILL_RUNNING) {
-        setError('Still generating — this is taking longer than usual, but it has not failed. Open the Queue tab to collect the image when it is ready.')
-      } else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'The image could not be generated. Please try again.'))
+        setError('Generation is taking longer than usual. You can save the image from the Queue tab when it is ready.')
+      } else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'Unable to generate the image. Please try again.'))
     } finally {
       setGenerating(false)
     }
@@ -270,7 +270,7 @@ export default function CreateScreen({ navigation }) {
       reset()
       navigation.navigate('Influencers')
     } catch (e) {
-      showError('Could not save', e, 'The influencer was not saved. Please try again.')
+      showError('Unable to save', e, 'The influencer could not be saved. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -332,14 +332,14 @@ function BasicsStep({ data, set }) {
   const { colors } = useTheme()
   return (
     <>
-      <Text style={[styles.heading, { color: colors.textPrimary }]}>Name your influencer</Text>
+      <Text style={[styles.heading, { color: colors.textPrimary }]}>Basic details</Text>
       <Text style={[styles.sub, { color: colors.textSecondary }]}>
-        Just a name and gender to get started.
+        Enter a name and select a gender.
       </Text>
 
       <Section title="Name">
         <View style={styles.padded}>
-          <Field value={data.name} onChangeText={v => set('name', v)} placeholder="e.g. Aria" autoFocus />
+          <Field value={data.name} onChangeText={v => set('name', v)} placeholder="Enter a name" autoFocus />
         </View>
       </Section>
 
@@ -353,12 +353,12 @@ function BasicsStep({ data, set }) {
         </View>
       </Section>
 
-      <Section title="Age" footer="Optional.">
+      <Section title="Age" footer="Optional">
         <View style={styles.padded}>
           <Field
             value={data.age}
             onChangeText={v => set('age', v.replace(/[^0-9]/g, ''))}
-            placeholder="e.g. 24"
+            placeholder="Enter an age"
             keyboardType="number-pad"
           />
         </View>
@@ -372,20 +372,20 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
   const assist = usePromptSuggestion(data.description, 'appearance')
   return (
     <>
-      <Text style={[styles.heading, { color: colors.textPrimary }]}>Describe or upload</Text>
+      <Text style={[styles.heading, { color: colors.textPrimary }]}>Appearance</Text>
       <Text style={[styles.sub, { color: colors.textSecondary }]}>
-        Describe your influencer, add a reference to copy from, or do both.
+        Describe your influencer, add a reference image, or both.
       </Text>
 
       <Section
-        title="Describe your influencer"
-        footer="The AI builds the image from this. Optional if you add a reference below."
+        title="Description"
+        footer="Used to generate the image. Optional if you add a reference image."
       >
         <View style={styles.padded}>
           <Field
             value={data.description}
             onChangeText={v => set('description', v)}
-            placeholder="e.g. mid-20s, long dark curly hair, warm smile, freckles"
+            placeholder="e.g. Mid-20s, long dark curly hair, warm smile"
             multiline
           />
           <PromptSuggestion
@@ -397,7 +397,7 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
         </View>
       </Section>
 
-      <Section title="Reference image" footer="Copy a real face, outfit or scene.">
+      <Section title="Reference image" footer="Match the face, outfit or setting from a photo.">
         <View style={styles.padded}>
           {data.referenceImage ? (
             <View style={{ gap: space.md }}>
@@ -422,7 +422,7 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
               </View>
             </View>
           ) : (
-            <Button title="Add reference image" onPress={onAddReference} />
+            <Button title="Upload reference image" onPress={onAddReference} />
           )}
         </View>
       </Section>
@@ -430,8 +430,8 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
       {/* "What to copy" only matters when there IS a reference to copy from. */}
       {data.referenceImage ? (
         <Section
-          title="What to copy"
-          footer="Pick what to keep from the reference. Nothing selected means copy the whole person."
+          title="Features to match"
+          footer="Select the features to take from the reference image. If none are selected, the full appearance is used."
         >
           <View style={[styles.padded, { gap: space.sm }]}>
             {COPY_ATTRIBUTES.map(attr => {
@@ -489,8 +489,8 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
         <ActivityIndicator size="large" color={colors.brand} />
         <Text style={[styles.heading, { color: colors.textPrimary }]}>Still generating</Text>
         <Text style={[styles.sub, { color: colors.textSecondary, textAlign: 'center' }]}>
-          This one is taking longer than usual, but it has not failed. It will appear
-          here as soon as it finishes — you can leave this screen in the meantime.
+          This is taking longer than usual. The image will appear here when it is ready,
+          and you can leave this screen in the meantime.
         </Text>
       </View>
     )
@@ -501,7 +501,7 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
       <View style={styles.centered}>
         <Text style={[styles.heading, { color: colors.textPrimary }]}>Ready to generate</Text>
         <Text style={[styles.sub, { color: colors.textSecondary, textAlign: 'center' }]}>
-          One image will be created. If it is not right, regenerate for a different look.
+          One image will be generated. You can regenerate it if you want a different result.
         </Text>
         {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
         <Button title="Generate image" onPress={onGenerate} />
@@ -511,9 +511,9 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
 
   return (
     <>
-      <Text style={[styles.heading, { color: colors.textPrimary }]}>Your influencer</Text>
+      <Text style={[styles.heading, { color: colors.textPrimary }]}>Preview</Text>
       <Text style={[styles.sub, { color: colors.textSecondary }]}>
-        This becomes the main image. Not right? Regenerate for a different look.
+        This will be the main image. Regenerate it if you want a different result.
       </Text>
 
       <View style={styles.grid}>
@@ -534,7 +534,7 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
       {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
       {pending ? (
         <Text style={[styles.sub, { color: colors.textSecondary, textAlign: 'center' }]}>
-          A new image is still generating and will replace this one when it finishes.
+          A new image is being generated and will replace this one when it is ready.
         </Text>
       ) : (
         <Button title="Regenerate" variant="secondary" onPress={onGenerate} />

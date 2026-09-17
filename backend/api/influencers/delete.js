@@ -19,7 +19,7 @@ export default userRoute(async (req, res, user) => {
   if (!isUuid(influencerId)) throw badRequest('influencerId is required.')
 
   const owned = await one('select id from influencers where id = $1 and user_id = $2', [influencerId, user.id])
-  if (!owned) throw notFound('No such influencer.')
+  if (!owned) throw notFound('This influencer could not be found.')
 
   // Both filters: influencer_id finds the files, user_id keeps the sweep to this caller.
   const assets = await many('select s3_key from assets where influencer_id = $1 and user_id = $2', [influencerId, user.id])
@@ -31,4 +31,4 @@ export default userRoute(async (req, res, user) => {
   await query('delete from influencers where id = $1 and user_id = $2', [influencerId, user.id])
 
   res.json({ deletedAssets: keys.length })
-}, { tag: '[influencers/delete]', message: 'Could not delete the influencer. Nothing was removed — please try again.' })
+}, { tag: '[influencers/delete]', message: 'Unable to delete the influencer. Nothing was removed. Please try again.' })

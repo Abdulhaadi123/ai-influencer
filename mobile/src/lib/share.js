@@ -15,6 +15,6 @@ export async function shareMedia(url, filename) {
   try {
     await downloadImage(url, filename)
   } catch (e) {
-    showError('Could not share', e, 'That file could not be shared. Please try again.')
+    showError('Unable to share', e, 'This file could not be shared. Please try again.')
   }
 }

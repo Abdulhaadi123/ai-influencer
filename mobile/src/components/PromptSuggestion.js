@@ -17,7 +17,7 @@ export default function PromptSuggestion({ suggestion, loading, onUse, onDismiss
       <View style={[styles.wrap, styles.loadingWrap, { borderColor: colors.borderSubtle }]}>
         <ActivityIndicator size="small" color={colors.textTertiary} />
         <Text style={[styles.loadingText, { color: colors.textTertiary }]}>
-          Improving your prompt…
+          Improving your text…
         </Text>
       </View>
     )
@@ -28,9 +28,9 @@ export default function PromptSuggestion({ suggestion, loading, onUse, onDismiss
   return (
     <View style={[styles.wrap, { borderColor: colors.brand, backgroundColor: colors.brandSoft }]}>
       <View style={styles.header}>
-        <Text style={[styles.label, { color: colors.brandDeep }]}>✦ SUGGESTED</Text>
+        <Text style={[styles.label, { color: colors.brandDeep }]}>✦ SUGGESTION</Text>
         <Pressable onPress={onDismiss} hitSlop={10} accessibilityRole="button">
-          <Text style={[styles.dismiss, { color: colors.textTertiary }]}>Hide</Text>
+          <Text style={[styles.dismiss, { color: colors.textTertiary }]}>Dismiss</Text>
         </Pressable>
       </View>
 
@@ -45,10 +45,10 @@ export default function PromptSuggestion({ suggestion, loading, onUse, onDismiss
             { backgroundColor: colors.brand, opacity: pressed ? 0.85 : 1 },
           ]}
         >
-          <Text style={styles.useText}>Use this</Text>
+          <Text style={styles.useText}>Use suggestion</Text>
         </Pressable>
         <Text style={[styles.keep, { color: colors.textSecondary }]}>
-          or keep your own
+          or keep your own text
         </Text>
       </View>
     </View>

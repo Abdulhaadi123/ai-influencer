@@ -70,5 +70,5 @@ export function sendPage(res, { status = 200, title, body }) {
 export function openAppLink() {
   const url = process.env.APP_OPEN_URL || 'aiinfluencer://'
   return `<a class="button" href="${escapeHtml(url)}">Open the app</a>
-<p class="muted">On a computer? Open ${escapeHtml(APP_NAME)} on your phone and sign in there.</p>`
+<p class="muted">If you are on a computer, open ${escapeHtml(APP_NAME)} on your phone to sign in.</p>`
 }

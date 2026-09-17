@@ -55,14 +55,14 @@ export async function requireUser(req, res) {
     const known = classifyServerError(e) || {
       status: 503,
       code: 'AUTH_UNAVAILABLE',
-      error: 'Your session could not be checked right now. Please try again shortly.',
+      error: 'Your session could not be verified. Please try again shortly.',
     }
     res.status(known.status).json({ error: known.error, code: known.code })
     return null
   }
 
   if (!user) {
-    res.status(401).json({ error: 'Sign in to continue.', code: 'NOT_AUTHENTICATED' })
+    res.status(401).json({ error: 'Please sign in to continue.', code: 'NOT_AUTHENTICATED' })
     return null
   }
   return user

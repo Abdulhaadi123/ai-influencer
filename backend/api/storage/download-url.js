@@ -43,4 +43,4 @@ export default userRoute(async (req, res, user) => {
   // A shared cache holding these would hand one user's signed URLs to the next.
   noStore(res)
   res.json({ urls })
-}, { tag: '[storage/download-url]', message: 'Could not prepare the download. Please try again.' })
+}, { tag: '[storage/download-url]', message: 'Unable to prepare the download. Please try again.' })

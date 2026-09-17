@@ -25,7 +25,7 @@ export class HttpError extends Error {
 }
 
 export const badRequest = (message, code = 'BAD_REQUEST') => new HttpError(400, message, code)
-export const forbidden = (message = 'That is not yours.', code = 'FORBIDDEN') => new HttpError(403, message, code)
+export const forbidden = (message = 'You do not have permission to do this.', code = 'FORBIDDEN') => new HttpError(403, message, code)
 export const notFound = (message = 'Not found.', code = 'NOT_FOUND') => new HttpError(404, message, code)
 
 function fail(res, e, opts) {
@@ -69,9 +69,17 @@ export function noStore(res) {
  * Refuse with 429 when `limiter` says the key has used its allowance.
  * @param {(key: string) => {ok: boolean, retryAfter?: number}} limiter
  */
-export function enforceLimit(limiter, key, message = 'Too many attempts. Wait a minute and try again.') {
+export function enforceLimit(limiter, key, message = null) {
   const result = limiter(key)
   if (!result.ok) {
-    throw new HttpError(429, message, 'RATE_LIMITED', { 'Retry-After': String(result.retryAfter) })
+    throw new HttpError(429, message || waitMessage(result.retryAfter), 'RATE_LIMITED', { 'Retry-After': String(result.retryAfter) })
   }
+}
+
+/** Say how long the wait really is — sign-in locks for up to fifteen minutes,
+ *  and "wait a minute" sent people straight back into the same refusal. */
+function waitMessage(retryAfterSeconds) {
+  const minutes = Math.ceil((Number(retryAfterSeconds) || 0) / 60)
+  if (minutes <= 1) return 'Too many attempts. Please try again in a minute.'
+  return `Too many attempts. Please try again in ${minutes} minutes.`
 }

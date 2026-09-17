@@ -33,7 +33,7 @@ export const list = userRoute(async (req, res, user) => {
   )
   noStore(res)
   res.json({ jobs })
-}, { tag: '[jobs/list]', message: 'The queue could not be loaded. Please try again.' })
+}, { tag: '[jobs/list]', message: 'Unable to load the queue. Please try again.' })
 
 /** GET /api/jobs/by-task?taskId= → { job | null } */
 export const byTask = userRoute(async (req, res, user) => {
@@ -42,7 +42,7 @@ export const byTask = userRoute(async (req, res, user) => {
   const job = await one(`select ${JOB_COLUMNS} from generation_jobs where user_id = $1 and kie_task_id = $2`, [user.id, taskId])
   noStore(res)
   res.json({ job })
-}, { tag: '[jobs/by-task]', message: 'Could not check that job. Please try again.' })
+}, { tag: '[jobs/by-task]', message: 'Unable to check this generation. Please try again.' })
 
 /** GET /api/jobs/active-count?influencerId= → { count } */
 export const activeCount = userRoute(async (req, res, user) => {
@@ -55,7 +55,7 @@ export const activeCount = userRoute(async (req, res, user) => {
   )
   noStore(res)
   res.json({ count: row.count })
-}, { tag: '[jobs/active-count]', message: 'Could not count running jobs.' })
+}, { tag: '[jobs/active-count]', message: 'Unable to count active generations.' })
 
 /**
  * GET /api/jobs/changes?since=<cursor> → { jobs, cursor, activeCount }
@@ -86,7 +86,7 @@ export const changes = userRoute(async (req, res, user) => {
 
   noStore(res)
   res.json({ jobs, cursor, activeCount: count })
-}, { tag: '[jobs/changes]', message: 'Could not check the queue.' })
+}, { tag: '[jobs/changes]', message: 'Unable to check the queue.' })
 
 /**
  * GET /api/jobs/sync?taskId= → { status, job }
@@ -100,7 +100,7 @@ export const sync = userRoute(async (req, res, user) => {
   const taskId = taskIdFrom(req.query?.taskId)
   if (!taskId) throw badRequest('taskId is required.')
   // Shares the generation proxy's per-user allowance: both spend KIE requests.
-  enforceLimit(rateLimit, `user:${user.id}`, 'Too many requests — slow down a moment and try again.')
+  enforceLimit(rateLimit, `user:${user.id}`, 'Too many requests. Please wait a moment and try again.')
 
   const status = await fetchKieTaskStatus(taskId)
   const job = status.state === 'ratelimited' || status.state === 'unknown'
@@ -109,7 +109,7 @@ export const sync = userRoute(async (req, res, user) => {
 
   noStore(res)
   res.json({ status, job })
-}, { tag: '[jobs/sync]', message: 'Could not check that job with the generator.' })
+}, { tag: '[jobs/sync]', message: 'Unable to check this generation. Please try again.' })
 
 /**
  * POST /api/jobs/register  { entries: [{ taskId, influencerId?, kind?, label?, model? }] } → { jobs }
@@ -139,7 +139,7 @@ export const register = userRoute(async (req, res, user) => {
       'select count(*)::int as n from influencers where user_id = $1 and id = any($2::uuid[])',
       [user.id, influencerIds],
     )
-    if (n !== influencerIds.length) throw forbidden('That influencer is not yours.')
+    if (n !== influencerIds.length) throw forbidden('This influencer belongs to another account.')
   }
 
   const params = [user.id]
@@ -160,7 +160,7 @@ export const register = userRoute(async (req, res, user) => {
     [user.id, rows.map(r => r.taskId)],
   )
   res.status(201).json({ jobs })
-}, { tag: '[jobs/register]', message: 'The job could not be recorded.' })
+}, { tag: '[jobs/register]', message: 'Unable to record the generation.' })
 
 /** POST /api/jobs/remove  { id } → 204 */
 export const remove = userRoute(async (req, res, user) => {
@@ -168,7 +168,7 @@ export const remove = userRoute(async (req, res, user) => {
   if (!isUuid(id)) throw badRequest('id is required.')
   await query('delete from generation_jobs where id = $1 and user_id = $2', [id, user.id])
   res.status(204).end()
-}, { tag: '[jobs/remove]', message: 'The job could not be removed. Please try again.' })
+}, { tag: '[jobs/remove]', message: 'Unable to remove this item. Please try again.' })
 
 /**
  * POST /api/jobs/clear-settled → 204
@@ -191,4 +191,4 @@ export const clearSettled = userRoute(async (req, res, user) => {
     [user.id, ACTIVE_STATES, RESULT_TTL_HOURS],
   )
   res.status(204).end()
-}, { tag: '[jobs/clear-settled]', message: 'The queue could not be cleared. Please try again.' })
+}, { tag: '[jobs/clear-settled]', message: 'Unable to clear the queue. Please try again.' })

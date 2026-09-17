@@ -29,7 +29,7 @@ export const getStudioSettings = userRoute(async (req, res, user) => {
   const row = await one('select settings from studio_settings where user_id = $1 and influencer_id = $2', [user.id, influencerId])
   noStore(res)
   res.json({ settings: row?.settings ?? null })
-}, { tag: '[studio-settings/get]', message: 'Could not load the studio settings.' })
+}, { tag: '[studio-settings/get]', message: 'Unable to load your settings.' })
 
 /** POST /api/studio-settings  { influencerId, settings } → 204 */
 export const saveStudioSettings = userRoute(async (req, res, user) => {
@@ -37,10 +37,10 @@ export const saveStudioSettings = userRoute(async (req, res, user) => {
   const settings = req.body?.settings
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw badRequest('settings must be an object.')
   const serialised = JSON.stringify(settings)
-  if (Buffer.byteLength(serialised) > MAX_DOCUMENT_BYTES) throw new HttpError(413, 'Those settings are too large to save.', 'TOO_LARGE')
+  if (Buffer.byteLength(serialised) > MAX_DOCUMENT_BYTES) throw new HttpError(413, 'These settings are too large to save.', 'TOO_LARGE')
 
   if (!(await one('select 1 from influencers where id = $1 and user_id = $2', [influencerId, user.id]))) {
-    throw forbidden('That influencer is not yours.')
+    throw forbidden('This influencer belongs to another account.')
   }
 
   await query(
@@ -50,7 +50,7 @@ export const saveStudioSettings = userRoute(async (req, res, user) => {
     [user.id, influencerId, serialised],
   )
   res.status(204).end()
-}, { tag: '[studio-settings/save]', message: 'Could not save the studio settings.' })
+}, { tag: '[studio-settings/save]', message: 'Unable to save your settings.' })
 
 /** GET /api/creation-params?influencerId= → { params | null } */
 export const getCreationParams = userRoute(async (req, res, user) => {
@@ -58,4 +58,4 @@ export const getCreationParams = userRoute(async (req, res, user) => {
   const row = await one('select params from creation_params where user_id = $1 and influencer_id = $2', [user.id, influencerId])
   noStore(res)
   res.json({ params: row?.params ?? null })
-}, { tag: '[creation-params/get]', message: 'Could not load how this influencer was made.' })
+}, { tag: '[creation-params/get]', message: 'Unable to load the generation settings for this influencer.' })

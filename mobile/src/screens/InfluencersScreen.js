@@ -42,7 +42,7 @@ export default function InfluencersScreen({ navigation }) {
   if (!data.length && roster.error) {
     return (
       <View style={[styles.empty, { backgroundColor: colors.bg }]}>
-        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Your influencers did not load</Text>
+        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Unable to load influencers</Text>
         <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>{roster.error}</Text>
         <Pressable
           onPress={roster.refresh}
@@ -63,8 +63,7 @@ export default function InfluencersScreen({ navigation }) {
         </View>
         <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No influencers yet</Text>
         <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>
-          Create one and it appears here. Describe them, or start from a photo
-          and pick what to copy.
+          Create your first influencer to get started.
         </Text>
         <Pressable
           onPress={() => navigation?.navigate?.('Create')}
@@ -74,7 +73,7 @@ export default function InfluencersScreen({ navigation }) {
             { backgroundColor: colors.brand, opacity: pressed ? 0.85 : 1 },
           ]}
         >
-          <Text style={styles.emptyCtaText}>Create an influencer</Text>
+          <Text style={styles.emptyCtaText}>Create influencer</Text>
         </Pressable>
       </View>
     )

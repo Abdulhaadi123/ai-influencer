@@ -38,7 +38,7 @@ async function refusal(res) {
 function generatorError(code, detail) {
   if (detail) console.warn(`[KIE] code ${code}: ${detail}`)
   return new AppError(
-    code === 200 ? 'The generator did not start the job. Please try again.' : generatorMessage(code),
+    code === 200 ? 'Generation could not be started. Please try again.' : generatorMessage(code),
     { code: `GENERATOR_${code}` },
   )
 }
@@ -48,8 +48,8 @@ function failedGeneration(reasons) {
   const reason = String(reasons.find(Boolean) || '').trim().slice(0, 240)
   return new AppError(
     reason
-      ? `The generator could not create this: ${reason}`
-      : 'The generator could not create this. Try again, or change the prompt.',
+      ? `This could not be generated: ${reason}`
+      : 'This could not be generated. Please try again or adjust your prompt.',
     { code: ERROR_CODES.GENERATION_FAILED },
   )
 }
@@ -511,7 +511,7 @@ async function watchJobs(recorded, entries, poll) {
     if (e?.message !== STILL_RUNNING || recorded) throw e
     if (await recordJobs(entries).catch(() => false)) throw e
     throw new AppError(
-      'This is still generating, but the connection dropped before it could be added to your queue, so it will not appear there. Check your connection before generating again.',
+      'Generation has started, but the connection was interrupted before it could be added to your queue. Please check your connection before starting another generation.',
       { code: ERROR_CODES.NETWORK },
     )
   }
@@ -779,7 +779,7 @@ export async function generateMotionCopy({ characterImage, drivingVideo, prompt 
   if (json.code !== 200 || !json.data?.taskId) throw generatorError(json.code, json.msg)
 
   const taskId = json.data.taskId
-  const entries = [{ taskId, kind: 'video', label: 'Motion Copy', model, ...(queueMeta || {}) }]
+  const entries = [{ taskId, kind: 'video', label: 'Motion copy', model, ...(queueMeta || {}) }]
   const recorded = await recordJobs(entries)
   onProgress?.(35)
 

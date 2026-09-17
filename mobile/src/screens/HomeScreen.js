@@ -24,22 +24,22 @@ const FEATURES = [
   {
     icon: '✦',
     title: 'Create an influencer',
-    body: 'Describe them, or upload a photo and choose exactly what to copy — face, hair, build, outfit. Regenerate until the look is right.',
+    body: 'Generate a unique influencer from a description or a reference photo, and choose which features to match.',
     tab: 'Create',
   },
   {
     icon: '🎬',
-    title: 'Promote a product',
-    body: 'Add a product image and a script. Your influencer presents it to camera, speaking in the voice you choose.',
+    title: 'Product videos',
+    body: 'Create videos of your influencer presenting a product, with a script and voice of your choice.',
     tab: 'Influencers',
-    hint: 'Open an influencer → Videos',
+    hint: 'Available in the Videos tab of an influencer',
   },
   {
     icon: '🕺',
-    title: 'Copy a motion',
-    body: 'Give it any video and your influencer performs the same movement and expression, staying recognisably themselves.',
+    title: 'Motion copy',
+    body: 'Apply the movements and expressions from any video to your influencer.',
     tab: 'Influencers',
-    hint: 'Open an influencer → Motion',
+    hint: 'Available in the Motion tab of an influencer',
   },
 ]
 
@@ -70,8 +70,7 @@ export default function HomeScreen({ navigation }) {
       >
         <Text style={styles.heroTitle}>AI Influencer Studio</Text>
         <Text style={styles.heroSub}>
-          Build a virtual influencer, then have them promote products and copy
-          any motion — from your phone.
+          Create AI influencers, produce product videos and bring them to life with motion.
         </Text>
       </LinearGradient>
 
@@ -101,7 +100,7 @@ export default function HomeScreen({ navigation }) {
               <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{count}</Text>
             )}
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-              {count === 1 ? 'influencer' : 'influencers'} ready to use
+              {count === 1 ? 'Influencer' : 'Influencers'}
             </Text>
           </View>
           <Text style={[styles.chevron, { color: colors.textTertiary }]}>›</Text>
@@ -122,7 +121,7 @@ export default function HomeScreen({ navigation }) {
       </Pressable>
 
       {/* The three things it does */}
-      <Text style={[styles.sectionHeading, { color: colors.textTertiary }]}>WHAT YOU CAN DO</Text>
+      <Text style={[styles.sectionHeading, { color: colors.textTertiary }]}>GET STARTED</Text>
 
       {FEATURES.map(f => (
         <Pressable
@@ -146,10 +145,6 @@ export default function HomeScreen({ navigation }) {
         </Pressable>
       ))}
 
-      <Text style={[styles.footnote, { color: colors.textTertiary }]}>
-        Generating uses the studio's shared credits. Check Settings if anything
-        reports the engine as offline.
-      </Text>
     </ScrollView>
   )
 }
@@ -187,5 +182,4 @@ const styles = StyleSheet.create({
   featureBody: { fontSize: 13.5, lineHeight: 19 },
   featureHint: { fontSize: 12.5, fontWeight: '600', marginTop: 2 },
 
-  footnote: { fontSize: 12, lineHeight: 18, marginTop: space.md, marginHorizontal: space.xs },
 })

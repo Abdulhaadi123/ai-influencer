@@ -75,6 +75,11 @@ export function StoreProvider({ children }) {
   // only applied if no newer edit has been made since — see updateInfluencer.
   const editSeq = useRef(new Map())
 
+  // Files deleted from a gallery this session. A change notification that was
+  // already on its way can still describe the job that made one as collected;
+  // without this, adopting it put the entry just deleted back on screen.
+  const removedAssets = useRef(new Set())
+
   /** Reload the roster from the server. */
   const refresh = useCallback(async () => {
     if (!isSignedIn) { setInfluencersState([]); return }
@@ -85,7 +90,7 @@ export function StoreProvider({ children }) {
       const rows = await influencerRepo.list()
       if (alive.current) setInfluencersState(rows)
     } catch (e) {
-      if (alive.current) setError(userMessage(e, 'Your influencers could not be loaded. Please try again.'))
+      if (alive.current) setError(userMessage(e, 'Unable to load your influencers. Please try again.'))
       console.warn('[store] load failed:', e?.message ?? e)
     } finally {
       if (alive.current) { setLoading(false); setLoadedFor(userId) }
@@ -98,6 +103,7 @@ export function StoreProvider({ children }) {
   // on this device sees the previous user's roster until the fetch returns, and
   // the cached signed URLs would still resolve for a few minutes.
   useEffect(() => {
+    removedAssets.current.clear()
     if (!userId) {
       setInfluencersState([])
       clearUrlCache()
@@ -181,6 +187,7 @@ export function StoreProvider({ children }) {
 
   /** Put an entry at the front of an influencer's gallery, at most once. */
   const showInGallery = useCallback((influencerId, entry) => {
+    if (entry?.assetId && removedAssets.current.has(String(entry.assetId))) return
     setInfluencersState(prev => prev.map(i =>
       i.id === influencerId && !(i.generationHistory || []).some(g => g.id === entry.id)
         ? { ...i, generationHistory: [entry, ...(i.generationHistory || [])] }
@@ -210,6 +217,10 @@ export function StoreProvider({ children }) {
 
   const removeGeneration = useCallback(async (influencerId, generationId) => {
     const snapshot = influencers
+    const removedAssetId = influencersRef.current
+      .find(i => i.id === influencerId)?.generationHistory
+      ?.find(g => g.id === generationId)?.assetId
+    if (removedAssetId) removedAssets.current.add(String(removedAssetId))
     setInfluencersState(prev => prev.map(i => {
       if (i.id !== influencerId) return i
       const entry = (i.generationHistory || []).find(g => g.id === generationId)
@@ -222,6 +233,7 @@ export function StoreProvider({ children }) {
     try {
       await generationRepo.remove(generationId)
     } catch (e) {
+      if (removedAssetId) removedAssets.current.delete(String(removedAssetId))
       if (alive.current) setInfluencersState(snapshot)
       throw e
     }

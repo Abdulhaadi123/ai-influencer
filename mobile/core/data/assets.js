@@ -187,7 +187,7 @@ export async function ingestRemote({ sourceUrl, kind, influencerId = null, conte
     timeoutMs: 5 * 60_000,
   })
 
-  if (!json?.assetId) throw new AppError('The server did not confirm the file was saved. Please try again.')
+  if (!json?.assetId) throw new AppError('The file could not be saved. Please try again.')
   return { assetId: json.assetId, reused: !!json.reused }
 }
 
@@ -223,7 +223,7 @@ export async function uploadLocal({ uri, kind, contentType, byteSize, influencer
     body: { contentType: resolvedType, kind, influencerId, byteSize: size },
   })
 
-  if (!uploadUrl) throw new AppError('The server did not prepare the upload. Please try again.')
+  if (!uploadUrl) throw new AppError('The upload could not be started. Please try again.')
 
   await uploadToPresignedUrl({ uploadUrl, uri, contentType: resolvedType })
 

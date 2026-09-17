@@ -22,7 +22,7 @@ export default userRoute(async (req, res, user) => {
   if (!isUuid(assetId)) throw badRequest('assetId is required.')
 
   const asset = await one('select id, s3_key from assets where id = $1 and user_id = $2', [assetId, user.id])
-  if (!asset) throw notFound('No such file.')
+  if (!asset) throw notFound('This file could not be found.')
 
   let head
   try {
@@ -30,7 +30,7 @@ export default userRoute(async (req, res, user) => {
   } catch (e) {
     // A missing object means the PUT never landed.
     if (e?.name === 'NotFound' || e?.$metadata?.httpStatusCode === 404) {
-      throw new HttpError(409, 'The upload did not complete.', 'UPLOAD_INCOMPLETE')
+      throw new HttpError(409, 'The upload did not complete. Please try again.', 'UPLOAD_INCOMPLETE')
     }
     throw e
   }
@@ -39,9 +39,9 @@ export default userRoute(async (req, res, user) => {
   if (byteSize > MAX_UPLOAD_BYTES) {
     await deleteObject(asset.s3_key)
     await query('delete from assets where id = $1 and user_id = $2', [asset.id, user.id])
-    throw new HttpError(413, 'That file is too large.', 'TOO_LARGE')
+    throw new HttpError(413, 'This file is too large.', 'TOO_LARGE')
   }
 
   await query('update assets set byte_size = $2 where id = $1', [asset.id, byteSize])
   res.json({ assetId: asset.id, byteSize })
-}, { tag: '[storage/confirm]', message: 'Could not confirm the upload. Please try again.' })
+}, { tag: '[storage/confirm]', message: 'Unable to confirm the upload. Please try again.' })

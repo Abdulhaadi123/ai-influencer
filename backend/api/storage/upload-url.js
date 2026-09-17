@@ -27,10 +27,10 @@ export default userRoute(async (req, res, user) => {
 
   if (!ALLOWED_CONTENT_TYPES.includes(contentType)) {
     const shown = typeof contentType === 'string' ? ` (${contentType.slice(0, 60)})` : ''
-    throw badRequest(`Unsupported file type${shown}.`, 'UNSUPPORTED_TYPE')
+    throw badRequest(`This file type is not supported${shown}.`, 'UNSUPPORTED_TYPE')
   }
   if (!Number.isInteger(byteSize) || byteSize <= 0) throw badRequest('The file size is missing.', 'SIZE_REQUIRED')
-  if (byteSize > MAX_UPLOAD_BYTES) throw new HttpError(413, 'That file is too large.', 'TOO_LARGE')
+  if (byteSize > MAX_UPLOAD_BYTES) throw new HttpError(413, 'This file is too large.', 'TOO_LARGE')
   if (influencerId !== null && !isUuid(influencerId)) throw badRequest('influencerId is not valid.')
 
   // Attaching a file to a stranger's influencer would surface it in their studio.
@@ -52,4 +52,4 @@ export default userRoute(async (req, res, user) => {
   const uploadUrl = await presignPut({ key, contentType, byteSize })
   noStore(res)
   res.json({ assetId, uploadUrl, expiresIn: UPLOAD_TTL_SECONDS })
-}, { tag: '[storage/upload-url]', message: 'Could not prepare the upload. Please try again.' })
+}, { tag: '[storage/upload-url]', message: 'Unable to prepare the upload. Please try again.' })

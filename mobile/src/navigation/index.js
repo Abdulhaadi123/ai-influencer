@@ -144,7 +144,7 @@ function MainTabs() {
         name="Queue"
         component={QueueScreen}
         options={{
-          title: 'Generation queue',
+          title: 'Queue',
           tabBarLabel: 'Queue',
           tabBarBadge: activeJobs > 0 ? activeJobs : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.brand, color: '#FFFFFF', fontSize: 11 },

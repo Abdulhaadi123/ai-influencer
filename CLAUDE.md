@@ -58,9 +58,11 @@ to Postgres; the database port is not reachable from outside the server.
 
 ## Accounts
 
-Our own, in `backend/api/auth/` — sign up, email confirmation, sign in, sign
-out (this device / everywhere), forgot and reset password, change password,
-delete account.
+Our own, in `backend/api/auth/` — sign up, email verification, sign in, sign
+out, forgot and reset password, change password, delete account.
+
+There is no "sign out everywhere": a password change or reset already ends every
+other session, which is the case it existed for.
 
 - Passwords: Argon2id, OWASP settings (`backend/api/_lib/passwords.js`).
 - Sessions: random access + refresh tokens stored only as SHA-256 hashes,

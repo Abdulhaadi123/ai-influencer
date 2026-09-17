@@ -32,8 +32,8 @@ import { usePendingResult } from '../hooks/usePendingResult'
 export default function IdentityRefs({ influencer }) {
   return (
     <Section
-      title="Reference sheets"
-      footer="Generated from the main image and used as identity references in every video and motion copy. More references means the influencer stays recognisably themselves."
+      title="Reference images"
+      footer="Generated from the main image and used to keep the influencer's appearance consistent in videos and motion copies."
     >
       <View style={styles.list}>
         {IDENTITY_SLOTS.map((slot, i) => (
@@ -104,10 +104,10 @@ function RefSlot({ slot, influencer, last }) {
       } else {
         setError(
           e?.message === NO_MAIN_IMAGE
-            ? 'Add a main image first — it is the face reference.'
+            ? 'Add a main image first. It is used as the face reference.'
             : e?.message === STILL_RUNNING
-            ? 'Still generating — not failed. It will be saved to the gallery when it finishes.'
-            : userMessage(e, `The ${slot.label.toLowerCase()} could not be generated. Please try again.`))
+            ? 'Still generating. The image will be saved to the gallery when it is ready.'
+            : userMessage(e, `Unable to generate the ${slot.label.toLowerCase()}. Please try again.`))
       }
     } finally {
       setBusy(false); setProgress(0)
@@ -120,7 +120,7 @@ function RefSlot({ slot, influencer, last }) {
     onReady: ({ assetId }) => {
       setPendingTaskId(null)
       save(assetId).catch(e =>
-        setError(userMessage(e, `The ${slot.label.toLowerCase()} finished but could not be set here. Please try again.`)))
+        setError(userMessage(e, `The ${slot.label.toLowerCase()} was generated but could not be applied. Please try again.`)))
     },
     onFailed: message => {
       setPendingTaskId(null)
@@ -138,21 +138,21 @@ function RefSlot({ slot, influencer, last }) {
       })
       await save(assetId)
     } catch (e) {
-      setError(userMessage(e, 'Could not upload that image. Please try again.'))
+      setError(userMessage(e, 'The image could not be uploaded. Please try again.'))
     } finally {
       setBusy(false)
     }
   }, [save, influencer.id])
 
   const remove = useCallback(() => {
-    Alert.alert(`Remove ${slot.label}?`, 'The generated image stays in the gallery.', [
+    Alert.alert(`Remove ${slot.label.toLowerCase()}?`, 'The image will remain in the gallery.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => {
         // Clears the slot only. The file stays in the gallery, which is what
         // the dialog promises — removing it here would delete a generation the
         // user may still want.
         updateInfluencer(influencer.id, { [slot.assetField]: null })
-          .catch(e => setError(userMessage(e, 'Could not remove it. Please try again.')))
+          .catch(e => setError(userMessage(e, 'Unable to remove it. Please try again.')))
       } },
     ])
   }, [influencer.id, slot.assetField, slot.label, updateInfluencer])
@@ -166,7 +166,7 @@ function RefSlot({ slot, influencer, last }) {
         </View>
         {source ? (
           <View style={[styles.badge, { backgroundColor: colors.brandSoft }]}>
-            <Text style={[styles.badgeText, { color: colors.brandDeep }]}>SET</Text>
+            <Text style={[styles.badgeText, { color: colors.brandDeep }]}>Added</Text>
           </View>
         ) : null}
       </View>
@@ -184,7 +184,7 @@ function RefSlot({ slot, influencer, last }) {
           <ActivityIndicator size="small" color={colors.brand} />
           <Text style={[styles.progressText, { color: colors.textSecondary }]}>
             {pendingTaskId
-              ? 'Still generating — slower than usual, not failed. It will appear here when it finishes.'
+              ? 'Still generating. The image will appear here when it is ready.'
               : progress > 0 ? `Generating… ${Math.round(progress)}%` : 'Generating…'}
           </Text>
         </View>
@@ -206,7 +206,7 @@ function RefSlot({ slot, influencer, last }) {
       {source && !busy && !pendingTaskId ? (
         <View style={styles.subActions}>
           <Pressable onPress={() => shareMedia(value, `${(influencer.name || 'ref').toLowerCase()}-${slot.key}.jpg`)} hitSlop={8}>
-            <Text style={[styles.subAction, { color: colors.brandDeep }]}>Save or share</Text>
+            <Text style={[styles.subAction, { color: colors.brandDeep }]}>Share</Text>
           </Pressable>
           <Pressable onPress={remove} hitSlop={8}>
             <Text style={[styles.subAction, { color: colors.danger }]}>Remove</Text>

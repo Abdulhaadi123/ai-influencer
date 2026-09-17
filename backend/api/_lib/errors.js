@@ -53,14 +53,14 @@ export function classifyServerError(e) {
     return {
       status: 503,
       code: 'SERVER_NOT_CONFIGURED',
-      error: 'The server is not fully set up yet, so this cannot be done right now.',
+      error: 'This service is not available right now. Please try again later.',
     }
   }
   if (STORAGE_REFUSED.has(e?.name) || STORAGE_REFUSED.has(e?.Code)) {
     return {
       status: 503,
       code: 'STORAGE_UNAVAILABLE',
-      error: 'The server could not reach file storage. Please try again later.',
+      error: 'Storage is temporarily unavailable. Please try again later.',
     }
   }
   const text = [e?.message, e?.details, e?.code, e?.cause?.code, e?.cause?.message].filter(Boolean).join(' ')
@@ -68,7 +68,7 @@ export function classifyServerError(e) {
     return {
       status: 503,
       code: 'UPSTREAM_UNAVAILABLE',
-      error: 'The server could not reach a service it depends on. Please try again shortly.',
+      error: 'The service is temporarily unavailable. Please try again shortly.',
     }
   }
   return null

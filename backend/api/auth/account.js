@@ -49,7 +49,7 @@ const emailsByIp = createRateLimiter([{ windowMs: 60 * 60_000, max: 30 }])
 const refreshByIp = createRateLimiter([{ windowMs: 60_000, max: 60 }])
 const passwordChecksByUser = createRateLimiter([{ windowMs: 15 * 60_000, max: 10 }])
 
-const INVALID_CREDENTIALS = 'That email and password combination is not right.'
+const INVALID_CREDENTIALS = 'Incorrect email or password.'
 
 const findUserByEmail = email => one('select * from users where lower(email) = $1', [email])
 
@@ -149,7 +149,7 @@ async function alreadyRegistered(res, user, password) {
   // Same work as hashing a new password, so the response takes as long.
   if (password) await verifyPassword(null, password)
   if (!REQUIRE_EMAIL_CONFIRMATION) {
-    throw new HttpError(409, 'There is already an account with that email. Try signing in.', 'EMAIL_TAKEN')
+    throw new HttpError(409, 'An account with this email already exists. Please sign in instead.', 'EMAIL_TAKEN')
   }
   if (user && !user.email_confirmed_at && emailsByAddress(`email:${user.email}`).ok) sendConfirmation(user)
   return res.status(201).json({ needsEmailConfirmation: true })
@@ -173,7 +173,7 @@ export const signIn = publicRoute(async (req, res) => {
 
   // Only reached with the right password, so it reveals nothing to a guesser.
   if (REQUIRE_EMAIL_CONFIRMATION && !user.email_confirmed_at) {
-    throw new HttpError(403, 'Check your inbox and confirm your email address first.', 'EMAIL_NOT_CONFIRMED')
+    throw new HttpError(403, 'Please verify your email address before signing in. Check your inbox for the verification link.', 'EMAIL_NOT_CONFIRMED')
   }
 
   const session = await createSession(user, { userAgent: userAgentOf(req) })
@@ -185,7 +185,7 @@ export const signIn = publicRoute(async (req, res) => {
 export const refresh = publicRoute(async (req, res) => {
   enforceLimit(refreshByIp, `ip:${clientIp(req)}`)
   const session = await refreshSession(req.body?.refreshToken, { userAgent: userAgentOf(req) })
-  if (!session) throw new HttpError(401, 'Your session has ended. Sign in again to continue.', 'SESSION_EXPIRED')
+  if (!session) throw new HttpError(401, 'Your session has expired. Please sign in again.', 'SESSION_EXPIRED')
   noStore(res)
   res.json({ session })
 })
@@ -199,12 +199,6 @@ export const refresh = publicRoute(async (req, res) => {
 export const signOut = publicRoute(async (req, res) => {
   const refreshToken = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : null
   await revokeSession({ accessToken: bearerToken(req), refreshToken })
-  res.status(204).end()
-})
-
-/** POST /api/auth/logout-all — every device, including this one. */
-export const signOutEverywhere = userRoute(async (req, res, user) => {
-  await revokeAllSessions(user.id)
   res.status(204).end()
 })
 
@@ -243,14 +237,14 @@ export const changePassword = userRoute(async (req, res, user) => {
   const problem = passwordProblem(newPassword)
   if (problem) throw badRequest(problem, 'WEAK_PASSWORD')
   if (newPassword === currentPassword) {
-    throw badRequest('Choose a password different from your current one.', 'SAME_PASSWORD')
+    throw badRequest('New password must be different from your current password.', 'SAME_PASSWORD')
   }
 
   enforceLimit(passwordChecksByUser, `user:${user.id}`)
 
   const row = await one('select password_hash from users where id = $1', [user.id])
   if (!(await verifyPassword(row?.password_hash ?? null, currentPassword))) {
-    throw new HttpError(403, 'Your current password is not right.', 'WRONG_PASSWORD')
+    throw new HttpError(403, 'Your current password is incorrect.', 'WRONG_PASSWORD')
   }
 
   const newHash = await hashPassword(newPassword)

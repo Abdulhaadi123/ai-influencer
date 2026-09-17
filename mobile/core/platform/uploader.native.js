@@ -66,7 +66,7 @@ export async function getByteSize(uri) {
   }
   const size = new File(uri).size
   if (!Number.isFinite(size) || size <= 0) {
-    throw new AppError('That file could not be read. Try choosing it again.')
+    throw new AppError('This file could not be read. Please select it again.')
   }
   return size
 }
@@ -120,8 +120,8 @@ export async function uploadToPresignedUrl({ uploadUrl, uri, contentType }) {
       // five minutes) while a large file was still being picked or sent.
       throw new AppError(
         result.status === 403
-          ? 'The upload took too long and its link expired. Please try again.'
-          : 'Storage did not accept the file. Please try again.',
+          ? 'The upload took too long and timed out. Please try again.'
+          : 'The file could not be uploaded. Please try again.',
         { status: result.status },
       )
     }

@@ -78,7 +78,7 @@ export default function MotionCopyScreen({ influencer }) {
       })
       setCharacterImage(await resolveUrl(assetId))
     } catch (e) {
-      setError(userMessage(e, 'Could not upload that image. Please try again.'))
+      setError(userMessage(e, 'The image could not be uploaded. Please try again.'))
     }
   }, [influencer?.id])
 
@@ -89,7 +89,7 @@ export default function MotionCopyScreen({ influencer }) {
       picked = await pickVideo()
     } catch (e) {
       // The size guard throws with a message written for the user.
-      setError(userMessage(e, 'Could not open that video. Try a different one.'))
+      setError(userMessage(e, 'This video could not be opened. Please choose a different one.'))
       return
     }
     if (!picked) return
@@ -107,7 +107,7 @@ export default function MotionCopyScreen({ influencer }) {
       setDrivingVideo({ previewUri: picked.uri, fetchUrl: await resolveUrl(assetId) })
     } catch (e) {
       setVideoName('')
-      setError(userMessage(e, 'Could not upload that video. Please try again.'))
+      setError(userMessage(e, 'The video could not be uploaded. Please try again.'))
     } finally {
       setUploadingVideo(false)
     }
@@ -130,12 +130,12 @@ export default function MotionCopyScreen({ influencer }) {
         model,
         onProgress: setProgress,
         isCancelled: () => cancelRef.current,
-        queueMeta: { influencerId: influencer?.id, influencerName: influencer?.name, label: 'Motion Copy' },
+        queueMeta: { influencerId: influencer?.id, influencerName: influencer?.name, label: 'Motion copy' },
       })
 
       const url = urls?.[0]
       if (cancelRef.current) return
-      if (!url) { setError('No video was returned — please try again.'); return }
+      if (!url) { setError('No video was returned. Please try again.'); return }
 
       // KIE deletes results within a day, so the server copies the file into
       // this user's storage before the entry is recorded.
@@ -148,12 +148,12 @@ export default function MotionCopyScreen({ influencer }) {
 
       if (influencer?.id) {
         await addGeneration({
-          influencerId: influencer.id, assetId, kind: 'video', label: 'Motion Copy',
+          influencerId: influencer.id, assetId, kind: 'video', label: 'Motion copy',
         })
       }
     } catch (e) {
       if (e?.message === STILL_RUNNING) setHandedOff(true)
-      else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'The motion copy could not be generated. Please try again.'))
+      else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'Unable to generate the motion copy. Please try again.'))
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }
@@ -172,11 +172,11 @@ export default function MotionCopyScreen({ influencer }) {
       keyboardShouldPersistTaps="handled"
     >
       <Text style={[styles.sub, { color: colors.textSecondary }]}>
-        Add a motion video and {influencer?.name || 'your influencer'} performs the same movement,
-        gestures and expression — identity kept intact.
+        Upload a motion video and {influencer?.name || 'your influencer'} will perform the same
+        movements, gestures and expressions.
       </Text>
 
-      <Section title="Character — who moves">
+      <Section title="Character">
         <View style={styles.padded}>
           {characterImage ? (
             <View style={{ gap: space.md }}>
@@ -204,17 +204,17 @@ export default function MotionCopyScreen({ influencer }) {
                       })}
                     </View>
                   ) : null}
-                  <Button title="Use another image" variant="secondary" onPress={chooseCharacter} />
+                  <Button title="Upload image" variant="secondary" onPress={chooseCharacter} />
                 </View>
               </View>
             </View>
           ) : (
-            <Button title="Add a character image" onPress={chooseCharacter} />
+            <Button title="Upload character image" onPress={chooseCharacter} />
           )}
         </View>
       </Section>
 
-      <Section title="Motion video — what to copy" footer="mp4, mov or webm. One clear subject, 3–30s works best. Max 60 MB.">
+      <Section title="Motion video" footer="MP4, MOV or WebM, up to 60 MB. Clips of 3–30 seconds with one clearly visible person work best.">
         <View style={styles.padded}>
           {drivingVideo ? (
             <View style={{ gap: space.md }}>
@@ -234,7 +234,7 @@ export default function MotionCopyScreen({ influencer }) {
             </View>
           ) : (
             <Button
-              title={uploadingVideo ? 'Uploading…' : 'Choose a motion video'}
+              title={uploadingVideo ? 'Uploading…' : 'Upload motion video'}
               onPress={chooseVideo}
               disabled={uploadingVideo}
             />
@@ -242,7 +242,7 @@ export default function MotionCopyScreen({ influencer }) {
         </View>
       </Section>
 
-      <Section title="Model" footer="Kling 3.0 is the default. Pick another to compare results.">
+      <Section title="Model" footer="Kling 3.0 is recommended. Select another model to compare results.">
         <View style={styles.padded}>
           <ModelPicker
             models={MOTION_MODELS}
@@ -255,19 +255,19 @@ export default function MotionCopyScreen({ influencer }) {
 
       <Collapsible
         title="Options"
-        subtitle={`${getMotionModel(model).label}${prompt ? ' · scene set' : ''}`}
+        subtitle={`${getMotionModel(model).label}${prompt ? ' · Scene set' : ''}`}
       >
-        <Field label="Scene direction" hint="Optional.">
+        <Field label="Scene direction" hint="Optional">
           <TextInput
             value={prompt}
             onChangeText={setPrompt}
-            placeholder="e.g. bright studio background, soft lighting"
+            placeholder="e.g. Bright studio background, soft lighting"
             placeholderTextColor={colors.textTertiary}
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
           />
         </Field>
 
-        <Field label="Quality" hint="The output follows the motion video's shape.">
+        <Field label="Quality" hint="The output matches the aspect ratio of the motion video.">
           <Segmented
             value={mode}
             onChange={setMode}
@@ -288,9 +288,8 @@ export default function MotionCopyScreen({ influencer }) {
       {handedOff ? (
         <View style={[styles.errorBox, { borderColor: colors.brand, backgroundColor: colors.brandSoft }]}>
           <Text style={[styles.errorText, { color: colors.textPrimary }]}>
-            Still generating — motion copy is the slowest thing here, and this
-            one has not failed. It is in the Queue tab; save it from there when
-            it lands.
+            Generation is taking longer than usual. Motion copies take the longest
+            to generate. You can save the video from the Queue tab when it is ready.
           </Text>
         </View>
       ) : null}
@@ -311,7 +310,7 @@ export default function MotionCopyScreen({ influencer }) {
           </View>
         </Section>
       ) : (
-        <Button title="Copy motion" onPress={generate} disabled={!canGenerate} />
+        <Button title="Generate motion copy" onPress={generate} disabled={!canGenerate} />
       )}
 
       {result && !generating ? (
@@ -319,7 +318,7 @@ export default function MotionCopyScreen({ influencer }) {
           <View style={[styles.padded, { gap: space.md }]}>
             <VideoPreview uri={result} autoPlay loop />
             <Button
-              title="Save or share"
+              title="Share"
               variant="secondary"
               onPress={() => shareMedia(result, `${(influencer?.name || 'motion').toLowerCase()}-motion.mp4`)}
             />

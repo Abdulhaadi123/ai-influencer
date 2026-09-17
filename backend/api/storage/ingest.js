@@ -22,11 +22,11 @@ export default userRoute(async (req, res, user) => {
   const { sourceUrl, influencerId = null } = req.body || {}
 
   if (typeof sourceUrl !== 'string' || !isAllowedResultSource(sourceUrl)) {
-    throw badRequest('That source is not allowed.', 'BAD_SOURCE')
+    throw badRequest('This source is not allowed.', 'BAD_SOURCE')
   }
   if (influencerId !== null && !isUuid(influencerId)) throw badRequest('influencerId is not valid.')
   if (influencerId && !(await one('select 1 from influencers where id = $1 and user_id = $2', [influencerId, user.id]))) {
-    throw forbidden('That influencer is not yours.')
+    throw forbidden('This influencer belongs to another account.')
   }
 
   try {
@@ -41,4 +41,4 @@ export default userRoute(async (req, res, user) => {
     if (e instanceof ResultError) throw new HttpError(e.status, e.message, e.code)
     throw e
   }
-}, { tag: '[storage/ingest]', message: 'Could not save the generated file. Please try again.' })
+}, { tag: '[storage/ingest]', message: 'Unable to save the generated file. Please try again.' })

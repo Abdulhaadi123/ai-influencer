@@ -29,14 +29,16 @@ export default userRoute(async (req, res, user) => {
   )
   if (!row) return res.status(204).end()   // already gone
 
-  // Otherwise the job that produced it could be collected again by the worker.
-  await forgetSource(user.id, row.asset_id)
   await deleteObject(row.s3_key)
 
   await transaction(async client => {
+    // Otherwise the job that produced it could be collected again by the worker.
+    // Inside the transaction, so the job never appears changed while the asset
+    // is still attached to it.
+    await forgetSource(user.id, row.asset_id, client)
     await client.query('delete from generations where id = $1 and user_id = $2', [row.id, user.id])
     await client.query('delete from assets where id = $1 and user_id = $2', [row.asset_id, user.id])
   })
 
   res.status(204).end()
-}, { tag: '[generations/delete]', message: 'Could not delete that item. Please try again.' })
+}, { tag: '[generations/delete]', message: 'Unable to delete this item. Please try again.' })

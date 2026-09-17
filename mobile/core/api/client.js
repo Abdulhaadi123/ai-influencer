@@ -68,7 +68,7 @@ export async function apiFetch(path, { method = 'GET', body, auth = true, signal
   } catch (e) {
     console.warn('[api]', e?.message ?? e)
     throw new ApiError(
-      'This version of the app is not connected to a server yet, so it cannot do this.',
+      'This app is not configured correctly. Please contact support.',
       0, ERROR_CODES.APP_NOT_CONFIGURED,
     )
   }
@@ -131,7 +131,7 @@ async function send(url, { method, body, token, signal, timeoutMs }) {
     if (text) { try { json = JSON.parse(text) } catch { /* an HTML error page from a proxy */ } }
     return { status: res.status, json }
   } catch (e) {
-    if (timedOut) throw new ApiError('The server took too long to respond. Please try again.', 0, ERROR_CODES.TIMEOUT)
+    if (timedOut) throw new ApiError('The request timed out. Please try again.', 0, ERROR_CODES.TIMEOUT)
     if (signal?.aborted || e?.name === 'AbortError') throw e
     throw new ApiError(NETWORK_MESSAGE, 0, ERROR_CODES.NETWORK)
   } finally {

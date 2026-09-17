@@ -77,7 +77,7 @@ export async function kieFetch(path, { method = 'GET', body, query } = {}) {
  *
  * The client no longer holds a key, so this is no longer a question it can
  * answer locally — the engine is reachable if the user is signed in and the
- * server is configured. The real check is the diagnostics run in Settings.
+ * server is configured.
  */
 export function hasKieKey() {
   return true

@@ -35,10 +35,10 @@ function CrashScreen({ error, onRetry }) {
   const { colors } = useTheme()
   return (
     <View style={[styles.wrap, { backgroundColor: colors.bg }]}>
-      <Text style={[styles.title, { color: colors.textPrimary }]}>This screen ran into a problem</Text>
+      <Text style={[styles.title, { color: colors.textPrimary }]}>Something went wrong</Text>
       <Text style={[styles.body, { color: colors.textSecondary }]}>
-        Your influencers and generations are safe — they are saved to your account as
-        you go. Try again, and if it keeps happening, close and reopen the app.
+          An unexpected error occurred. Your work is saved to your account. Please try
+          again, and restart the app if the problem continues.
       </Text>
       {__DEV__ ? (
         <Text style={[styles.detail, { color: colors.danger }]} numberOfLines={6}>

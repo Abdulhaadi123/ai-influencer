@@ -74,10 +74,10 @@ export default function GalleryTab({ influencer }) {
     // deletes the other. That used to happen without a word.
     const uses = assetUses(influencer, entry.assetId)
     Alert.alert(
-      'Delete this clip?',
+      'Delete this item?',
       uses.length
-        ? `This file is also ${influencer.name || 'this influencer'}'s ${uses.join(' and ')}. Deleting it removes it there too, permanently.`
-        : 'The file is deleted permanently. This cannot be undone.',
+        ? `This file is also used as ${influencer.name || 'this influencer'}'s ${uses.join(' and ')}. Deleting it will remove it there as well. This action cannot be undone.`
+        : 'This item will be permanently deleted. This action cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -91,7 +91,7 @@ export default function GalleryTab({ influencer }) {
               // clip the user believes is gone.
               await removeGeneration(influencer.id, entry.id)
             } catch (e) {
-              showError('Could not delete', e, 'The clip was not deleted. Please try again.')
+              showError('Unable to delete', e, 'The item could not be deleted. Please try again.')
             }
           },
         },
@@ -115,10 +115,9 @@ export default function GalleryTab({ influencer }) {
         <View style={[styles.emptyIcon, { backgroundColor: colors.brandSoft }]}>
           <Text style={styles.emptyGlyph}>🎬</Text>
         </View>
-        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No clips yet</Text>
+        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No content yet</Text>
         <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>
-          Promo videos and motion copies you generate for {influencer.name} are kept here —
-          they stay after you leave the screen or close the app.
+          Videos and images you generate for {influencer.name} will appear here.
         </Text>
       </View>
     )
@@ -250,7 +249,7 @@ function Lightbox({ entry, influencerName, onClose, onShare, onDelete }) {
         <View style={[styles.sheetBar, { borderBottomColor: colors.borderSubtle }]}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.sheetTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-              {entry?.label || 'Clip'}
+              {entry?.label || 'Item'}
             </Text>
             <Text style={[styles.sheetSub, { color: colors.textTertiary }]} numberOfLines={1}>
               {influencerName} · {formatDate(entry?.date)}
@@ -270,7 +269,7 @@ function Lightbox({ entry, influencerName, onClose, onShare, onDelete }) {
         </View>
 
         <View style={[styles.sheetActions, { paddingBottom: insets.bottom + space.lg }]}>
-          <Button title="Save or share" variant="secondary" onPress={onShare} />
+          <Button title="Share" variant="secondary" onPress={onShare} />
           <Pressable onPress={onDelete} accessibilityRole="button" style={styles.deleteRow}>
             <Text style={[styles.deleteText, { color: colors.danger }]}>Delete</Text>
           </Pressable>

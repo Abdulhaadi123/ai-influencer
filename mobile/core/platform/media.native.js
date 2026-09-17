@@ -70,7 +70,7 @@ export async function compressImage(source, maxPx = 1400, quality = 0.82) {
  */
 export async function downloadImage(src, filename = 'image.jpg') {
   if (!src) {
-    throw new AppError('There is no file to share yet.', { code: ERROR_CODES.SHARE_FAILED })
+    throw new AppError('There is nothing to share yet.', { code: ERROR_CODES.SHARE_FAILED })
   }
   if (!(await Sharing.isAvailableAsync())) {
     throw new AppError('Sharing is not available on this device.', { code: ERROR_CODES.SHARE_FAILED })
@@ -87,7 +87,7 @@ export async function downloadImage(src, filename = 'image.jpg') {
       file.write(base64, { encoding: 'base64' })
     } catch (e) {
       console.warn('[media] could not write the file to share:', e?.message ?? e)
-      throw new AppError('The file could not be prepared for sharing. Check that the phone has free space.', {
+      throw new AppError('The file could not be prepared for sharing. Please check the available storage on your device.', {
         code: ERROR_CODES.SHARE_FAILED, cause: e,
       })
     }
@@ -100,7 +100,7 @@ export async function downloadImage(src, filename = 'image.jpg') {
       file = await File.downloadFileAsync(src, target, { idempotent: true })
     } catch (e) {
       console.warn('[media] download failed:', e?.message ?? e)
-      throw new AppError('The file could not be downloaded. Check your connection and try again.', {
+      throw new AppError('The file could not be downloaded. Please check your connection and try again.', {
         code: ERROR_CODES.SHARE_FAILED, cause: e,
       })
     }
@@ -109,7 +109,7 @@ export async function downloadImage(src, filename = 'image.jpg') {
     // readable filename rather than the internal one.
     const source = new File(src)
     if (!source.exists) {
-      throw new AppError('That file is no longer on this device.', { code: ERROR_CODES.SHARE_FAILED })
+      throw new AppError('This file is no longer available on this device.', { code: ERROR_CODES.SHARE_FAILED })
     }
     try {
       const target = new File(Paths.cache, safeName(filename))

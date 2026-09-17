@@ -54,13 +54,13 @@ export default async function handler(req, res) {
   if (!OPENAI_KEY) {
     // Not an error: the feature is optional and the client treats 501 as
     // "unavailable", hiding the suggestion UI entirely.
-    return res.status(501).json({ error: 'The prompt assistant is not configured.', code: 'NOT_CONFIGURED' })
+    return res.status(501).json({ error: 'Suggestions are not available right now.', code: 'NOT_CONFIGURED' })
   }
 
   const rl = rateLimit(`assist:${user.id}`)
   if (!rl.ok) {
     res.setHeader('Retry-After', String(rl.retryAfter))
-    return res.status(429).json({ error: 'Too many requests — wait a moment.' })
+    return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.' })
   }
 
   const { text, kind = 'appearance' } = req.body || {}
@@ -68,7 +68,7 @@ export default async function handler(req, res) {
 
   if (!input) return res.status(400).json({ error: 'text is required.' })
   if (input.length > MAX_INPUT_CHARS) {
-    return res.status(413).json({ error: 'That text is too long to improve.' })
+    return res.status(413).json({ error: 'This text is too long to improve.' })
   }
 
   try {

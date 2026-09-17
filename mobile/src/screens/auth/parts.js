@@ -115,7 +115,8 @@ export function PrimaryButton({ title, onPress, loading, disabled }) {
       onPress={onPress}
       disabled={off}
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!off, busy: !!loading }}
+      // `busy: false` is still announced as "busy" on Android; only set it when true.
+      accessibilityState={loading ? { disabled: true, busy: true } : { disabled: !!off }}
       style={({ pressed }) => ({ opacity: off ? 0.5 : pressed ? 0.85 : 1, marginTop: space.md })}
     >
       <LinearGradient

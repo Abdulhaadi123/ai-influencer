@@ -22,10 +22,10 @@ import { checkPasswordForUser } from '../auth/account.js'
 
 export default userRoute(async (req, res, user) => {
   const password = req.body?.password
-  if (typeof password !== 'string' || !password) throw badRequest('Enter your password to confirm.', 'PASSWORD_REQUIRED')
+  if (typeof password !== 'string' || !password) throw badRequest('Enter your password to continue.', 'PASSWORD_REQUIRED')
 
   if (!(await checkPasswordForUser(user, password))) {
-    throw new HttpError(403, 'That password is not right.', 'WRONG_PASSWORD')
+    throw new HttpError(403, 'Incorrect password.', 'WRONG_PASSWORD')
   }
 
   const deletedObjects = await deleteUserObjects(user.id)
@@ -33,4 +33,4 @@ export default userRoute(async (req, res, user) => {
 
   console.log(`[account/delete] deleted account ${user.id} and ${deletedObjects} stored file(s)`)
   res.json({ deletedObjects })
-}, { tag: '[account/delete]', message: 'Could not finish deleting the account. Please try again.' })
+}, { tag: '[account/delete]', message: 'Unable to delete your account. Please try again.' })

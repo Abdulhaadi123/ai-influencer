@@ -42,15 +42,15 @@ function findUsableToken(token, purpose) {
 }
 
 function linkUnusable(res, kind) {
-  const what = kind === 'reset' ? 'password reset' : 'confirmation'
+  const what = kind === 'reset' ? 'password reset' : 'verification'
   const next = kind === 'reset'
-    ? 'Ask for a new one from the app: Sign in → Forgot your password?'
-    : 'If you already confirmed your email, just sign in. Otherwise ask for a new link from the app’s sign-in screen.'
+    ? 'To request a new link, open the app and select Forgot password on the sign-in screen.'
+    : 'If you have already verified your email, you can sign in. Otherwise, request a new link from the sign-in screen in the app.'
   return sendPage(res, {
     status: 410,
     title: 'Link expired',
-    body: `<h1>This link no longer works</h1>
-<p>This ${what} link has expired or has already been used. Links work once, for a limited time.</p>
+    body: `<h1>This link has expired</h1>
+<p>This ${what} link has expired or has already been used. Links can be used once, within a limited time.</p>
 <p>${escapeHtml(next)}</p>`,
   })
 }
@@ -59,7 +59,7 @@ function tooMany(res) {
   return sendPage(res, {
     status: 429,
     title: 'Too many attempts',
-    body: '<h1>Too many attempts</h1><p>Wait a few minutes, then open the link from your email again.</p>',
+    body: '<h1>Too many attempts</h1><p>Please wait a few minutes, then open the link from your email again.</p>',
   })
 }
 
@@ -68,7 +68,7 @@ function serverTrouble(res, e, tag) {
   return sendPage(res, {
     status: 503,
     title: 'Something went wrong',
-    body: '<h1>Something went wrong</h1><p>That did not work on our side. Please open the link from your email again in a minute.</p>',
+    body: '<h1>Something went wrong</h1><p>We could not complete your request. Please open the link from your email again in a few minutes.</p>',
   })
 }
 
@@ -89,12 +89,12 @@ export const confirmEmailPage = pageRoute('[pages/confirm GET]', async (req, res
   if (!found) return linkUnusable(res, 'confirm')
 
   sendPage(res, {
-    title: 'Confirm your email',
-    body: `<h1>Confirm your email</h1>
-<p>Confirm <strong>${escapeHtml(found.email)}</strong> to finish creating your account.</p>
+    title: 'Verify your email',
+    body: `<h1>Verify your email</h1>
+<p>Verify <strong>${escapeHtml(found.email)}</strong> to activate your account.</p>
 <form method="post" action="/auth/confirm-email">
   <input type="hidden" name="token" value="${escapeHtml(token)}">
-  <button type="submit">Confirm my email</button>
+  <button type="submit">Verify email</button>
 </form>`,
   })
 })
@@ -119,9 +119,9 @@ export const confirmEmailSubmit = pageRoute('[pages/confirm POST]', async (req, 
   if (!confirmed) return linkUnusable(res, 'confirm')
 
   sendPage(res, {
-    title: 'Email confirmed',
-    body: `<h1>Email confirmed</h1>
-<p>Your account is ready. Go back to the app and sign in.</p>
+    title: 'Email verified',
+    body: `<h1>Email verified</h1>
+<p>Your account is now active. Return to the app and sign in.</p>
 ${openAppLink()}`,
   })
 })
@@ -132,8 +132,8 @@ ${openAppLink()}`,
 function resetForm(res, token, email, error = null, status = 200) {
   return sendPage(res, {
     status,
-    title: 'Choose a new password',
-    body: `<h1>Choose a new password</h1>
+    title: 'Set a new password',
+    body: `<h1>Set a new password</h1>
 <p>For <strong>${escapeHtml(email)}</strong>.</p>
 ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
 <form method="post" action="/auth/reset-password">
@@ -141,10 +141,10 @@ ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
   <input type="hidden" name="username" value="${escapeHtml(email)}" autocomplete="username">
   <label for="password">New password</label>
   <input id="password" name="password" type="password" autocomplete="new-password" required minlength="${MIN_PASSWORD_LENGTH}" maxlength="128">
-  <p class="hint">At least ${MIN_PASSWORD_LENGTH} characters, with a letter and a number.</p>
-  <label for="confirm">New password again</label>
+  <p class="hint">Must be at least ${MIN_PASSWORD_LENGTH} characters and include a letter and a number.</p>
+  <label for="confirm">Confirm new password</label>
   <input id="confirm" name="confirm" type="password" autocomplete="new-password" required>
-  <button type="submit">Save new password</button>
+  <button type="submit">Update password</button>
 </form>`,
   })
 }
@@ -165,7 +165,7 @@ export const resetPasswordSubmit = pageRoute('[pages/reset POST]', async (req, r
   const password = typeof req.body?.password === 'string' ? req.body.password : ''
   const confirm = typeof req.body?.confirm === 'string' ? req.body.confirm : ''
   // A form mistake keeps the link usable — only a successful change spends it.
-  const problem = passwordProblem(password) || (password !== confirm ? 'The two passwords do not match.' : null)
+  const problem = passwordProblem(password) || (password !== confirm ? 'Passwords do not match.' : null)
   if (problem) return resetForm(res, token, found.email, problem, 400)
 
   const newHash = await hashPassword(password)
@@ -193,9 +193,9 @@ export const resetPasswordSubmit = pageRoute('[pages/reset POST]', async (req, r
   if (!changed) return linkUnusable(res, 'reset')
 
   sendPage(res, {
-    title: 'Password changed',
-    body: `<h1>Password changed</h1>
-<p>Your new password is set, and every device that was signed in has been signed out. Sign in with the new password.</p>
+    title: 'Password updated',
+    body: `<h1>Password updated</h1>
+<p>Your password has been changed and you have been signed out on all devices. Sign in with your new password.</p>
 ${openAppLink()}`,
   })
 })

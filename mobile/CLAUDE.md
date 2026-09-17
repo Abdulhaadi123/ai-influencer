@@ -57,8 +57,8 @@ Our own accounts API (`backend/api/auth/`). The app passes a password to the
 server over TLS and then forgets it — it is never stored, logged, or put in an
 error message. The server hashes it with Argon2id.
 
-- `core/auth/index.js` — sign up, sign in, sign out (this device / everywhere),
-  forgot password, resend confirmation, change password, delete account
+- `core/auth/index.js` — sign up, sign in, sign out, forgot password, resend
+  the verification email, change password, delete account
 - `core/auth/session.js` — the tokens: stored in the Keychain via `authStorage`,
   refreshed shortly before expiry
 - `core/auth/AuthContext.jsx` — the session as React state; `useAuth()`

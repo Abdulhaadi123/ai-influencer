@@ -21,7 +21,7 @@ export const byAsset = userRoute(async (req, res, user) => {
   const generation = await one(`select ${COLUMNS} from generations where user_id = $1 and asset_id = $2`, [user.id, assetId])
   noStore(res)
   res.json({ generation })
-}, { tag: '[generations/by-asset]', message: 'Could not check the gallery. Please try again.' })
+}, { tag: '[generations/by-asset]', message: 'Unable to load the gallery. Please try again.' })
 
 /** POST /api/generations/add  { assetId, influencerId?, kind?, label? } → { generation } */
 export const add = userRoute(async (req, res, user) => {
@@ -32,10 +32,10 @@ export const add = userRoute(async (req, res, user) => {
   if (!ASSET_KINDS.includes(kind)) throw badRequest('kind is not valid.')
 
   if (!(await one('select 1 from assets where id = $1 and user_id = $2', [assetId, user.id]))) {
-    throw forbidden('That file is not yours.')
+    throw forbidden('This file belongs to another account.')
   }
   if (influencerId && !(await one('select 1 from influencers where id = $1 and user_id = $2', [influencerId, user.id]))) {
-    throw forbidden('That influencer is not yours.')
+    throw forbidden('This influencer belongs to another account.')
   }
 
   const inserted = await one(
@@ -49,4 +49,4 @@ export const add = userRoute(async (req, res, user) => {
     ?? await one(`select ${COLUMNS} from generations where user_id = $1 and asset_id = $2`, [user.id, assetId])
 
   res.status(inserted ? 201 : 200).json({ generation })
-}, { tag: '[generations/add]', message: 'Could not save this to the gallery. Please try again.' })
+}, { tag: '[generations/add]', message: 'Unable to save this to the gallery. Please try again.' })

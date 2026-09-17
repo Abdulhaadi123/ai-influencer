@@ -23,11 +23,11 @@ export const MAX_VIDEO_BYTES = 60 * 1024 * 1024
 async function ensurePermission(source) {
   if (source === 'camera') {
     const { granted } = await ImagePicker.requestCameraPermissionsAsync()
-    if (!granted) Alert.alert('Camera access needed', 'Allow camera access to continue.')
+    if (!granted) Alert.alert('Camera access required', 'Allow camera access in your device settings to continue.')
     return granted
   }
   const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync()
-  if (!granted) Alert.alert('Photo access needed', 'Allow photo access to continue.')
+  if (!granted) Alert.alert('Photo access required', 'Allow photo access in your device settings to continue.')
   return granted
 }
 
@@ -50,7 +50,7 @@ export async function pickImage(source = 'library') {
     return await compressImage(result.assets[0].uri)
   } catch (e) {
     console.warn('[picker] image failed:', e?.message ?? e)
-    showError('Could not load image', e, 'That image could not be opened. Try a different one.')
+    showError('Unable to open image', e, 'This image could not be opened. Please choose a different one.')
     return null
   }
 }
@@ -58,7 +58,7 @@ export async function pickImage(source = 'library') {
 /** Ask camera-or-library, then pick. Cancelling resolves to null. */
 export function pickImageWithPrompt() {
   return new Promise(resolve => {
-    Alert.alert('Add an image', undefined, [
+    Alert.alert('Add image', undefined, [
       { text: 'Take photo', onPress: () => resolve(pickImage('camera')) },
       { text: 'Choose from library', onPress: () => resolve(pickImage('library')) },
       { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
@@ -93,7 +93,7 @@ export async function pickVideo() {
   const size = file.size ?? 0
   if (size > MAX_VIDEO_BYTES) {
     throw new Error(
-      `Video is ${(size / 1024 / 1024).toFixed(0)} MB — over the 60 MB limit. Please trim or compress it first.`
+      `This video is ${(size / 1024 / 1024).toFixed(0)} MB. The maximum size is 60 MB. Please trim or compress it and try again.`
     )
   }
 

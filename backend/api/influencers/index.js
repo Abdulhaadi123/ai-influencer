@@ -85,7 +85,7 @@ async function assertAssetsOwned(run, userId, ids) {
     'select count(*)::int as n from assets where user_id = $1 and id = any($2::uuid[])',
     [userId, wanted],
   )
-  if (rows[0].n !== wanted.length) throw forbidden('That file is not yours.')
+  if (rows[0].n !== wanted.length) throw forbidden('This file belongs to another account.')
 }
 
 function sqlValue(column, value) {
@@ -117,7 +117,7 @@ export const list = userRoute(async (req, res, user) => {
     : []
   noStore(res)
   res.json({ influencers, generations })
-}, { tag: '[influencers/list]', message: 'Your influencers could not be loaded. Please try again.' })
+}, { tag: '[influencers/list]', message: 'Unable to load your influencers. Please try again.' })
 
 /**
  * POST /api/influencers/create  { record, linkAssetIds?, creationParams? } → 201 { influencer }
@@ -165,7 +165,7 @@ export const create = userRoute(async (req, res, user) => {
   })
 
   res.status(201).json({ influencer })
-}, { tag: '[influencers/create]', message: 'The influencer could not be saved. Please try again.' })
+}, { tag: '[influencers/create]', message: 'Unable to save the influencer. Please try again.' })
 
 /** POST /api/influencers/update  { id, patch } → { influencer } */
 export const update = userRoute(async (req, res, user) => {
@@ -191,4 +191,4 @@ export const update = userRoute(async (req, res, user) => {
   )
   if (!influencer) throw notFound('No such influencer.')
   res.json({ influencer })
-}, { tag: '[influencers/update]', message: 'Your change could not be saved. Please try again.' })
+}, { tag: '[influencers/update]', message: 'Unable to save your changes. Please try again.' })

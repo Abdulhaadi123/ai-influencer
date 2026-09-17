@@ -1,5 +1,5 @@
 /**
- * Settings — account, appearance, and engine status.
+ * Settings — account and appearance.
  *
  * ── What was removed and why ─────────────────────────────────────────────────
  *
@@ -11,9 +11,12 @@
  * There is no client-side fix for that — the honest options are "the server
  * holds the key" or "the feature does not exist". The server holds it. Nothing
  * on this screen collects a secret any more.
+ *
+ * The generation-engine status and the connection test were developer tools
+ * and are gone too: neither meant anything to someone using the app.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import {
   View, Text, ScrollView, ActivityIndicator, StyleSheet, Alert,
   Modal, TextInput, KeyboardAvoidingView, Platform,
@@ -21,77 +24,26 @@ import {
 
 import { useAuth } from '@core/auth/AuthContext'
 import { validatePassword, MIN_PASSWORD_LENGTH } from '@core/auth'
-import { checkEngine } from '@core/api/kieAuth'
 import { userMessage } from '@core/errors'
-import { runDiagnostics } from '@core/api/diagnostics'
 
 import { useBottomInset } from '../hooks/useBottomInset'
 import { useTheme, space, radius } from '../theme'
-import { Section, Row, StatusPill, Segmented, Button } from '../components/ui'
-import { showError } from '../lib/alerts'
+import { Section, Row, Segmented, Button } from '../components/ui'
 
 export default function SettingsScreen() {
   const { colors, preference, setPreference } = useTheme()
   const bottomInset = useBottomInset()
-  const { user, profile, signOut, signOutEverywhere, deleteAccount, changePassword } = useAuth()
+  const { user, profile, signOut, deleteAccount, changePassword } = useAuth()
 
-  const [engine, setEngine] = useState('checking')  // checking | ready | offline
-  const [diag, setDiag] = useState(null)            // null | 'running' | results
-  const [diagStep, setDiagStep] = useState('')
-  const [engineError, setEngineError] = useState(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [passwordOpen, setPasswordOpen] = useState(false)
 
-  useEffect(() => {
-    let alive = true
-    // "Engine offline" alone left people guessing; the reason says where to look.
-    checkEngine().then(({ ok, reason }) => {
-      if (!alive) return
-      setEngine(ok ? 'ready' : 'offline')
-      setEngineError(ok ? null : reason)
-    })
-    return () => { alive = false }
-  }, [])
-
-  const runChecks = useCallback(async () => {
-    setDiag('running')
-    setDiagStep('')
-    try {
-      setDiag(await runDiagnostics((done, total) => setDiagStep(`${done}/${total}`)))
-    } catch (e) {
-      setDiag({ results: [{ label: 'Diagnostics', status: 'fail', detail: userMessage(e, 'The checks could not run.') }], passed: 0, total: 1 })
-    }
-  }, [])
-
   const confirmSignOut = useCallback(() => {
-    Alert.alert('Sign out?', 'Your influencers and generations stay in your account.', [
+    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign out', style: 'destructive', onPress: () => signOut() },
     ])
   }, [signOut])
-
-  /**
-   * Revoking everywhere is the "I think someone else has my password" button,
-   * so it is worth spelling out what it does rather than labelling it
-   * "sign out (all)".
-   */
-  const confirmSignOutEverywhere = useCallback(() => {
-    Alert.alert(
-      'Sign out on every device?',
-      'Every phone, tablet and browser signed in to this account will be signed out. Use this if you think someone else has access.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign out everywhere',
-          style: 'destructive',
-          onPress: async () => {
-            try { await signOutEverywhere() }
-            catch (e) { showError('Could not sign out everywhere', e, 'Other devices were not signed out. Please try again.') }
-          },
-        },
-      ],
-    )
-  }, [signOutEverywhere])
 
   return (
     <ScrollView
@@ -99,17 +51,14 @@ export default function SettingsScreen() {
       contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
       keyboardShouldPersistTaps="handled"
     >
-      <Section title="Account" footer="Everything you create is private to this account.">
-        <Row label="Signed in as" value={profile?.display_name || user?.email || '—'} />
+      <Section title="Account">
+        <Row label="Name" value={profile?.display_name || '—'} />
         <Row label="Email" value={user?.email || '—'} last />
         <View style={styles.padded}>
           <Button title="Change password" variant="secondary" onPress={() => setPasswordOpen(true)} />
         </View>
         <View style={[styles.padded, { paddingTop: 0 }]}>
           <Button title="Sign out" variant="secondary" onPress={confirmSignOut} />
-        </View>
-        <View style={[styles.padded, { paddingTop: 0 }]}>
-          <Button title="Sign out everywhere" variant="danger" onPress={confirmSignOutEverywhere} />
         </View>
       </Section>
 
@@ -128,82 +77,11 @@ export default function SettingsScreen() {
       </Section>
 
       <Section
-        title="Generation engine"
-        footer="Generation runs through our server, which holds the API key. There is nothing to configure here."
-      >
-        <Row
-          last
-          label="Status"
-          right={
-            engine === 'checking' ? (
-              <View style={styles.checking}>
-                <ActivityIndicator size="small" color={colors.textTertiary} />
-                <Text style={[styles.checkingText, { color: colors.textSecondary }]}>Checking…</Text>
-              </View>
-            ) : (
-              <StatusPill ok={engine === 'ready'}>
-                {engine === 'ready' ? 'Engine ready' : 'Engine offline'}
-              </StatusPill>
-            )
-          }
-        />
-      </Section>
-
-      {engineError ? (
-        <Text style={[styles.error, { color: colors.textTertiary }]}>{engineError}</Text>
-      ) : null}
-
-      {/* A developer tool: it exercises the shared generation account and is
-          meaningless to someone using the app, so release builds leave it out. */}
-      {__DEV__ ? (
-      <Section
-        title="Connection test"
-        footer="Checks the key, file upload and all three models. Costs no credits — a real generation is the only thing that does."
-      >
-        {diag && diag !== 'running'
-          ? diag.results.map((r, i) => (
-              <Row
-                key={r.label}
-                last={i === diag.results.length - 1}
-                label={r.label}
-                right={<StatusPill ok={r.status === 'ok'}>{r.status === 'ok' ? 'OK' : 'Failed'}</StatusPill>}
-              />
-            ))
-          : null}
-
-        {diag && diag !== 'running' ? (
-          <View style={styles.padded}>
-            <Text style={[styles.diagDetail, { color: colors.textTertiary }]}>
-              {diag.results.map(r => `${r.label}: ${r.detail}`).join('\n')}
-            </Text>
-          </View>
-        ) : null}
-
-        <View style={styles.padded}>
-          {diag === 'running' ? (
-            <View style={styles.checking}>
-              <ActivityIndicator size="small" color={colors.brand} />
-              <Text style={[styles.checkingText, { color: colors.textSecondary }]}>
-                Testing… {diagStep}
-              </Text>
-            </View>
-          ) : (
-            <Button
-              title={diag ? `Run again (${diag.passed}/${diag.total} passed)` : 'Test connection'}
-              variant={diag && diag.passed === diag.total ? 'secondary' : 'primary'}
-              onPress={runChecks}
-            />
-          )}
-        </View>
-      </Section>
-      ) : null}
-
-      <Section
         title="Delete account"
-        footer="Permanently deletes your account and every influencer, generation and stored file in it. This cannot be undone."
+        footer="Permanently delete your account and all of its data. This action cannot be undone."
       >
         <View style={styles.padded}>
-          <Button title="Delete my account" variant="danger" onPress={() => setDeleteOpen(true)} />
+          <Button title="Delete account" variant="danger" onPress={() => setDeleteOpen(true)} />
         </View>
       </Section>
 
@@ -253,9 +131,9 @@ function DeleteAccountDialog({ visible, email, onClose, onDelete }) {
       setPassword('')
       // Signing out swaps the navigator to the sign-in screen, which unmounts
       // this dialog — the alert is what tells the user it worked.
-      Alert.alert('Account deleted', 'Your account and everything in it have been deleted.')
+      Alert.alert('Account deleted', 'Your account has been permanently deleted.')
     } catch (e) {
-      setError(userMessage(e, 'Could not delete the account. Please try again.'))
+      setError(userMessage(e, 'Unable to delete your account. Please try again.'))
     } finally {
       setBusy(false)
     }
@@ -268,16 +146,16 @@ function DeleteAccountDialog({ visible, email, onClose, onDelete }) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={[styles.dialog, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-          <Text style={[styles.dialogTitle, { color: colors.textPrimary }]}>Delete your account?</Text>
+          <Text style={[styles.dialogTitle, { color: colors.textPrimary }]}>Delete account</Text>
           <Text style={[styles.dialogBody, { color: colors.textSecondary }]}>
-            Every influencer, generation and stored file is deleted permanently, and anything
-            still generating is lost. Enter your password to confirm.
+            This will permanently delete your account, including all influencers, images and
+            videos. Any generations in progress will be lost. Enter your password to continue.
           </Text>
 
           <TextInput
             value={password}
             onChangeText={setPassword}
-            placeholder="Your password"
+            placeholder="Password"
             placeholderTextColor={colors.textTertiary}
             secureTextEntry
             autoCapitalize="none"
@@ -296,13 +174,13 @@ function DeleteAccountDialog({ visible, email, onClose, onDelete }) {
           {error ? <Text style={[styles.dialogError, { color: colors.danger }]}>{error}</Text> : null}
 
           {busy ? (
-            <View style={styles.checking}>
+            <View style={styles.busy}>
               <ActivityIndicator size="small" color={colors.danger} />
-              <Text style={[styles.checkingText, { color: colors.textSecondary }]}>Deleting…</Text>
+              <Text style={[styles.busyText, { color: colors.textSecondary }]}>Deleting…</Text>
             </View>
           ) : (
             <View style={styles.dialogActions}>
-              <Button title="Delete permanently" variant="danger" onPress={confirm} disabled={!password} />
+              <Button title="Delete account" variant="danger" onPress={confirm} disabled={!password} />
               <Button title="Cancel" variant="secondary" onPress={close} />
             </View>
           )}
@@ -348,9 +226,9 @@ function ChangePasswordDialog({ visible, email, onClose, onChange }) {
       await onChange({ email, currentPassword: current, newPassword: next })
       clear()
       onClose()
-      Alert.alert('Password changed', 'Use your new password the next time you sign in.')
+      Alert.alert('Password updated', 'Your password has been changed successfully.')
     } catch (e) {
-      setError(userMessage(e, 'Could not change the password. Please try again.'))
+      setError(userMessage(e, 'Unable to change your password. Please try again.'))
     } finally {
       setBusy(false)
     }
@@ -394,12 +272,12 @@ function ChangePasswordDialog({ visible, email, onClose, onChange }) {
             style={inputStyle(!!problem)}
           />
           <Text style={[styles.dialogHint, { color: problem ? colors.danger : colors.textTertiary }]}>
-            {problem || `At least ${MIN_PASSWORD_LENGTH} characters, with a letter and a number.`}
+            {problem || `Must be at least ${MIN_PASSWORD_LENGTH} characters and include a letter and a number.`}
           </Text>
           <TextInput
             value={confirm}
             onChangeText={setConfirm}
-            placeholder="New password again"
+            placeholder="Confirm new password"
             textContentType="newPassword"
             autoComplete="new-password"
             returnKeyType="go"
@@ -407,17 +285,17 @@ function ChangePasswordDialog({ visible, email, onClose, onChange }) {
             {...secret}
             style={inputStyle(mismatch)}
           />
-          {mismatch ? <Text style={[styles.dialogError, { color: colors.danger }]}>These do not match.</Text> : null}
+          {mismatch ? <Text style={[styles.dialogError, { color: colors.danger }]}>Passwords do not match.</Text> : null}
           {error ? <Text style={[styles.dialogError, { color: colors.danger }]}>{error}</Text> : null}
 
           {busy ? (
-            <View style={styles.checking}>
+            <View style={styles.busy}>
               <ActivityIndicator size="small" color={colors.brand} />
-              <Text style={[styles.checkingText, { color: colors.textSecondary }]}>Changing…</Text>
+              <Text style={[styles.busyText, { color: colors.textSecondary }]}>Updating…</Text>
             </View>
           ) : (
             <View style={styles.dialogActions}>
-              <Button title="Change password" onPress={submit} disabled={!canSubmit} />
+              <Button title="Update password" onPress={submit} disabled={!canSubmit} />
               <Button title="Cancel" variant="secondary" onPress={close} />
             </View>
           )}
@@ -430,10 +308,8 @@ function ChangePasswordDialog({ visible, email, onClose, onChange }) {
 const styles = StyleSheet.create({
   content: { padding: space.lg, paddingTop: space.xl },
   padded: { padding: space.lg },
-  checking: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  checkingText: { fontSize: 14 },
-  diagDetail: { fontSize: 12, lineHeight: 18 },
-  error: { fontSize: 12, lineHeight: 17, marginTop: -space.lg, marginBottom: space.xl, marginHorizontal: space.xs },
+  busy: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  busyText: { fontSize: 14 },
 
   backdrop: { flex: 1, justifyContent: 'center', padding: space.xl, backgroundColor: 'rgba(0,0,0,0.55)' },
   dialog: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, padding: space.xl, gap: space.md },

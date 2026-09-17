@@ -19,7 +19,7 @@ import { one } from './db.js'
 export const QUOTA_BYTES = Number(process.env.USER_STORAGE_QUOTA_BYTES || 5 * 1024 * 1024 * 1024)
 
 export const QUOTA_EXCEEDED_RESPONSE = Object.freeze({
-  error: 'You have run out of storage. Delete something to free space.',
+  error: 'You have reached your storage limit. Delete some content to free up space.',
   code: 'QUOTA_EXCEEDED',
 })
 

@@ -56,9 +56,8 @@ them in the gallery, so the user opens the app and the video is simply there.
   id from the request. Keep it that way in every new endpoint.
 - **Passwords** are Argon2id hashes (`api/_lib/passwords.js`), never logged.
 - **Sessions** are random access and refresh tokens, stored only as SHA-256
-  hashes and checked against the database on every call, so signing out, "sign
-  out everywhere", password changes and account deletion take effect
-  immediately. Refresh tokens rotate on every use; an old one replayed after a
+  hashes and checked against the database on every call, so signing out,
+  password changes and account deletion take effect immediately. Refresh tokens rotate on every use; an old one replayed after a
   30-second grace period ends the session (`api/_lib/sessions.js`).
 - **No response reveals whether an email is registered.** Sign-in failures are
   identical, forgot-password and resend always answer "sent", and those take the
@@ -82,7 +81,7 @@ one-time link to a page this server renders (`api/auth/pages.js`):
 
 | Link | Page |
 |---|---|
-| `/auth/confirm-email?token=…` | "Confirm my email" button → confirmed |
+| `/auth/confirm-email?token=…` | "Verify email" button → verified |
 | `/auth/reset-password?token=…` | new-password form → changed, every device signed out |
 
 Opening a link does not use it up — only pressing the button does, because mail
@@ -222,7 +221,7 @@ local stand-ins in tests; production leaves them unset.
 
 | Area | Endpoints |
 |---|---|
-| Accounts | `POST /api/auth/signup` `login` `refresh` `logout` `logout-all` `change-password` `forgot-password` `resend-confirmation`; `GET/POST /api/auth/me`; `POST /api/account/delete` |
+| Accounts | `POST /api/auth/signup` `login` `refresh` `logout` `change-password` `forgot-password` `resend-confirmation`; `GET/POST /api/auth/me`; `POST /api/account/delete` |
 | Email pages | `GET/POST /auth/confirm-email`, `GET/POST /auth/reset-password` |
 | Influencers | `GET /api/influencers`; `POST /api/influencers/create` `update` `delete` |
 | Gallery | `GET /api/generations/by-asset`; `POST /api/generations/add` `delete` |

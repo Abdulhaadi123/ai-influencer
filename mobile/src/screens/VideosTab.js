@@ -123,7 +123,7 @@ export default function VideosTab({ influencer }) {
       const url = await resolveUrl(assetId)
       setProducts(p => [...p, { assetId, url }])
     } catch (e) {
-      showError('Could not upload that image', e, 'The product image did not upload. Please try again.')
+      showError('Upload failed', e, 'The product image could not be uploaded. Please try again.')
     } finally {
       setUploadingProduct(false)
     }
@@ -193,7 +193,9 @@ export default function VideosTab({ influencer }) {
         count: 1,
         referenceImages,
         referenceRoles: selection.roles,
-        hasVoice: !!(settings.voicePreset || (settings.voiceCustom || '').trim()),
+        // A script means speech. Tying audio to the voice chips alone (tucked in a
+        // collapsed section) produced silent clips for scripts that were paid for.
+        hasVoice: !!((settings.dialogue || '').trim() || settings.voicePreset || (settings.voiceCustom || '').trim()),
         onProgress: setProgress,
         onPartialResults: partial => { if (!cancelRef.current) setResults([...partial]) },
         isCancelled: () => cancelRef.current,
@@ -201,7 +203,7 @@ export default function VideosTab({ influencer }) {
       })
 
       if (cancelRef.current) return
-      if (!urls?.length) { setError('No video was returned — please try again.'); return }
+      if (!urls?.length) { setError('No video was returned. Please try again.'); return }
 
       // KIE deletes results within a day or so, so the server copies each into
       // this user's storage. The same request marks the queue row collected, so
@@ -226,7 +228,7 @@ export default function VideosTab({ influencer }) {
       // A slow job is not a failed one. The task is still alive on KIE and the
       // queue is holding its taskId, so say that instead of showing an error.
       if (e?.message === STILL_RUNNING) setHandedOff(true)
-      else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'The video could not be generated. Please try again.'))
+      else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'Unable to generate the video. Please try again.'))
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }
@@ -243,12 +245,12 @@ export default function VideosTab({ influencer }) {
       contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
       keyboardShouldPersistTaps="handled"
     >
-      <Section title="Script" footer={`What should ${influencer.name} say? Leave empty for a silent clip.`}>
+      <Section title="Script" footer={`What ${influencer.name} says in the video. Leave blank for a video without speech.`}>
         <View style={styles.padded}>
           <TextInput
             value={settings.dialogue || ''}
             onChangeText={v => set('dialogue', v)}
-            placeholder={`e.g. I've been using this for a month and honestly…`}
+            placeholder={'e.g. I have been using this for a month and honestly…'}
             placeholderTextColor={colors.textTertiary}
             multiline
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
@@ -262,7 +264,7 @@ export default function VideosTab({ influencer }) {
         </View>
       </Section>
 
-      <Section title={`Products · ${products.length}/${MAX_PRODUCTS}`} footer="Optional. The influencer presents these.">
+      <Section title={`Products · ${products.length}/${MAX_PRODUCTS}`} footer={`Optional. Products for ${influencer.name} to present in the video.`}>
         <View style={styles.padded}>
           {products.length ? (
             <View style={styles.productRow}>
@@ -283,7 +285,7 @@ export default function VideosTab({ influencer }) {
           {products.length < MAX_PRODUCTS ? (
             <View style={{ marginTop: products.length ? space.md : 0 }}>
               <Button
-                title={uploadingProduct ? 'Uploading…' : 'Add a product image'}
+                title={uploadingProduct ? 'Uploading…' : 'Add product image'}
                 variant="secondary"
                 onPress={addProduct}
                 disabled={uploadingProduct}
@@ -317,7 +319,7 @@ export default function VideosTab({ influencer }) {
         </View>
       </Section>
 
-      <Section title="Model" footer="Kling 3.0 is the default. Pick another to compare results.">
+      <Section title="Model" footer="Kling 3.0 is recommended. Select another model to compare results.">
         <View style={styles.padded}>
           <ModelPicker
             models={VIDEO_MODELS}
@@ -329,8 +331,8 @@ export default function VideosTab({ influencer }) {
       </Section>
 
       <Collapsible
-        title="Style &amp; delivery"
-        subtitle={`${settings.camera} · ${settings.duration}s · ${settings.vibe || 'default mood'}${settings.envKey ? ' · ' + settings.envKey : ''}`}
+        title="Style and delivery"
+        subtitle={`${settings.camera} · ${settings.duration}s · ${settings.vibe || 'Default mood'}${settings.envKey ? ' · ' + settings.envKey : ''}`}
       >
         <Field label="Camera">
           <View style={styles.chipWrap}>
@@ -348,15 +350,15 @@ export default function VideosTab({ influencer }) {
           />
         </Field>
 
-        <Field label="Shots" hint="A oner is one continuous take.">
+        <Field label="Shots" hint="A single shot is one continuous take.">
           <Segmented
             value={settings.shotMode}
             onChange={v => set('shotMode', v)}
-            options={[{ label: 'Oner', value: 'oner' }, { label: 'Multi-shot', value: 'multi' }]}
+            options={[{ label: 'Single shot', value: 'oner' }, { label: 'Multi-shot', value: 'multi' }]}
           />
         </Field>
 
-        <Field label="Location" hint="Sets the scene and its colour grade.">
+        <Field label="Location" hint="Sets the setting and color grading of the video.">
           <View style={styles.chipWrap}>
             <Chip label="Any" active={!settings.envKey} onPress={() => set('envKey', '')} />
             {ENV_KEYS.map(k => (
@@ -378,7 +380,7 @@ export default function VideosTab({ influencer }) {
           </View>
         </Field>
 
-        <Field label="Mood" hint="Changes how the delivery is performed.">
+        <Field label="Mood" hint="Sets the tone of the delivery.">
           <View style={styles.chipWrap}>
             <Chip label="Default" active={!settings.vibe} onPress={() => set('vibe', '')} />
             {VIBES.map(v => (
@@ -390,8 +392,8 @@ export default function VideosTab({ influencer }) {
         <Field
           label="Voice"
           hint={getVideoModel(settings.videoModel).supportsSound
-            ? "Picking a voice turns on the model's native audio."
-            : `${getVideoModel(settings.videoModel).label} has no audio track — clips will be silent.`}
+            ? 'Sets how the script sounds. Videos with a script or a selected voice include audio.'
+            : `${getVideoModel(settings.videoModel).label} does not support audio. Videos will be silent.`}
         >
           <View style={styles.chipWrap}>
             <Chip label="None" active={!settings.voicePreset} onPress={() => set('voicePreset', '')} />
@@ -416,9 +418,8 @@ export default function VideosTab({ influencer }) {
       {handedOff ? (
         <View style={[styles.errorBox, { borderColor: colors.brand, backgroundColor: colors.brandSoft }]}>
           <Text style={[styles.errorText, { color: colors.textPrimary }]}>
-            Still generating — this one is taking longer than usual, but it has
-            not failed. It is waiting for you in the Queue tab; open it there to
-            save the video once it finishes.
+            Generation is taking longer than usual. You can save the video from
+            the Queue tab when it is ready.
           </Text>
         </View>
       ) : null}
@@ -450,7 +451,7 @@ export default function VideosTab({ influencer }) {
               <View key={url} style={{ gap: space.sm }}>
                 <ResultVideo uri={url} />
                 <Button
-                  title="Save or share"
+                  title="Share"
                   variant="secondary"
                   onPress={() => shareMedia(url, `${(influencer.name || 'video').toLowerCase()}.mp4`)}
                 />

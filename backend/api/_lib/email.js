@@ -102,23 +102,23 @@ ${body}
 
 export function confirmationEmail({ to, displayName, link }) {
   const hello = displayName ? `Hi ${displayName},` : 'Hi,'
-  const intro = `Confirm your email address to finish creating your ${APP_NAME} account.`
-  const footer = 'The link works once and expires in 24 hours. If you did not create an account, you can ignore this email.'
+  const intro = `Thank you for signing up for ${APP_NAME}. Please verify your email address to activate your account.`
+  const footer = 'This link can be used once and expires in 24 hours. If you did not create an account, you can ignore this email.'
   return {
     to,
-    subject: `Confirm your email for ${APP_NAME}`,
+    subject: `Verify your email address for ${APP_NAME}`,
     text: `${hello}\n\n${intro}\n\n${link}\n\n${footer}`,
-    html: layout('Confirm your email', [hello, intro], link, 'Confirm my email', footer),
+    html: layout('Verify your email', [hello, intro], link, 'Verify email', footer),
   }
 }
 
 export function passwordResetEmail({ to, link }) {
-  const intro = `Someone asked to reset the password for your ${APP_NAME} account. Choose a new password here:`
-  const footer = 'The link works once and expires in 1 hour. If this was not you, ignore this email — your password stays the same.'
+  const intro = `We received a request to reset the password for your ${APP_NAME} account. Use the link below to set a new password.`
+  const footer = 'This link can be used once and expires in 1 hour. If you did not request a password reset, you can ignore this email and your password will remain unchanged.'
   return {
     to,
     subject: `Reset your ${APP_NAME} password`,
     text: `Hi,\n\n${intro}\n\n${link}\n\n${footer}`,
-    html: layout('Reset your password', ['Hi,', intro], link, 'Choose a new password', footer),
+    html: layout('Reset your password', ['Hi,', intro], link, 'Reset password', footer),
   }
 }

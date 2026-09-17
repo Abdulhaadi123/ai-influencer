@@ -124,10 +124,10 @@ export default function QueueScreen() {
         'Saved',
         job.influencerId
           ? 'Added to the gallery.'
-          : 'Saved to your storage. Use "Save or share" to export it.',
+          : 'Saved to your library. Use Share to export it.',
       )
     } catch (e) {
-      showError('Could not save', e, 'The result was not saved. Please try again.')
+      showError('Unable to save', e, 'The result could not be saved. Please try again.')
     } finally {
       setSavingId(null)
     }
@@ -136,11 +136,11 @@ export default function QueueScreen() {
   const share = useCallback(async job => {
     try {
       const url = await resolveUrl(job.assetId)
-      if (!url) { Alert.alert('Not available', 'That file could not be found.'); return }
+      if (!url) { Alert.alert('Not available', 'This file could not be found.'); return }
       const base = (job.label || 'result').toLowerCase().replace(/\s+/g, '-')
       await shareMedia(url, `${base}.${job.kind === 'image' ? 'jpg' : 'mp4'}`)
     } catch (e) {
-      showError('Could not share', e, 'That file could not be shared. Please try again.')
+      showError('Unable to share', e, 'This file could not be shared. Please try again.')
     }
   }, [])
 
@@ -152,8 +152,8 @@ export default function QueueScreen() {
     Alert.alert(
       unsaved ? 'Discard this result?' : 'Remove from queue?',
       unsaved
-        ? 'It has not been saved yet. Removing it discards it permanently — nothing can collect it afterwards.'
-        : 'This only clears the row here. Anything already saved stays in the gallery.',
+        ? 'This result has not been saved yet. Removing it will discard it permanently.'
+        : 'This removes the item from the queue. Anything already saved stays in the gallery.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -161,7 +161,7 @@ export default function QueueScreen() {
           style: 'destructive',
           onPress: async () => {
             try { await removeJob(job.id); await reload() }
-            catch (e) { showError('Could not remove', e, 'The job was not removed. Please try again.') }
+            catch (e) { showError('Unable to remove', e, 'The item could not be removed. Please try again.') }
           },
         },
       ],
@@ -170,7 +170,7 @@ export default function QueueScreen() {
 
   const clearDone = useCallback(async () => {
     try { await clearSettled(); await reload() }
-    catch (e) { showError('Could not clear', e, 'The queue was not cleared. Please try again.') }
+    catch (e) { showError('Unable to clear', e, 'The queue could not be cleared. Please try again.') }
   }, [reload])
 
   const activeCount = useMemo(() => jobs.filter(isActive).length, [jobs])
@@ -190,7 +190,7 @@ export default function QueueScreen() {
   if (!jobs.length && loadError) {
     return (
       <View style={[styles.empty, { backgroundColor: colors.bg, paddingBottom: bottomInset }]}>
-        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>The queue did not load</Text>
+        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Unable to load the queue</Text>
         <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>{loadError}</Text>
         <View style={{ marginTop: space.lg }}>
           <Button title="Try again" onPress={() => { setLoading(true); reload() }} />
@@ -205,11 +205,10 @@ export default function QueueScreen() {
         <View style={[styles.emptyIcon, { backgroundColor: colors.brandSoft }]}>
           <Text style={styles.emptyGlyph}>🕓</Text>
         </View>
-        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Nothing in the queue</Text>
+        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No generations yet</Text>
         <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>
-          Every image, video and motion copy you start shows up here with its
-          progress. You can leave the screen, or close the app entirely — the job
-          keeps running and the result waits for you on any device.
+          Images and videos you generate appear here with their progress.
+          Generation continues even if you close the app.
         </Text>
       </View>
     )
@@ -226,24 +225,24 @@ export default function QueueScreen() {
       <View style={styles.summary}>
         <Text style={[styles.summaryText, { color: colors.textSecondary }]}>
           {activeCount > 0
-            ? `${activeCount} running${readyCount ? ` · ${readyCount} ready to save` : ''}`
+            ? `${activeCount} in progress${readyCount ? ` · ${readyCount} ready to save` : ''}`
             : readyCount > 0
             ? `${readyCount} ready to save`
-            : 'Nothing running'}
+            : 'No generations in progress'}
         </Text>
         {activeCount > 0 ? <ActivityIndicator size="small" color={colors.brand} /> : null}
       </View>
 
       {loadError ? (
         <Text style={[styles.hint, { color: colors.danger }]}>
-          {loadError} Pull down to try again.
+          {loadError} Pull down to refresh.
         </Text>
       ) : null}
 
       {activeCount > 0 ? (
         <Text style={[styles.hint, { color: colors.textTertiary }]}>
-          Leaving this screen is fine — jobs keep running. Results are held for
-          24 hours, so save them before then.
+          Generation continues in the background. Completed results are
+          available for 24 hours, so save them before they expire.
         </Text>
       ) : null}
 
@@ -260,7 +259,7 @@ export default function QueueScreen() {
 
       {settledCount > 0 ? (
         <View style={{ marginTop: space.md }}>
-          <Button title="Clear finished" variant="secondary" onPress={clearDone} />
+          <Button title="Clear completed" variant="secondary" onPress={clearDone} />
         </View>
       ) : null}
     </ScrollView>
@@ -306,7 +305,7 @@ function JobRow({ job, saving, onCollect, onShare, onDiscard }) {
           ) : null}
           {job.assetId ? (
             <View style={styles.flex}>
-              <Button title="Save or share" variant="secondary" onPress={onShare} />
+              <Button title="Share" variant="secondary" onPress={onShare} />
             </View>
           ) : null}
           {!isActive(job) ? (
@@ -328,37 +327,41 @@ function describe(job, colors) {
   if (job.state === 'fail') {
     return {
       label: 'Failed', tint: colors.danger, soft: 'transparent',
-      blurb: job.failMsg || 'The generator reported this as failed.',
+      blurb: job.failMsg || 'This generation failed.',
     }
   }
   if (isDeleted(job)) {
     return {
       label: 'Deleted', tint: colors.textTertiary, soft: colors.surfaceAlt,
-      blurb: 'This result was saved, and the file has since been deleted.',
+      blurb: 'This result was saved and has since been deleted.',
     }
   }
   if (isExpired(job)) {
     return {
       label: 'Expired', tint: colors.danger, soft: 'transparent',
-      blurb: 'This finished more than 24 hours ago and the generator has deleted the file. It cannot be recovered — the generation would need to be run again.',
+      blurb: 'This result expired 24 hours after it was completed and is no longer available. It would need to be generated again.',
     }
   }
   if (job.assetId) {
     return {
       label: 'Saved', tint: colors.success, soft: colors.surfaceAlt,
-      blurb: 'Stored in your library and added to the gallery.',
+      // Images made while creating an influencer become its main image, not a
+      // gallery entry — claiming "added to the gallery" sent people looking.
+      blurb: job.influencerId
+        ? 'Saved to your library and added to the gallery.'
+        : 'Saved to your library.',
     }
   }
   if (job.state === 'success') {
     return {
       label: 'Ready', tint: colors.success, soft: colors.surfaceAlt,
-      blurb: 'Finished. Save it — the generator keeps the file for 24 hours after completion.',
+      blurb: 'Completed. Save it within 24 hours to keep it.',
     }
   }
   if (job.state === 'generating') {
-    return { label: 'Generating', tint: colors.brand, soft: colors.brandSoft, blurb: 'Rendering now.' }
+    return { label: 'Generating', tint: colors.brand, soft: colors.brandSoft, blurb: 'Generating now.' }
   }
-  return { label: 'Queued', tint: colors.brand, soft: colors.brandSoft, blurb: 'Accepted and waiting for a slot.' }
+  return { label: 'Queued', tint: colors.brand, soft: colors.brandSoft, blurb: 'Waiting to start.' }
 }
 
 function relativeTime(ts) {

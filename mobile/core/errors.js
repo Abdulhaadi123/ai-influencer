@@ -49,8 +49,8 @@ export class ApiError extends AppError {
   }
 }
 
-export const NETWORK_MESSAGE = 'Could not reach the server. Check your connection and try again.'
-export const SESSION_ENDED_MESSAGE = 'Your session has ended. Sign in again to continue.'
+export const NETWORK_MESSAGE = 'Unable to connect. Please check your internet connection and try again.'
+export const SESSION_ENDED_MESSAGE = 'Your session has expired. Please sign in again.'
 
 const NETWORK_PATTERN = /network request failed|failed to fetch|fetch failed|network error|load failed|internet connection/i
 
@@ -63,10 +63,10 @@ export function isNetworkFailure(e) {
  * them first; these are what a person sees if one ever reaches a generic path.
  */
 const SENTINELS = {
-  STILL_RUNNING: 'Still generating — this is taking longer than usual, but it has not failed. It is in the Queue tab.',
+  STILL_RUNNING: 'Generation is taking longer than usual. You can find the result in the Queue tab when it is ready.',
   CANCELLED: 'Cancelled.',
-  NO_MAIN_IMAGE: 'Add a main image first — it is the face reference.',
-  NO_CREATION_PARAMS: 'There is no record of what this influencer was generated from, so it cannot be regenerated.',
+  NO_MAIN_IMAGE: 'Add a main image first. It is used as the face reference.',
+  NO_CREATION_PARAMS: 'The settings this influencer was generated from are not available, so it cannot be regenerated.',
 }
 
 /** JavaScript's own error types: bugs, never something to show a person. */
@@ -79,7 +79,7 @@ const PROGRAMMING_ERRORS = new Set(['TypeError', 'ReferenceError', 'SyntaxError'
  * @param {string} fallback  what to say when the error carries nothing a person
  *        should read — make it specific to the action ("Could not save the image")
  */
-export function userMessage(e, fallback = 'That did not work. Please try again.') {
+export function userMessage(e, fallback = 'Something went wrong. Please try again.') {
   if (!e) return fallback
   if (typeof e === 'string') return SENTINELS[e] || e
   if (e instanceof AppError) return e.message || fallback
@@ -125,15 +125,15 @@ export function notifySessionEnded() {
 
 /** For responses that carried no message of their own — an HTML error page from a proxy, say. */
 export function messageForStatus(status) {
-  if (status === 400) return 'The server could not understand that request.'
-  if (status === 403) return 'You do not have permission to do that.'
-  if (status === 404) return 'The server you are connected to does not support this. It may need updating.'
-  if (status === 408) return 'The server took too long to respond. Please try again.'
-  if (status === 413) return 'That is too large to send.'
-  if (status === 429) return 'Too many requests — wait a moment and try again.'
-  if (status === 502 || status === 503 || status === 504) return 'The server is not responding right now. Please try again shortly.'
-  if (status >= 500) return 'The server hit an unexpected error. Please try again.'
-  return 'The server refused that request.'
+  if (status === 400) return 'This request could not be processed.'
+  if (status === 403) return 'You do not have permission to do this.'
+  if (status === 404) return 'This feature is not available. The app may need to be updated.'
+  if (status === 408) return 'The request timed out. Please try again.'
+  if (status === 413) return 'This file is too large to send.'
+  if (status === 429) return 'Too many requests. Please wait a moment and try again.'
+  if (status === 502 || status === 503 || status === 504) return 'The service is temporarily unavailable. Please try again shortly.'
+  if (status >= 500) return 'Something went wrong on our end. Please try again.'
+  return 'This request could not be completed.'
 }
 
 export function codeForStatus(status) {
@@ -152,19 +152,19 @@ export function codeForStatus(status) {
 // fix either — and the vendor's name means nothing to them, so it never appears.
 
 const GENERATOR_MESSAGES = {
-  401: "Generation is unavailable right now — the server's generator key was rejected.",
-  402: 'Generation is paused — the studio has run out of generation credits.',
-  404: 'The generator could not find that job.',
-  422: 'The generator did not accept these settings. Try a different model.',
-  429: 'The generator is busy right now. Wait a moment and try again.',
-  433: 'Generation is paused — the studio has reached its usage limit.',
-  455: 'The generator is down for maintenance. Try again shortly.',
-  500: 'The generator had a problem on its side. Try again in a moment.',
-  501: 'The generator could not create this. Try again, or change the prompt.',
-  505: 'That model is not enabled for this studio. Pick a different model.',
+  401: 'Generation is currently unavailable. Please try again later.',
+  402: 'Generation is currently unavailable. Please contact support.',
+  404: 'This generation could not be found.',
+  422: 'The selected model does not support these settings. Please try a different model.',
+  429: 'The service is busy. Please wait a moment and try again.',
+  433: 'Generation is currently unavailable. Please contact support.',
+  455: 'The service is undergoing maintenance. Please try again shortly.',
+  500: 'The service encountered an error. Please try again in a moment.',
+  501: 'This could not be generated. Please try again or adjust your prompt.',
+  505: 'This model is not available. Please select a different model.',
 }
 
 /** @param {number|string} code  KIE's body-level or HTTP code */
 export function generatorMessage(code) {
-  return GENERATOR_MESSAGES[code] || `The generator could not start this (code ${code}). Please try again.`
+  return GENERATOR_MESSAGES[code] || `Generation could not be started (code ${code}). Please try again.`
 }

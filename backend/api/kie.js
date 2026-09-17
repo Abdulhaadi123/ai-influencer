@@ -20,7 +20,8 @@
 import { requireUser, applyCors } from './_lib/auth.js'
 import { rateLimit } from '../lib/rateLimit.js'
 
-const KIE_BASE = 'https://api.kie.ai'
+// KIE_BASE_URL only points tests at a local stand-in; production leaves it unset.
+const KIE_BASE = process.env.KIE_BASE_URL || 'https://api.kie.ai'
 // File uploads live on a different host to the rest of the API.
 const REDPANDA_BASE = 'https://kieai.redpandaai.co'
 
@@ -61,7 +62,7 @@ export default async function handler(req, res) {
 
   if (!API_KEY) {
     console.error('[kie] KIE_API_KEY is not configured')
-    return res.status(503).json({ error: 'The generation engine is not configured.', code: 'ENGINE_NOT_CONFIGURED' })
+    return res.status(503).json({ error: 'Generation is currently unavailable.', code: 'ENGINE_NOT_CONFIGURED' })
   }
 
   // Rate limited per user rather than per IP: several people behind one office
@@ -70,7 +71,7 @@ export default async function handler(req, res) {
   const rl = rateLimit(`user:${user.id}`)
   if (!rl.ok) {
     res.setHeader('Retry-After', String(rl.retryAfter))
-    return res.status(429).json({ error: 'Too many requests — slow down a moment and try again.', code: 'RATE_LIMITED' })
+    return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.', code: 'RATE_LIMITED' })
   }
 
   const url = new URL(req.url, 'http://localhost')
@@ -79,7 +80,7 @@ export default async function handler(req, res) {
   const qs = url.searchParams.toString()
 
   if (!isAllowedPath(subPath)) {
-    return res.status(400).json({ error: 'That upstream path is not allowed.', code: 'BAD_PATH' })
+    return res.status(400).json({ error: 'This request is not allowed.', code: 'BAD_PATH' })
   }
 
   const base = subPath.startsWith('/api/file-') ? REDPANDA_BASE : KIE_BASE
@@ -111,7 +112,7 @@ export default async function handler(req, res) {
     if (upstream.status === 401 || upstream.status === 403) {
       console.error('[kie] upstream rejected the API key:', upstream.status, text.slice(0, 200))
       return res.status(502).json({
-        error: "The generation engine rejected the server's API key.",
+        error: "Generation is currently unavailable.",
         code: 'ENGINE_KEY_REJECTED',
       })
     }
@@ -122,6 +123,6 @@ export default async function handler(req, res) {
     return res.send(text)
   } catch (e) {
     console.error('[kie] upstream failed:', e?.message ?? e)
-    return res.status(502).json({ error: 'The generation engine could not be reached.', code: 'ENGINE_UNREACHABLE' })
+    return res.status(502).json({ error: 'The generation service could not be reached. Please try again shortly.', code: 'ENGINE_UNREACHABLE' })
   }
 }

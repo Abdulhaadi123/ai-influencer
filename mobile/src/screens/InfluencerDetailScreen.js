@@ -53,7 +53,7 @@ export default function InfluencerDetailScreen({ route, navigation }) {
     return (
       <View style={[styles.missing, { backgroundColor: colors.bg }]}>
         <Text style={[styles.missingText, { color: colors.textSecondary }]}>
-          That influencer no longer exists.
+          This influencer could not be found.
         </Text>
       </View>
     )

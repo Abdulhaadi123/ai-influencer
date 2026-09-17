@@ -42,10 +42,10 @@ export const EMAIL_NOT_CONFIRMED = 'EMAIL_NOT_CONFIRMED'
 /** @returns {string|null} a problem to show the user, or null when acceptable */
 export function validatePassword(password) {
   const p = password ?? ''
-  if (p.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters.`
-  if (p.length > MAX_PASSWORD_LENGTH) return `Use ${MAX_PASSWORD_LENGTH} characters or fewer.`
-  if (!/[a-zA-Z]/.test(p) || !/[0-9]/.test(p)) return 'Include at least one letter and one number.'
-  if (/^(password|12345678|qwerty|letmein|welcome)/i.test(p)) return 'That password is too easy to guess.'
+  if (p.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
+  if (p.length > MAX_PASSWORD_LENGTH) return `Password must be ${MAX_PASSWORD_LENGTH} characters or fewer.`
+  if (!/[a-zA-Z]/.test(p) || !/[0-9]/.test(p)) return 'Password must include at least one letter and one number.'
+  if (/^(password|12345678|qwerty|letmein|welcome)/i.test(p)) return 'This password is too common. Please choose a stronger one.'
   return null
 }
 
@@ -53,7 +53,7 @@ export function validateEmail(email) {
   const e = (email ?? '').trim()
   if (!e) return 'Enter your email address.'
   // Deliberately loose: the confirmation email is the real check.
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return 'That does not look like an email address.'
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return 'Enter a valid email address.'
   return null
 }
 
@@ -117,12 +117,6 @@ export async function signOut() {
   }
 }
 
-/** Sign out every device signed in to this account, including this one. */
-export async function signOutEverywhere() {
-  await apiFetch('/api/auth/logout-all', { method: 'POST' })
-  await clearSession('SIGNED_OUT')
-}
-
 
 // ── Emails ───────────────────────────────────────────────────────────────────
 
@@ -150,7 +144,7 @@ export async function resendConfirmation(email) {
 export async function changePassword({ currentPassword, newPassword }) {
   if (!currentPassword) throw new Error('Enter your current password.')
   check(validatePassword(newPassword))
-  if (newPassword === currentPassword) throw new Error('Choose a password different from your current one.')
+  if (newPassword === currentPassword) throw new Error('New password must be different from your current password.')
 
   await apiFetch('/api/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } })
 }
@@ -160,7 +154,7 @@ export async function changePassword({ currentPassword, newPassword }) {
  * checks the password before deleting anything.
  */
 export async function deleteAccount({ password }) {
-  if (!password) throw new Error('Enter your password to confirm.')
+  if (!password) throw new Error('Enter your password to continue.')
   await apiFetch('/api/account/delete', { method: 'POST', body: { password }, timeoutMs: 120_000 })
   await clearSession('SIGNED_OUT')
 }

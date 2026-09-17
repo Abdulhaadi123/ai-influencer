@@ -62,7 +62,6 @@ export function createApp() {
   app.post('/api/auth/login', account.signIn)
   app.post('/api/auth/refresh', account.refresh)
   app.post('/api/auth/logout', account.signOut)
-  app.post('/api/auth/logout-all', account.signOutEverywhere)
   app.get('/api/auth/me', account.me)
   app.post('/api/auth/me', account.updateMe)
   app.post('/api/auth/change-password', account.changePassword)

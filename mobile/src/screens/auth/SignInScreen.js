@@ -47,7 +47,7 @@ export default function SignInScreen({ navigation }) {
       // session lands, so pushing a route here would fight it.
     } catch (e) {
       setUnconfirmed(e?.code === EMAIL_NOT_CONFIRMED)
-      setError(userMessage(e, 'Could not sign in. Please try again.'))
+      setError(userMessage(e, 'Unable to sign in. Please try again.'))
     } finally {
       setBusy(false)
     }
@@ -59,9 +59,9 @@ export default function SignInScreen({ navigation }) {
     setError(null)
     try {
       await resendConfirmation(email)
-      setResent(`A new confirmation link is on its way to ${email.trim()}. Open it, then sign in here.`)
+      setResent(`A new verification link has been sent to ${email.trim()}.`)
     } catch (e) {
-      setError(userMessage(e, 'Could not send the email. Please try again.'))
+      setError(userMessage(e, 'Unable to send the email. Please try again.'))
     } finally {
       setResending(false)
     }
@@ -70,11 +70,11 @@ export default function SignInScreen({ navigation }) {
   return (
     <AuthShell
       title="Welcome back"
-      subtitle="Sign in to reach your influencers, generations and gallery."
+      subtitle="Sign in to your account to continue."
       footer={
         <>
-          <LinkButton title="Forgot your password?" onPress={() => navigation.navigate('ForgotPassword')} />
-          <LinkButton title="No account? Create one" onPress={() => navigation.navigate('SignUp')} />
+          <LinkButton title="Forgot password?" onPress={() => navigation.navigate('ForgotPassword')} />
+          <LinkButton title="Don't have an account? Sign up" onPress={() => navigation.navigate('SignUp')} />
         </>
       }
     >
@@ -83,7 +83,7 @@ export default function SignInScreen({ navigation }) {
       <FormNotice>{resent}</FormNotice>
       {unconfirmed && !resent ? (
         <LinkButton
-          title={resending ? 'Sending…' : 'Send the confirmation email again'}
+          title={resending ? 'Sending…' : 'Resend verification email'}
           onPress={resend}
         />
       ) : null}
@@ -92,7 +92,7 @@ export default function SignInScreen({ navigation }) {
         label="Email"
         value={email}
         onChangeText={setEmail}
-        placeholder="you@example.com"
+        placeholder="name@example.com"
         returnKeyType="next"
         onSubmitEditing={() => passwordRef.current?.focus()}
         {...emailProps}
@@ -103,7 +103,7 @@ export default function SignInScreen({ navigation }) {
         label="Password"
         value={password}
         onChangeText={setPassword}
-        placeholder="Your password"
+        placeholder="Enter your password"
         returnKeyType="go"
         onSubmitEditing={submit}
         textContentType="password"

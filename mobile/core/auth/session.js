@@ -139,7 +139,7 @@ async function doRefresh() {
   try {
     url = getApiUrl('/api/auth/refresh')
   } catch {
-    throw new AppError('This version of the app is not connected to a server yet.', { code: ERROR_CODES.APP_NOT_CONFIGURED })
+    throw new AppError('This app is not configured correctly. Please contact support.', { code: ERROR_CODES.APP_NOT_CONFIGURED })
   }
 
   const controller = new AbortController()
@@ -169,7 +169,7 @@ async function doRefresh() {
     return null
   }
   if (!res.ok || !json?.session) {
-    throw new AppError('The server is not responding right now. Please try again shortly.', { code: 'SERVER_UNAVAILABLE' })
+    throw new AppError('The service is temporarily unavailable. Please try again shortly.', { code: 'SERVER_UNAVAILABLE' })
   }
 
   await setSession(json.session, 'TOKEN_REFRESHED')

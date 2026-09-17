@@ -26,7 +26,7 @@ export const JOB_COLUMNS = `
 /** KIE refused the server's key. Not the caller's fault, and not retryable by them. */
 export class EngineKeyRejectedError extends Error {
   constructor() {
-    super("The generation engine rejected the server's API key.")
+    super("Generation is currently unavailable.")
     this.name = 'EngineKeyRejectedError'
   }
 }
@@ -103,7 +103,7 @@ export async function applyKieStatus({ userId, taskId, status }) {
           set state = 'fail', fail_msg = $3, completed_at = now()
         where user_id = $1 and kie_task_id = $2 and state = any($4::text[])
         returning ${JOB_COLUMNS}`,
-      [userId, taskId, String(status.failMsg || 'Generation failed.').slice(0, 1000), ACTIVE_STATES],
+      [userId, taskId, String(status.failMsg || 'This generation failed.').slice(0, 1000), ACTIVE_STATES],
     )
     if (moved) return { job: moved, settledNow: true }
   } else if (ACTIVE_STATES.includes(state)) {
