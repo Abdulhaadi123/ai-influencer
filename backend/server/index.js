@@ -20,7 +20,7 @@ import { migrate } from '../db/migrate.js'
 import { closeDb } from '../api/_lib/db.js'
 import { applyCors } from '../api/_lib/auth.js'
 import { sendServerError } from '../api/_lib/errors.js'
-import { emailConfigured } from '../api/_lib/email.js'
+import { emailConfigured, emailLogOnly } from '../api/_lib/email.js'
 
 import * as account from '../api/auth/account.js'
 import * as pages from '../api/auth/pages.js'
@@ -139,10 +139,12 @@ export function createApp() {
 async function main() {
   await migrate()
 
-  if (!emailConfigured()) {
+  if (emailLogOnly()) {
+    console.warn('[server] EMAIL_TRANSPORT=log — emails are written to this log and NOT sent. Set SendGrid before real users sign up.')
+  } else if (!emailConfigured()) {
     console.warn(
       process.env.NODE_ENV === 'production'
-        ? '[server] SENDGRID_API_KEY / EMAIL_FROM are not set — confirmation and reset emails CANNOT be sent.'
+        ? '[server] SENDGRID_API_KEY / EMAIL_FROM are not set — verification and reset emails CANNOT be sent.'
         : '[server] SendGrid is not configured — emails will be written to this log instead.',
     )
   }

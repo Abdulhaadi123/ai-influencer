@@ -25,8 +25,24 @@ const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || process.env.APP_NAME || '
 const APP_NAME = process.env.APP_NAME || 'AI Influencer'
 const isProduction = process.env.NODE_ENV === 'production'
 
+/**
+ * `EMAIL_TRANSPORT=log` writes every email to the server log instead of sending
+ * it, so a server can be tested before its sending domain is verified: the link
+ * is read out of `docker compose logs api`.
+ *
+ * It has to be asked for by name. Falling back to logging on its own would mean
+ * a server with a mistyped key quietly never delivering anything, while sign-up
+ * still told people to check their inbox.
+ */
+const LOG_ONLY = process.env.EMAIL_TRANSPORT === 'log'
+
 export function emailConfigured() {
-  return !!(SENDGRID_API_KEY && EMAIL_FROM)
+  return LOG_ONLY || !!(SENDGRID_API_KEY && EMAIL_FROM)
+}
+
+/** Whether mail is only being logged — the server says so loudly at startup. */
+export function emailLogOnly() {
+  return LOG_ONLY
 }
 
 /**
@@ -44,9 +60,10 @@ const escapeHtml = value =>
   String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
 export async function sendEmail({ to, subject, text, html }) {
-  if (!emailConfigured()) {
-    if (isProduction) throw new Error('SENDGRID_API_KEY and EMAIL_FROM must be set on the server.')
-    console.log(`[email] SendGrid is not configured — logging instead of sending.\n  to: ${to}\n  subject: ${subject}\n\n${text}\n`)
+  if (LOG_ONLY || !emailConfigured()) {
+    if (isProduction && !LOG_ONLY) throw new Error('SENDGRID_API_KEY and EMAIL_FROM must be set on the server.')
+    const why = LOG_ONLY ? 'EMAIL_TRANSPORT=log' : 'SendGrid is not configured'
+    console.log(`[email] ${why} — logging instead of sending.\n  to: ${to}\n  subject: ${subject}\n\n${text}\n`)
     return
   }
 
