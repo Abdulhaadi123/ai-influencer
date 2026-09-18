@@ -85,14 +85,14 @@ export async function fetchAllowedSource(url, fetchImpl = fetch) {
     await res.body?.cancel?.().catch(() => {})
     const next = location ? new URL(location, current).toString() : null
     if (!next || !isAllowedResultSource(next)) {
-      throw new ResultError('The generator redirected to a source that is not allowed.', {
+      throw new ResultError('The result could not be downloaded from an allowed source.', {
         status: 400, code: 'BAD_SOURCE', permanent: true,
       })
     }
     current = next
   }
 
-  throw new ResultError('The generator redirected too many times.', {
+  throw new ResultError('The result could not be downloaded. Please try again.', {
     status: 502, code: 'SOURCE_UNAVAILABLE', permanent: true,
   })
 }
@@ -148,7 +148,7 @@ async function markJobsCollected(userId, sourceUrl, assetId) {
 export async function storeGeneratedResult({ userId, influencerId = null, sourceUrl, enforceQuota = false }) {
   if (!userId) throw new ResultError('No owner for this result.', { status: 400, code: 'NO_OWNER' })
   if (!sourceUrl || !isAllowedResultSource(sourceUrl)) {
-    throw new ResultError('That source is not allowed.', { status: 400, code: 'BAD_SOURCE', permanent: true })
+    throw new ResultError('This source is not allowed.', { status: 400, code: 'BAD_SOURCE', permanent: true })
   }
 
   const existing = await findStored(userId, sourceUrl)
@@ -167,8 +167,8 @@ export async function storeGeneratedResult({ userId, influencerId = null, source
     // By far the likeliest cause is the 24-hour expiry, and that is permanent.
     throw new ResultError(
       upstream.status === 404
-        ? 'That result has expired and is no longer available from the generator.'
-        : `The generator returned HTTP ${upstream.status}.`,
+        ? 'This result has expired and is no longer available.'
+        : `The result could not be downloaded (HTTP ${upstream.status}). Please try again.`,
       { status: 502, code: 'SOURCE_UNAVAILABLE', permanent: upstream.status === 404 },
     )
   }
@@ -182,14 +182,14 @@ export async function storeGeneratedResult({ userId, influencerId = null, source
 
   const declared = Number(upstream.headers.get('content-length') || 0)
   if (declared && declared > MAX_UPLOAD_BYTES) {
-    throw new ResultError('That file is too large.', { status: 413, code: 'TOO_LARGE', permanent: true })
+    throw new ResultError('This file is too large.', { status: 413, code: 'TOO_LARGE', permanent: true })
   }
   if (enforceQuota && declared && await wouldExceedQuota(userId, declared)) throw quotaRefusal()
 
   const buffer = Buffer.from(await upstream.arrayBuffer())
   // Checked again after reading: Content-Length is a claim, not a guarantee.
   if (buffer.byteLength > MAX_UPLOAD_BYTES) {
-    throw new ResultError('That file is too large.', { status: 413, code: 'TOO_LARGE', permanent: true })
+    throw new ResultError('This file is too large.', { status: 413, code: 'TOO_LARGE', permanent: true })
   }
   // Content-Length is optional; without it the real size is only known now.
   if (enforceQuota && !declared && await wouldExceedQuota(userId, buffer.byteLength)) throw quotaRefusal()

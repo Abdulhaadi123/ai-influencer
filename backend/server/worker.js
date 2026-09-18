@@ -73,6 +73,46 @@ const RESULT_TTL_MS = 24 * 60 * 60 * 1000
 /** When each job was last asked about, by job id. A restart just evens them out. */
 const lastChecked = new Map()
 
+/**
+ * Collections that failed, by job id: how many times, and not before when.
+ *
+ * Copying a result can take minutes — a 15-second motion copy is ~50 MB — and a
+ * failed copy used to start again on the very next cycle. On a slow or broken
+ * link that meant downloading the same file end to end every 15 seconds, and
+ * every other job waited behind it. The wait doubles with each failure.
+ */
+const collectFailures = new Map()
+const COLLECT_RETRY_BASE_MS = 60 * 1000
+const COLLECT_RETRY_MAX_MS = 30 * 60 * 1000
+
+/** How long to wait before retrying a collection that has failed `attempts` times. */
+export function collectRetryDelay(attempts) {
+  return Math.min(COLLECT_RETRY_MAX_MS, COLLECT_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1))
+}
+
+/**
+ * Collect unless this job is waiting out a failure. Never throws: a failure is
+ * logged and scheduled for a later attempt.
+ */
+async function collectWithBackoff(job, now = Date.now()) {
+  const failed = collectFailures.get(job.id)
+  if (failed && failed.retryAt > now) return false
+  try {
+    const stored = await collect(job)
+    collectFailures.delete(job.id)
+    return stored
+  } catch (e) {
+    const attempts = (failed?.attempts ?? 0) + 1
+    const delay = collectRetryDelay(attempts)
+    collectFailures.set(job.id, { attempts, retryAt: now + delay })
+    console.error(
+      `[worker] collecting ${job.kie_task_id} failed (attempt ${attempts}, next try in ${Math.round(delay / 60000)} min):`,
+      e?.message ?? e,
+    )
+    return false
+  }
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 /**
@@ -163,21 +203,22 @@ export async function sweepUncollected(now = Date.now()) {
           and updated_at < $1 and updated_at > $2
         order by updated_at asc
         limit $3`,
-      [new Date(now - COLLECT_GRACE_MS), new Date(now - RESULT_TTL_MS), BATCH],
+      [new Date(now - COLLECT_GRACE_MS), new Date(now - RESULT_TTL_MS), POOL],
     )
   } catch (e) {
     console.error('[worker] could not read uncollected jobs:', e.message)
     return
   }
 
+  // Forget failures for jobs no longer waiting, so the map cannot grow forever.
+  const waiting = new Set(jobs.map(j => j.id))
+  for (const id of collectFailures.keys()) if (!waiting.has(id)) collectFailures.delete(id)
+
+  // Jobs waiting out a failure do not take a place in this cycle's batch.
+  const due = jobs.filter(j => !(collectFailures.get(j.id)?.retryAt > now)).slice(0, BATCH)
+
   // No gap between these: collecting reads KIE's CDN, not its rate-limited API.
-  for (const job of jobs) {
-    try {
-      await collect(job)
-    } catch (e) {
-      console.error(`[worker] collecting ${job.kie_task_id} failed:`, e?.message ?? e)
-    }
-  }
+  for (const job of due) await collectWithBackoff(job, now)
 }
 
 export async function cycle() {
@@ -232,7 +273,7 @@ export async function cycle() {
         // screen got there first it is already saving the result, and the sweep
         // takes over should it never finish.
         if (settledNow && updated?.state === 'success' && updated.result_url) {
-          await collect({ ...job, result_url: updated.result_url })
+          await collectWithBackoff({ ...job, result_url: updated.result_url })
         }
       }
     } catch (e) {

@@ -51,8 +51,15 @@ export const DOWNLOAD_TTL_SECONDS = 600
  */
 export const GENERATION_TTL_SECONDS = 2 * 60 * 60
 
-/** Uploads are a single PUT the client makes immediately. */
-export const UPLOAD_TTL_SECONDS = 300
+/**
+ * Uploads are a single PUT the client makes immediately — but "immediately" is
+ * not "quickly": the app accepts videos up to 60 MB, and on a phone connection
+ * that is minutes of transfer. Five minutes here failed a 16 MB video mid-upload
+ * on a slow link, which the app could only report as a timeout. The link still
+ * grants nothing but writing this one key, which the database already assigned
+ * to this user.
+ */
+export const UPLOAD_TTL_SECONDS = 30 * 60
 
 /** Refuse anything larger before signing, rather than discovering it after. */
 export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
