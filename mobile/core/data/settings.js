@@ -21,6 +21,8 @@ import { DEFAULT_VIDEO_MODEL } from '../config/videoModels'
  * undefined halfway through building a prompt.
  */
 export const DEFAULT_STUDIO_SETTINGS = {
+  /** What is SEEN — where it happens and what she does. The script is what is SAID. */
+  scene: '',
   vibe: '',
   duration: 15,
   aspect: '9:16',

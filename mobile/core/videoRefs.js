@@ -56,7 +56,10 @@ export function selectVideoReferences(influencer, products = [], maxImages = 2) 
     ...cleanProducts.slice(1).map((url, i) => ({ label: 'Product', role: `product${i + 2}`, url, isProduct: true })),
   ].filter(r => !!r.url)
 
-  const limit = Math.max(1, maxImages || 1)
+  // Zero is a real answer, not a missing one: a text-only model is shown
+  // nothing. Coercing it up to 1 would send the influencer's face to a model
+  // that cannot accept an image, and the request would simply be refused.
+  const limit = Math.max(0, Number.isFinite(maxImages) ? maxImages : 1)
   const kept = ranked.slice(0, limit)
   const lost = ranked.slice(limit)
 
@@ -79,6 +82,13 @@ export function selectVideoReferences(influencer, products = [], maxImages = 2) 
  */
 export function describeDroppedReferences(selection, modelLabel) {
   if (!selection || !selection.dropped.length) return null
+
+  // A model that takes no images at all is not "dropping" some of them — it
+  // cannot be shown the influencer, so the person in the video will be someone
+  // else entirely. That is worth saying before the credits are spent.
+  if (selection.images.length === 0) {
+    return `${modelLabel} generates from text alone and cannot be shown any images, so the video will NOT show this influencer${selection.productsDropped > 0 ? ' or the product' : ''}. Pick another model to keep the likeness.`
+  }
 
   if (selection.productsDropped > 0) {
     const n = selection.productsDropped

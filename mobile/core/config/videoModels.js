@@ -23,6 +23,13 @@
  *  2. Resolution spelling is not consistent — Hailuo wants '1080P' with a
  *     capital P, Wan wants '1080p', MiniMax wants '768P' or '2K'.
  *
+ *  3. AN IMAGE DOES NOT MEAN THE SAME THING TO EVERY MODEL. Kling's
+ *     `image_urls` are the first and last FRAMES — a product photo sent as the
+ *     second one becomes the last thing on screen, not a reference. Seedance
+ *     takes `reference_image_urls` and Veo has a REFERENCE_2_VIDEO mode, which
+ *     are references in the sense this app means. `maxImages: 0` says the model
+ *     cannot be shown anything at all, and the studio warns before it is used.
+ *
  * Every id here was verified against the live KIE API (an unknown model is
  * rejected with 422 "model name not supported"; each of these was accepted).
  */
@@ -181,6 +188,123 @@ export const VIDEO_MODELS = [
       image_urls: imageUrls.slice(0, 2),
       quality: '1080p',
       generate_audio_switch: !!(audioUrl || hasVoice),
+    }),
+  },
+  {
+    // Reference images, not frames. Seedance takes `reference_image_urls`,
+    // which is what a reference actually means: the model is told "this is the
+    // person, this is the product" rather than "start here, end there". For a
+    // promo video that is the difference between the influencer holding the
+    // product and the product appearing as the final frame.
+    id: 'bytedance/seedance-2-5',
+    label: 'Seedance 2.5',
+    note: 'Up to 9 true reference images, audio, 1080p. 4–30s.',
+    supportsSound: true,
+    // The model accepts 30; nine covers everything this app can offer (a main
+    // image, three sheets, three products) with room to spare.
+    maxImages: 9,
+    durations: [4, 5, 6, 8, 10, 12, 15, 20, 25, 30],
+    buildInput: ({ prompt, imageUrls, duration, aspectRatio, hasVoice, audioUrl }) => ({
+      prompt,
+      reference_image_urls: imageUrls.slice(0, 9),
+      generate_audio: !!(audioUrl || hasVoice),
+      resolution: '1080p',
+      aspect_ratio: aspectRatio,
+      duration: nearest(duration, [4, 5, 6, 8, 10, 12, 15, 20, 25, 30]),
+    }),
+  },
+  {
+    id: 'bytedance/seedance-2-mini',
+    label: 'Seedance 2.0 Mini',
+    note: 'Cheaper Seedance. True references, audio, 720p. 4–15s.',
+    supportsSound: true,
+    maxImages: 9,
+    durations: [4, 5, 6, 8, 10, 12, 15],
+    buildInput: ({ prompt, imageUrls, duration, aspectRatio, hasVoice, audioUrl }) => ({
+      prompt,
+      reference_image_urls: imageUrls.slice(0, 9),
+      generate_audio: !!(audioUrl || hasVoice),
+      // 1080p is not offered on the Mini and Fast models — only 480p and 720p.
+      resolution: '720p',
+      aspect_ratio: aspectRatio,
+      duration: nearest(duration, [4, 5, 6, 8, 10, 12, 15]),
+    }),
+  },
+  {
+    id: 'bytedance/seedance-2-fast',
+    label: 'Seedance 2.0 Fast',
+    note: 'Fastest Seedance. True references, audio, 720p. 4–15s.',
+    supportsSound: true,
+    maxImages: 9,
+    durations: [4, 5, 6, 8, 10, 12, 15],
+    buildInput: ({ prompt, imageUrls, duration, aspectRatio, hasVoice, audioUrl }) => ({
+      prompt,
+      reference_image_urls: imageUrls.slice(0, 9),
+      generate_audio: !!(audioUrl || hasVoice),
+      resolution: '720p',
+      aspect_ratio: aspectRatio,
+      duration: nearest(duration, [4, 5, 6, 8, 10, 12, 15]),
+    }),
+  },
+  {
+    // Veo 3.1 moved onto the same createTask endpoint as everything else, so
+    // it needs no special path any more. Its own `generation_type` decides what
+    // the images mean; REFERENCE_2_VIDEO is the mode that treats them as
+    // references, and the quality model does not offer it — only Fast and Lite.
+    id: 'veo3_fast',
+    label: 'Veo 3.1 Fast',
+    note: 'Google Veo. Up to 3 true reference images, audio, 8s only.',
+    supportsSound: true,
+    maxImages: 3,
+    durations: [8],
+    buildInput: ({ prompt, imageUrls, aspectRatio }) => ({
+      prompt,
+      image_urls: imageUrls.slice(0, 3),
+      generation_type: 'REFERENCE_2_VIDEO',
+      aspect_ratio: aspectRatio === '9:16' ? '9:16' : '16:9',
+      resolution: '1080p',
+      // Reference mode accepts no other length.
+      duration: 8,
+      enable_translation: true,
+    }),
+  },
+  {
+    id: 'veo-3-1',
+    label: 'Veo 3.1',
+    // One image only: the quality model has no reference mode, so a second
+    // image would become the last frame rather than another reference.
+    note: 'Google Veo, highest quality. One image, audio, 4/6/8s.',
+    supportsSound: true,
+    maxImages: 1,
+    durations: [4, 6, 8],
+    buildInput: ({ prompt, imageUrls, duration, aspectRatio }) => ({
+      prompt,
+      image_urls: imageUrls.slice(0, 1),
+      generation_type: 'FIRST_AND_LAST_FRAMES_2_VIDEO',
+      aspect_ratio: aspectRatio === '9:16' ? '9:16' : '16:9',
+      resolution: '1080p',
+      duration: nearest(duration, [4, 6, 8]),
+      enable_translation: true,
+    }),
+  },
+  {
+    // Text only. It cannot be shown the influencer, so it cannot keep her
+    // face — which is why `maxImages: 0` exists and why the studio says so
+    // plainly before anyone spends credits on it.
+    id: 'minimax-h3/text-to-video',
+    label: 'MiniMax H3 (text only)',
+    // Kept short: the picker truncates a note to one line, and the part that
+    // matters is that this model cannot see the influencer.
+    note: 'Text only — does NOT use the influencer\'s face. 4–15s.',
+    supportsSound: false,
+    maxImages: 0,
+    durations: [4, 5, 6, 8, 10, 12, 15],
+    buildInput: ({ prompt, duration, aspectRatio }) => ({
+      prompt,
+      // Required here, and `adaptive` is not accepted.
+      aspect_ratio: aspectRatio,
+      duration: nearest(duration, [4, 5, 6, 8, 10, 12, 15]),
+      resolution: '2K',
     }),
   },
   {

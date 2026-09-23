@@ -1,5 +1,5 @@
 import { kieFetch } from '../../../platform/kieTransport'
-import { IMAGE_MODEL_ID, VIDEO_MODEL_KLING, VIDEO_MODEL_VEO, MOTION_MODEL_KIE } from '../../../config/generation'
+import { IMAGE_MODEL_ID, VIDEO_MODEL_KLING, MOTION_MODEL_KIE } from '../../../config/generation'
 import { getVideoModel, getMotionModel } from '../../../config/videoModels'
 import { compressImage } from '../../../platform/media'
 import { registerJobs, syncJob } from '../../../data/jobs'
@@ -402,49 +402,26 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
       if (!pending.has(jobId)) continue
 
       try {
-        if (job.isVeo) {
-          const res = await kieFetch('/api/v1/veo/record-info', { query: { taskId: jobId } })
-          if (!res.ok) continue
-          const json = await res.json()
-          if (json.code !== 200) continue
-          
-          const status = json.data?.status ?? json.data?.successFlag
-          const resultUrl = json.data?.resultUrl
-          
-          if (status === 1 && resultUrl) {
-            pending.delete(jobId)
-            if (!urls.includes(resultUrl)) {
-              urls.push(resultUrl)
-              onProgress?.(Math.min(35 + (urls.length / total) * 60, 95))
-              onPartialResults?.(urls.slice(0, total))
-            }
-          } else if (status === 2 || status === 3) {
-            pending.delete(jobId)
-            failures.push(json.data?.errorMessage || null)
-            console.warn(`Veo video job ${jobId} failed`)
-          }
-        } else {
-          const status = await fetchTaskStatus(jobId)
+        const status = await fetchTaskStatus(jobId)
 
-          if (status.state === 'ratelimited') {
-            backoff = Math.min(backoff ? backoff * 2 : 2000, 20000)
-            break
-          }
-          backoff = 0
+        if (status.state === 'ratelimited') {
+          backoff = Math.min(backoff ? backoff * 2 : 2000, 20000)
+          break
+        }
+        backoff = 0
 
-          if (status.state === 'success' && status.resultUrls[0]) {
-            pending.delete(jobId)
-            const resultUrl = status.resultUrls[0]
-            if (!urls.includes(resultUrl)) {
-              urls.push(resultUrl)
-              onProgress?.(Math.min(35 + (urls.length / total) * 60, 95))
-              onPartialResults?.(urls.slice(0, total))
-            }
-          } else if (status.state === 'fail') {
-            pending.delete(jobId)
-            failures.push(status.failMsg)
-            console.warn(`Kling video job ${jobId} failed: ${status.failMsg || ''}`)
+        if (status.state === 'success' && status.resultUrls[0]) {
+          pending.delete(jobId)
+          const resultUrl = status.resultUrls[0]
+          if (!urls.includes(resultUrl)) {
+            urls.push(resultUrl)
+            onProgress?.(Math.min(35 + (urls.length / total) * 60, 95))
+            onPartialResults?.(urls.slice(0, total))
           }
+        } else if (status.state === 'fail') {
+          pending.delete(jobId)
+          failures.push(status.failMsg)
+          console.warn(`Video job ${jobId} failed: ${status.failMsg || ''}`)
         }
       } catch (e) {
         if (e.message === 'CANCELLED') throw e
@@ -464,11 +441,7 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
 }
 
 export async function resumeVideoJob(jobIds, count, onProgress, onPartialResults, isCancelled) {
-  const launched = jobIds.map(id => ({
-    taskId: id,
-    isVeo: id.startsWith('veo')
-  }))
-  return pollVideoJobs(launched, count, onProgress, onPartialResults, isCancelled)
+  return pollVideoJobs(jobIds.map(taskId => ({ taskId })), count, onProgress, onPartialResults, isCancelled)
 }
 
 // ── Recording jobs ───────────────────────────────────────────────────────────
@@ -616,75 +589,54 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
   }
   onProgress?.(25)
   
-  const isVeo = model.toLowerCase().includes('veo')
   // Every vendor caps how many reference images it accepts, and the cap is NOT
-  // always 2 — seven of the ten selectable models take exactly one. Hard-coding
-  // 2 here meant a product image was dropped without a word whenever the
-  // influencer also had reference sheets, so the promo video came back showing
-  // an invented object. Trim to what the CHOSEN model actually accepts, and
-  // trust the caller to have ordered the list by importance.
-  if (!isVeo) {
-    const limit = getVideoModel(model).maxImages ?? 2
-    if (imageUrls.length > limit) {
-      console.warn(`[KIE Video] ${getVideoModel(model).label} accepts ${limit} image(s); dropping ${imageUrls.length - limit}.`)
-      imageUrls.splice(limit)
-    }
+  // always 2 — most of the selectable models take exactly one, and a text-only
+  // model takes none at all. Hard-coding 2 here meant a product image was
+  // dropped without a word whenever the influencer also had reference sheets,
+  // so the promo video came back showing an invented object. Trim to what the
+  // CHOSEN model accepts, and trust the caller to have ordered the list by
+  // importance.
+  const imageLimit = getVideoModel(model).maxImages ?? 2
+  if (imageUrls.length > imageLimit) {
+    console.warn(`[KIE Video] ${getVideoModel(model).label} accepts ${imageLimit} image(s); dropping ${imageUrls.length - imageLimit}.`)
+    imageUrls.splice(imageLimit)
   }
   const jobIds = []
   
   const launchPromises = Array.from({ length: count }, async (_, i) => {
     const promptSuffix = i === 0 ? '' : '​'.repeat(i)
     let finalPrompt = prompt + promptSuffix
-    if (!isVeo) {
-      // These models take plain text, so tags become words — chosen by what
-      // each image is (referenceRoles), not by where it landed in the list.
-      finalPrompt = replaceImageTags(finalPrompt, referenceRoles)
-    }
-    finalPrompt = capVideoPrompt(finalPrompt)
-    
-    if (isVeo) {
-      const body = {
+    // These models take plain text, so tags become words — chosen by what each
+    // image is (referenceRoles), not by where it landed in the list.
+    finalPrompt = capVideoPrompt(replaceImageTags(finalPrompt, referenceRoles))
+
+    // Each model declares how to map this request onto its own fields —
+    // vendors differ (image_urls vs image_url vs reference_image_urls, mode vs
+    // resolution), so the model id alone is not enough to swap between them.
+    // Veo 3.1 moved onto this same endpoint, so it is no longer a special case.
+    const chosen = getVideoModel(model)
+    const body = {
+      model: chosen.id,
+      input: chosen.buildInput({
         prompt: finalPrompt,
-        aspect_ratio: aspectRatio,
-        model: VIDEO_MODEL_VEO,
-        imageUrls: imageUrls
-      }
-      const res = await kieFetch('/api/v1/veo/generate', {
-        method: 'POST',
-        body: JSON.stringify(body)
-      })
-      if (!res.ok) throw await refusal(res)
-      const json = await res.json()
-      if (json.code !== 200 || !json.data?.taskId) throw generatorError(json.code, json.msg)
-      return { taskId: json.data.taskId, isVeo: true }
-    } else {
-      // Each model declares how to map this request onto its own fields —
-      // vendors differ (image_urls vs image_url, mode vs resolution), so the
-      // model id alone is not enough to swap between them.
-      const chosen = getVideoModel(model)
-      const body = {
-        model: chosen.id,
-        input: chosen.buildInput({
-          prompt: finalPrompt,
-          imageUrls,
-          duration,
-          aspectRatio,
-          hasVoice,
-          audioUrl: chosen.supportsSound ? audioUrl : null,
-        }),
-      }
-      if (audioUrl && !chosen.supportsSound) {
-        console.warn(`[KIE Video] ${chosen.label} has no audio track — generating silent.`)
-      }
-      const res = await kieFetch('/api/v1/jobs/createTask', {
-      method: 'POST',
-        body: JSON.stringify(body)
-      })
-      if (!res.ok) throw await refusal(res)
-      const json = await res.json()
-      if (json.code !== 200 || !json.data?.taskId) throw generatorError(json.code, json.msg)
-      return { taskId: json.data.taskId, isVeo: false }
+        imageUrls,
+        duration,
+        aspectRatio,
+        hasVoice,
+        audioUrl: chosen.supportsSound ? audioUrl : null,
+      }),
     }
+    if (audioUrl && !chosen.supportsSound) {
+      console.warn(`[KIE Video] ${chosen.label} has no audio track — generating silent.`)
+    }
+    const res = await kieFetch('/api/v1/jobs/createTask', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw await refusal(res)
+    const json = await res.json()
+    if (json.code !== 200 || !json.data?.taskId) throw generatorError(json.code, json.msg)
+    return { taskId: json.data.taskId }
   })
   
   const launched = await Promise.all(launchPromises)
@@ -784,7 +736,7 @@ export async function generateMotionCopy({ characterImage, drivingVideo, prompt 
   onProgress?.(35)
 
   const result = await watchJobs(recorded, entries, () =>
-    pollVideoJobs([{ taskId, isVeo: false }], 1, onProgress, onPartialResults, isCancelled))
+    pollVideoJobs([{ taskId }], 1, onProgress, onPartialResults, isCancelled))
   onProgress?.(100)
   return result // { urls, shareUrls }
 }

@@ -145,7 +145,9 @@ export default function VideosTab({ influencer }) {
   }, [generating, influencer.id])
 
   const canGenerate = !generating && (
-    (settings.dialogue || '').trim().length > 0 || products.length > 0 || !!influencer.mainImage
+    (settings.dialogue || '').trim().length > 0 ||
+    (settings.scene || '').trim().length > 0 ||
+    products.length > 0 || !!influencer.mainImage
   )
 
   // What will ACTUALLY be sent, given the chosen model's image limit. Computed
@@ -260,6 +262,22 @@ export default function VideosTab({ influencer }) {
             loading={assist.loading}
             onUse={() => set('dialogue', assist.suggestion)}
             onDismiss={assist.dismiss}
+          />
+        </View>
+      </Section>
+
+      <Section
+        title="Scene"
+        footer={`Where the video happens and what ${influencer.name} does — separate from the script, which is what gets said. Times work: "at 5s, turns to camera".`}
+      >
+        <View style={styles.padded}>
+          <TextInput
+            value={settings.scene || ''}
+            onChangeText={v => set('scene', v)}
+            placeholder={'e.g. Walking down a wet city street at night, neon signs behind. Holds the bottle up at 3s.'}
+            placeholderTextColor={colors.textTertiary}
+            multiline
+            style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
           />
         </View>
       </Section>

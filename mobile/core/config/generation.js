@@ -29,7 +29,7 @@
 // ── KIE model ids ────────────────────────────────────────────────────────────
 export const IMAGE_MODEL_ID     = 'nano-banana-pro'          // Nano Banana Pro (image-to-image)
 export const VIDEO_MODEL_KLING  = 'kling-3.0/video'          // Kling 3.0 — set input.sound for Omni
-export const VIDEO_MODEL_VEO    = 'veo3_fast'                // alternate video path (unused by default)
+export const VIDEO_MODEL_VEO    = 'veo3_fast'                // selectable in videoModels.js; no special path any more
 export const MOTION_MODEL_KIE   = 'kling-3.0/motion-control' // Kling 3.0 Motion Control
 
 // ── Prompt assistant (OpenAI) ────────────────────────────────────────────────

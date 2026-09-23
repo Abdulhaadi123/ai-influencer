@@ -141,6 +141,21 @@ close-up → feature sheet. Trim by the model's `maxImages`, and **only describe
 products the model actually receives** — tagging a trimmed product makes the
 model invent one.
 
+**An image does not mean the same thing to every model.** Kling's `image_urls`
+are the first and last FRAMES; Seedance's `reference_image_urls` and Veo's
+`REFERENCE_2_VIDEO` mode are references in the sense this app means. Each entry
+in `videoModels.js` maps the request onto its own model's fields, and
+`maxImages: 0` (MiniMax text-to-video) means the model cannot be shown the
+influencer at all — the studio warns before anyone spends credits on it.
+
+### Scene and script — `core/prompts/videoPrompt.js`
+
+Two different inputs. `dialogue` is what she SAYS; `scene` is what is SEEN —
+where it happens and what she does. The scene's action sentences become timed
+beats inside the shots ("she holds it up at 3s" → a beat at 0:03) and its
+descriptive sentences become the setting, unless a location preset was chosen,
+in which case they read as DIRECTION instead.
+
 ### The generation queue — `core/data/jobs.js`
 
 | Fact from KIE | Consequence |
@@ -224,7 +239,7 @@ bundles.
 - `pickImageWithPrompt` may never resolve if the Android alert is dismissed by
   tapping outside.
 - Studio settings with no UI: `aspect`, `outputs`, `envCustom`, `voiceCustom`,
-  `additionalNotes`.
+  `additionalNotes` (the Scene field covers what `additionalNotes` was for).
 - Files the create wizard stored for an influencer that was never saved belong to
   no influencer, so nothing sweeps them until the account is deleted.
 - A job removed on one device stays on another until that device reloads the

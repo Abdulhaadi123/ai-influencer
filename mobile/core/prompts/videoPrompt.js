@@ -85,7 +85,10 @@ export function replaceImageTags(prompt, roles = null) {
   let out = String(prompt ?? '')
   // Highest number first, so @image_1 can never match the front of @image_10.
   for (let n = Math.max(words.length, LEGACY_WORDS.length); n >= 1; n--) {
-    out = out.replace(new RegExp(`@image_${n}(?![0-9])`, 'g'), words[n - 1] || 'the reference')
+    // Falling back to the positional name keeps the prose readable when fewer
+    // images were sent than the prompt mentions — including none at all, which
+    // is how a text-only model reads it.
+    out = out.replace(new RegExp(`@image_${n}(?![0-9])`, 'g'), words[n - 1] || LEGACY_WORDS[n - 1] || 'the reference')
   }
   return out.replace(/@audio_1/g, 'the audio').replace(/@/g, '')
 }
@@ -347,6 +350,13 @@ export function buildVideoPrompt(influencer, settings) {
   const dialogue = settings?.dialogue ?? ''
   const additionalNotes = settings?.additionalNotes ?? ''
   const voiceCustom = settings?.voiceCustom ?? ''
+  /**
+   * What the person typed about where this happens and what happens in it —
+   * "she's walking down a wet Paris street, then turns to camera". The script
+   * says what is SAID; this says what is SEEN, which the models take as
+   * separate instructions and this app had no field for.
+   */
+  const scene = settings?.scene ?? ''
 
   const name = influencer.name
   const phys = influencer.physicalDesc || `${name}, natural confident energy`
@@ -405,14 +415,29 @@ export function buildVideoPrompt(influencer, settings) {
   const isHandheld = camera === 'Handheld'
   const wearMode = !!(productRef1 && productWorn)
 
+  /**
+   * The scene, split into what it LOOKS like and what HAPPENS in it.
+   *
+   * Its action sentences become timed beats inside the shots (the same
+   * machinery `additionalNotes` has always used); its descriptive sentences
+   * are the setting. A scene that is nothing but action ("she is walking down
+   * a Paris street") leaves no descriptive part, and the whole line is used as
+   * the setting instead — a video that says "indoors" while the direction says
+   * she is walking down a street is worse than one repeated phrase.
+   */
+  const scenePlan = parseAdditionalNotes(scene, duration)
+  const notesPlan = parseAdditionalNotes(additionalNotes, duration)
+  // A location preset (or the web studio's environment text) still wins.
+  const settingText = environment || scenePlan.directionNotes || scene.trim()
+
   // Environment — in start frame mode the scene is locked to the start frame, not the text field
   const todLabel = { morning: 'morning', afternoon: 'afternoon', 'golden hour': 'golden hour', night: 'night' }[videoTimeOfDay] || ''
   const todSuffix = todLabel ? `, ${todLabel}` : ''
   const envDesc = startFrameUrl
     ? 'Continue from start frame — environment and lighting match @image_1 exactly throughout.'
     : tagMap.home
-      ? `${tagMap.home} for the location and environment setting.${environment ? ' ' + environment : ''}${todSuffix}`
-      : `${environment || (isTalkingHead ? 'in a studio' : 'indoors')}${todSuffix}`
+      ? `${tagMap.home} for the location and environment setting.${settingText ? ' ' + settingText : ''}${todSuffix}`
+      : `${settingText || (isTalkingHead ? 'in a studio' : 'indoors')}${todSuffix}`
 
   // Mood arc
   const moodMap = {
@@ -444,8 +469,14 @@ export function buildVideoPrompt(influencer, settings) {
   const fullDialogue = dialogue.trim()
   const prod1Tag = tagMap.product1 || null
 
-  // Parse notes first so action beats can be woven into annotateDialogue
-  const { actionBeats, directionNotes } = parseAdditionalNotes(additionalNotes, duration)
+  // Beats from both the scene and the notes, in the order they should fire, so
+  // they can be woven into annotateDialogue. The scene's descriptive half is
+  // already the setting above, so it is only repeated as DIRECTION when a
+  // location preset took that place.
+  const actionBeats = [...scenePlan.actionBeats, ...notesPlan.actionBeats]
+    .sort((a, b) => a.fraction - b.fraction)
+  const directionNotes = [environment ? scenePlan.directionNotes : '', notesPlan.directionNotes]
+    .filter(Boolean).join('. ')
 
   const annotatedDialogue = annotateDialogue(fullDialogue, prod1Tag, duration, isHandheld, wearMode, actionBeats, she, her, his)
   // For multi-shot: distribute raw sentences across shots
