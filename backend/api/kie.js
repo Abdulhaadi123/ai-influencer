@@ -18,6 +18,7 @@
  */
 
 import { requireUser, applyCors } from './_lib/auth.js'
+import { callbackUrl } from './kie-callback.js'
 import { rateLimit } from '../lib/rateLimit.js'
 
 // KIE_BASE_URL only points tests at a local stand-in; production leaves it unset.
@@ -36,6 +37,9 @@ const API_KEY = process.env.KIE_API_KEY || ''
 const CREDIT_PATH = '/api/v1/chat/credit'
 const EXPOSE_CREDIT_BALANCE = process.env.EXPOSE_CREDIT_BALANCE === 'true'
 
+/** The one path that starts paid work, and so the one that asks for a callback. */
+const CREATE_TASK_PATH = '/api/v1/jobs/createTask'
+
 /**
  * Only the routes the app actually uses. An open proxy would let an
  * authenticated user reach any KIE endpoint on the account's dime, including
@@ -52,6 +56,27 @@ const ALLOWED_PATHS = [
 
 function isAllowedPath(p) {
   return ALLOWED_PATHS.includes(p)
+}
+
+/**
+ * The body to forward.
+ *
+ * A createTask request also carries `callBackUrl`, so KIE tells us the moment
+ * the job finishes (api/kie-callback.js) instead of the worker discovering it
+ * on its next sweep. The app never sends this and cannot influence it: the URL
+ * and the secret that signs its callbacks are the server's alone. With
+ * callbacks not configured, nothing is added and the worker collects as before.
+ */
+export function bodyToForward(req, subPath) {
+  if (req.method === 'GET' || req.method === 'HEAD') return null
+
+  let payload = req.body ?? {}
+  if (typeof payload === 'string') {
+    try { payload = JSON.parse(payload) } catch { return payload }  // not ours to rewrite
+  }
+
+  const url = subPath === CREATE_TASK_PATH ? callbackUrl() : null
+  return JSON.stringify(url ? { ...payload, callBackUrl: url } : payload)
 }
 
 export default async function handler(req, res) {
@@ -85,6 +110,7 @@ export default async function handler(req, res) {
 
   const base = subPath.startsWith('/api/file-') ? REDPANDA_BASE : KIE_BASE
   const target = `${base}${subPath}${qs ? `?${qs}` : ''}`
+  const body = bodyToForward(req, subPath)
 
   try {
     const upstream = await fetch(target, {
@@ -93,9 +119,7 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
       },
-      ...(req.method !== 'GET' && req.method !== 'HEAD'
-        ? { body: typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {}) }
-        : {}),
+      ...(body !== null ? { body } : {}),
     })
 
     let text = await upstream.text()

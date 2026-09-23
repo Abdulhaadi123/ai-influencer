@@ -25,18 +25,23 @@
  *
  * ── Who collects what ────────────────────────────────────────────────────────
  *
- * The app polls too, so it often sees a job finish first. Each cycle therefore
- * also sweeps finished jobs nobody collected, after a grace period that leaves
- * the app time to finish the download it already started. Collection is
- * idempotent (api/_lib/results.js), so the two can never store or file a result
- * twice.
+ * KIE's callback (api/kie-callback.js) usually gets there first, and the app
+ * polls too, so it often sees a job finish before this does. Each cycle
+ * therefore also sweeps finished jobs nobody collected, after a grace period
+ * that leaves the app time to finish the download it already started.
+ * Collection is idempotent (api/_lib/results.js), so no two of them can store
+ * or file a result twice.
+ *
+ * This process is the safety net, not the fast path: a callback can be missed
+ * — a deploy, a restart, a dropped connection — and nothing else would ever
+ * notice. Do not stop running it because the webhook works.
  */
 
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { many, query, closeDb } from '../api/_lib/db.js'
-import { storeGeneratedResult, ResultError } from '../api/_lib/results.js'
+import { collect } from '../api/_lib/collect.js'
 import { fetchKieTaskStatus, applyKieStatus, ACTIVE_STATES } from '../api/_lib/kieStatus.js'
 
 /** How often to sweep for work. */
@@ -98,7 +103,7 @@ async function collectWithBackoff(job, now = Date.now()) {
   const failed = collectFailures.get(job.id)
   if (failed && failed.retryAt > now) return false
   try {
-    const stored = await collect(job)
+    const stored = await collect(job, '[worker]')
     collectFailures.delete(job.id)
     return stored
   } catch (e) {
@@ -114,53 +119,6 @@ async function collectWithBackoff(job, now = Date.now()) {
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
-
-/**
- * Copy a finished result into the owner's storage and file it in the gallery.
- * @returns {Promise<boolean>} whether the result is now stored
- */
-export async function collect(job) {
-  let stored
-  try {
-    stored = await storeGeneratedResult({
-      userId: job.user_id,
-      influencerId: job.influencer_id,
-      sourceUrl: job.result_url,
-    })
-  } catch (e) {
-    if (!(e instanceof ResultError) || !e.permanent) throw e
-    // Expired, unsupported or oversized will never succeed, so the job stops
-    // here instead of being retried every cycle for the rest of the day.
-    await query(
-      `update generation_jobs set state = 'fail', fail_msg = $3 where id = $1 and user_id = $2`,
-      [job.id, job.user_id, e.code === 'SOURCE_UNAVAILABLE' ? 'The result expired before it could be saved.' : e.message],
-    )
-    console.warn(`[worker] giving up on ${job.kie_task_id}: ${e.message}`)
-    return false
-  }
-
-  // A job with no influencer came from the create wizard, before the record
-  // existed: the file is saved and reachable from the Queue, with no gallery to
-  // file it in.
-  if (job.influencer_id) await fileInGallery(job, stored)
-
-  console.log(`[worker] ${stored.reused ? 'already stored' : 'collected'} ${job.kie_task_id} → ${stored.assetId}`)
-  return true
-}
-
-/** One gallery entry per file, whichever collector got there first. */
-async function fileInGallery(job, { assetId, kind }) {
-  try {
-    await query(
-      `insert into generations (user_id, influencer_id, asset_id, kind, label)
-       values ($1, $2, $3, $4, $5)
-       on conflict (asset_id) do nothing`,
-      [job.user_id, job.influencer_id, assetId, kind || job.kind || 'image', job.label || 'Generation'],
-    )
-  } catch (e) {
-    console.warn('[worker] gallery entry failed:', e.message)
-  }
-}
 
 /**
  * Choose this cycle's jobs: least recently checked first, taking one job from

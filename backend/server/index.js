@@ -37,6 +37,7 @@ import confirmUpload from '../api/storage/confirm.js'
 import ingest from '../api/storage/ingest.js'
 import deleteAsset from '../api/storage/delete.js'
 import kie from '../api/kie.js'
+import kieCallback, { CALLBACK_PATH, webhooksConfigured } from '../api/kie-callback.js'
 import promptAssist from '../api/prompt-assist.js'
 
 export function createApp() {
@@ -119,6 +120,14 @@ export function createApp() {
   })
   app.all('/api/prompt-assist', promptAssist)
 
+  /**
+   * KIE says a generation finished. Outside `/api` deliberately: it carries no
+   * session — KIE cannot hold one — and proves the sender with an HMAC
+   * signature instead (api/kie-callback.js). Keeping it off `/api` also keeps
+   * it clear of the CORS layer and of the proxy route above.
+   */
+  app.all(CALLBACK_PATH, kieCallback)
+
   app.use((req, res) => res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' }))
 
   // Last resort. Without it a throw returns Express's HTML error page, which
@@ -146,6 +155,13 @@ async function main() {
       process.env.NODE_ENV === 'production'
         ? '[server] SENDGRID_API_KEY / EMAIL_FROM are not set — verification and reset emails CANNOT be sent.'
         : '[server] SendGrid is not configured — emails will be written to this log instead.',
+    )
+  }
+
+  if (!webhooksConfigured()) {
+    console.warn(
+      '[server] KIE_WEBHOOK_SECRET / PUBLIC_BASE_URL are not both set — generation callbacks are off. ' +
+      'Results are still collected, by the worker, within a minute or so.',
     )
   }
 

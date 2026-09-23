@@ -46,6 +46,8 @@ app ──(access token)──►  backend API ──► PostgreSQL   users, ses
                               │      ──► api.kie.ai    generation (the only holder of the key)
                               │      ──► SendGrid      confirmation and password-reset emails
                          backend worker ──► KIE + S3   collects finished jobs while the app is closed
+
+api.kie.ai ──(HMAC-signed callback)──► backend API      a finished job, within seconds
 ```
 
 **The app never connects to the database or to S3 with credentials**, and no
@@ -95,6 +97,10 @@ Rules with history behind them — detail in `mobile/CLAUDE.md`:
   `generation_jobs` row is the only way back to a paid result.
 - **Only the server writes a job's state**, from KIE's own answer. The app asks
   for a job to be checked; it cannot report a result.
+- **A finished job arrives two ways and must survive either.** KIE's signed
+  callback (`backend/api/kie-callback.js`) is the fast path; the worker's sweep
+  is the safety net for callbacks that never arrive. Collection is idempotent,
+  so both running on one job is harmless — but neither may be removed.
 - **Rank reference images, never list them** (`core/videoRefs.js`).
 
 ## Hard constraints

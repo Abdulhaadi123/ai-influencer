@@ -46,6 +46,35 @@ the only thing watching — close the app mid-generation and nothing collects th
 result. The worker watches every user's jobs, stores finished results, and files
 them in the gallery, so the user opens the app and the video is simply there.
 
+**The callback below does not replace it.** A webhook can be missed — a deploy,
+a restart, a dropped connection — and nothing else would ever notice. The
+worker is the safety net; keep it running.
+
+---
+
+## Generation callbacks (webhook)
+
+Every `createTask` this server sends carries a `callBackUrl`, so KIE posts the
+result to `POST /webhooks/kie` within seconds of a job finishing instead of the
+worker discovering it up to a minute later.
+
+It is the only endpoint with no session — KIE cannot hold one — so it proves the
+sender another way:
+
+- **Signature.** `X-Webhook-Signature` is `base64(HMAC-SHA256(taskId + "." +
+  timestamp, KIE_WEBHOOK_SECRET))`, compared in constant time, with
+  `X-Webhook-Timestamp` no more than 15 minutes out. Anything else is refused.
+- **Nothing in the payload is trusted but the task id.** The owner, influencer
+  and label come from our own `generation_jobs` row. A callback naming a user
+  would otherwise be a way to write into someone else's account.
+- **No secret, no callbacks.** With `KIE_WEBHOOK_SECRET` empty the server does
+  not ask for them and refuses any that arrive — an unsigned "this job is done,
+  here is the file" is exactly the request an attacker would forge.
+
+**Setup:** generate the *Webhook HMAC key* at <https://kie.ai/settings>, put it
+in `.env` as `KIE_WEBHOOK_SECRET`, make sure `PUBLIC_BASE_URL` is set, and
+restart. The API says so at startup when callbacks are off.
+
 ---
 
 ## Security model
@@ -229,6 +258,7 @@ local stand-ins in tests; production leaves them unset.
 | Settings | `GET/POST /api/studio-settings`; `GET /api/creation-params` |
 | Files | `POST /api/storage/upload-url` `confirm` `download-url` `ingest` `delete` |
 | Generation | `/api/kie/*` (proxy), `POST /api/prompt-assist` |
+| Callbacks | `POST /webhooks/kie` (signed by KIE, no session) |
 
 ---
 
