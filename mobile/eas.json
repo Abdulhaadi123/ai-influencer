@@ -17,14 +17,20 @@
       "ios": {
         "simulator": false
       },
-      "environment": "preview"
+      "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_BASE": "https://ai-influencer.backed.dexterztechnologies.com"
+      }
     },
     "production": {
       "distribution": "store",
       "android": {
         "buildType": "app-bundle"
       },
-      "environment": "production"
+      "environment": "production",
+      "env": {
+        "EXPO_PUBLIC_API_BASE": "https://ai-influencer.backed.dexterztechnologies.com"
+      }
     }
   },
   "submit": {
