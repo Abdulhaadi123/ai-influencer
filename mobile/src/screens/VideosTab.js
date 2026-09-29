@@ -28,7 +28,9 @@ import { uploadLocal, resolveUrl, remove as removeAsset } from '@core/data/asset
 import { buildVideoPrompt, VOICE_PRESETS } from '@core/prompts/videoPrompt'
 import { loadStudioSettings, saveStudioSettings, DEFAULT_STUDIO_SETTINGS } from '@core/data/settings'
 import { ENV_PRESETS, ENV_KEYS, VIBES, CAMERAS, TIMES_OF_DAY, DURATIONS } from '@core/studioOptions'
-import { VIDEO_MODELS, DEFAULT_VIDEO_MODEL, getVideoModel } from '@core/config/videoModels'
+import {
+  VIDEO_MODELS, DEFAULT_VIDEO_MODEL, getVideoModel, durationFor, offeredDurations,
+} from '@core/config/videoModels'
 import { selectVideoReferences, describeDroppedReferences } from '@core/videoRefs'
 import { hasActiveJobs } from '@core/data/jobs'
 import { userMessage } from '@core/errors'
@@ -76,12 +78,19 @@ export default function VideosTab({ influencer }) {
   const cancelRef = useRef(false)
   useEffect(() => () => { cancelRef.current = true }, [])
 
+  /** Set once the prompt assistants exist; see below. */
+  const ignoreRestored = useRef(null)
+
   useEffect(() => {
     let cancelled = false
     loadStudioSettings(influencer.id).then(loaded => {
       if (cancelled) return
       setSettings(loaded)
       setSettingsFor(influencer.id)
+      // Restored text is not something the user just wrote. Without this,
+      // opening the tab on an influencer with a saved script or scene fired a
+      // suggestion request for each of them.
+      ignoreRestored.current?.(loaded)
     })
     return () => { cancelled = true }
   }, [influencer.id])
@@ -160,6 +169,12 @@ export default function VideosTab({ influencer }) {
   )
   const dropWarning = describeDroppedReferences(selection, chosenModel.label)
 
+  // The lengths this model can actually produce, and the one it will produce for
+  // what is selected now. Both the request and the prompt are built from this,
+  // so a clip can no longer be generated at one length and described at another.
+  const durationOptions = useMemo(() => offeredDurations(chosenModel.id, DURATIONS), [chosenModel.id])
+  const duration = durationFor(chosenModel.id, settings.duration)
+
   const generate = useCallback(async () => {
     if (!canGenerate) return
     cancelRef.current = false
@@ -179,6 +194,9 @@ export default function VideosTab({ influencer }) {
 
       const prompt = buildVideoPrompt(influencer, {
         ...settings,
+        // The length the model will really produce, not the one picked: the shot
+        // plan and every action beat are timed against this.
+        duration,
         productRef1: sentProducts[0] || null,
         productRef2: sentProducts[1] || null,
         productRef3: sentProducts[2] || null,
@@ -190,7 +208,7 @@ export default function VideosTab({ influencer }) {
       const { urls } = await generateVideo({
         prompt,
         aspectRatio: settings.aspect,
-        duration: settings.duration,
+        duration,
         model: settings.videoModel || DEFAULT_VIDEO_MODEL,
         count: 1,
         referenceImages,
@@ -234,12 +252,23 @@ export default function VideosTab({ influencer }) {
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }
-  }, [canGenerate, influencer, settings, products, selection, addGeneration])
+  }, [canGenerate, influencer, settings, duration, products, selection, addGeneration])
 
   const voicePresets = influencer.gender === 'Male' ? VOICE_PRESETS.male : VOICE_PRESETS.female
 
-  // Live rewrite of the script, offered as a suggestion only.
+  // Live rewrites, offered as suggestions only — never written back on their own.
   const assist = usePromptSuggestion(settings.dialogue, 'script')
+  const sceneAssist = usePromptSuggestion(settings.scene, 'scene')
+
+  // Filled here because the settings load above runs earlier in source order
+  // than these assistants exist. Effects run in commit order, so this is set
+  // long before the load's promise resolves.
+  useEffect(() => {
+    ignoreRestored.current = loaded => {
+      assist.ignore(loaded?.dialogue)
+      sceneAssist.ignore(loaded?.scene)
+    }
+  }, [assist.ignore, sceneAssist.ignore])
 
   return (
     <ScrollView
@@ -260,7 +289,7 @@ export default function VideosTab({ influencer }) {
           <PromptSuggestion
             suggestion={assist.suggestion}
             loading={assist.loading}
-            onUse={() => set('dialogue', assist.suggestion)}
+            onUse={() => { const next = assist.suggestion; set('dialogue', next); assist.ignore(next) }}
             onDismiss={assist.dismiss}
           />
         </View>
@@ -278,6 +307,12 @@ export default function VideosTab({ influencer }) {
             placeholderTextColor={colors.textTertiary}
             multiline
             style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
+          />
+          <PromptSuggestion
+            suggestion={sceneAssist.suggestion}
+            loading={sceneAssist.loading}
+            onUse={() => { const next = sceneAssist.suggestion; set('scene', next); sceneAssist.ignore(next) }}
+            onDismiss={sceneAssist.dismiss}
           />
         </View>
       </Section>
@@ -350,7 +385,7 @@ export default function VideosTab({ influencer }) {
 
       <Collapsible
         title="Style and delivery"
-        subtitle={`${settings.camera} · ${settings.duration}s · ${settings.vibe || 'Default mood'}${settings.envKey ? ' · ' + settings.envKey : ''}`}
+        subtitle={`${settings.camera} · ${duration}s · ${settings.vibe || 'Default mood'}${settings.envKey ? ' · ' + settings.envKey : ''}`}
       >
         <Field label="Camera">
           <View style={styles.chipWrap}>
@@ -360,11 +395,16 @@ export default function VideosTab({ influencer }) {
           </View>
         </Field>
 
-        <Field label="Length">
+        <Field
+          label="Length"
+          hint={durationOptions.length < DURATIONS.length
+            ? `${chosenModel.label} only produces ${durationOptions.map(d => `${d}s`).join(', ')}.`
+            : undefined}
+        >
           <Segmented
-            value={settings.duration}
+            value={duration}
             onChange={v => set('duration', v)}
-            options={DURATIONS.map(d => ({ label: `${d}s`, value: d }))}
+            options={durationOptions.map(d => ({ label: `${d}s`, value: d }))}
           />
         </Field>
 

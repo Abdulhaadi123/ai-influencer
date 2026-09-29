@@ -391,7 +391,7 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
           <PromptSuggestion
             suggestion={assist.suggestion}
             loading={assist.loading}
-            onUse={() => set('description', assist.suggestion)}
+            onUse={() => { const next = assist.suggestion; set('description', next); assist.ignore(next) }}
             onDismiss={assist.dismiss}
           />
         </View>
