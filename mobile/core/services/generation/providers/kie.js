@@ -5,6 +5,7 @@ import { compressImage } from '../../../platform/media'
 import { registerJobs, syncJob } from '../../../data/jobs'
 import { urlForGeneration } from '../../../data/assets'
 import { replaceImageTags } from '../../../prompts/videoPrompt'
+import { createProgress } from '../progress'
 import { AppError, ERROR_CODES, generatorMessage, isSessionEnded } from '../../../errors'
 
 /**
@@ -87,10 +88,10 @@ export async function fetchTaskStatus(taskId) {
   try {
     result = await syncJob(taskId)
   } catch (e) {
-    if (e?.status === 429 || e?.code === 'RATE_LIMITED') return { state: 'ratelimited', resultUrls: [], failMsg: null, job: null }
+    if (e?.status === 429 || e?.code === 'RATE_LIMITED') return { state: 'ratelimited', resultUrls: [], failMsg: null, progress: 0, job: null }
     // An ended session must still end the watch; anything else is "try again later".
     if (isSessionEnded(e)) throw e
-    return { state: 'unknown', resultUrls: [], failMsg: e?.message ?? null, job: null }
+    return { state: 'unknown', resultUrls: [], failMsg: e?.message ?? null, progress: 0, job: null }
   }
 
   const { status, job } = result
@@ -99,6 +100,7 @@ export async function fetchTaskStatus(taskId) {
     resultUrls: status?.resultUrls || [],
     failMsg: status?.failMsg || null,
     completeTime: status?.completeTime || null,
+    progress: Number(status?.progress) || 0,
     job,
   }
 }
@@ -327,6 +329,7 @@ export async function pollAllJobs(jobIds, total, onProgress, _staleTolerance = 8
   const urls = []
   const failures = []
   let backoff = 0
+  const progress = createProgress(onProgress, total, 22, 95)
 
   for (let round = 0; round < 200 && pending.size > 0 && urls.length < total; round++) {
     if (isCancelled?.()) throw new Error('CANCELLED')
@@ -344,13 +347,14 @@ export async function pollAllJobs(jobIds, total, onProgress, _staleTolerance = 8
           break
         }
         backoff = 0
+        // Every answer moves the bar, not only the one that carries a result.
+        progress.update(jobId, status)
 
         if (status.state === 'success' && status.resultUrls[0]) {
           pending.delete(jobId)
           const resultUrl = status.resultUrls[0]
           if (!urls.includes(resultUrl)) {
             urls.push(resultUrl)
-            onProgress?.(Math.min(22 + (urls.length / total) * 73, 95))
             onPartialResults?.(urls.slice(0, total))
           }
         } else if (status.state === 'fail') {
@@ -391,6 +395,7 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
   const urls = []
   const failures = []
   let backoff = 0
+  const progress = createProgress(onProgress, total, 35, 95)
 
   for (let round = 0; round < 450 && pending.size > 0 && urls.length < total; round++) {
     if (isCancelled?.()) throw new Error('CANCELLED')
@@ -409,13 +414,14 @@ async function pollVideoJobs(launched, total, onProgress, onPartialResults, isCa
           break
         }
         backoff = 0
+        // Every answer moves the bar, not only the one that carries a result.
+        progress.update(jobId, status)
 
         if (status.state === 'success' && status.resultUrls[0]) {
           pending.delete(jobId)
           const resultUrl = status.resultUrls[0]
           if (!urls.includes(resultUrl)) {
             urls.push(resultUrl)
-            onProgress?.(Math.min(35 + (urls.length / total) * 60, 95))
             onPartialResults?.(urls.slice(0, total))
           }
         } else if (status.state === 'fail') {

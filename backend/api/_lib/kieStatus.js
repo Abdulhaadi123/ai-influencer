@@ -34,9 +34,13 @@ export class EngineKeyRejectedError extends Error {
 /**
  * Ask KIE about one task, normalised.
  *
- * @returns {Promise<{state: string, resultUrls: string[], failMsg: string|null, completeTime: number|null}>}
+ * @returns {Promise<{state: string, resultUrls: string[], failMsg: string|null,
+ *                    completeTime: number|null, progress: number}>}
  *   state is KIE's own (waiting/queuing/generating/success/fail), or
- *   'ratelimited' (back off) or 'unknown' (no usable answer this time)
+ *   'ratelimited' (back off) or 'unknown' (no usable answer this time).
+ *   `progress` is 0-100 where the model reports one, and 0 where it does not —
+ *   it was being dropped, which is why a running job could only ever be shown
+ *   as "started" or "finished".
  */
 export async function fetchKieTaskStatus(taskId) {
   const key = process.env.KIE_API_KEY || ''
@@ -48,7 +52,7 @@ export async function fetchKieTaskStatus(taskId) {
     signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
   })
 
-  const none = { resultUrls: [], failMsg: null, completeTime: null }
+  const none = { resultUrls: [], failMsg: null, completeTime: null, progress: 0 }
   if (res.status === 401 || res.status === 403) throw new EngineKeyRejectedError()
   if (res.status === 429) return { state: 'ratelimited', ...none }
   if (!res.ok) return { state: 'unknown', ...none }
@@ -70,6 +74,9 @@ export async function fetchKieTaskStatus(taskId) {
     resultUrls: resultUrls.filter(u => typeof u === 'string'),
     failMsg: d.failMsg || null,
     completeTime: d.completeTime || null,
+    // Only some models report one. Clamped rather than trusted, and 0 means
+    // "this model does not say" — never "no work done".
+    progress: Math.max(0, Math.min(100, Number(d.progress) || 0)),
   }
 }
 
