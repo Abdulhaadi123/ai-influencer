@@ -88,9 +88,28 @@ function taskIdOf(body) {
   return typeof id === 'string' && id && id.length <= 200 ? id : null
 }
 
+const urlsFrom = value => (Array.isArray(value) ? value.filter(u => typeof u === 'string') : [])
+
 /**
  * KIE's answer, in the shape _lib/kieStatus.js already folds into a job —
  * the same shape fetchKieTaskStatus returns, so both paths write identically.
+ *
+ * ── Two payload shapes, because KIE has two families of API ──────────────────
+ *
+ * The unified Jobs API this app creates its tasks with reports a task the way
+ * `recordInfo` does: `data.state`, and the URLs inside `data.resultJson` as a
+ * JSON *string*.
+ *
+ * The per-model APIs (Veo, 4o image, Suno) instead send no `data.state` at all
+ * — success is the top-level `code` being 200 — and put the URLs in
+ * `data.info.resultUrls`. Reading only `resultJson` meant such a callback
+ * arrived, verified, and yielded no result: nothing was collected and the job
+ * silently waited for the worker's sweep instead. Veo is selectable in the
+ * studio, so that is a shape we do receive.
+ *
+ * Both are read here. A job that KIE describes in some third way still resolves
+ * — applyKieStatus leaves it untouched without a URL, and the worker asks KIE
+ * directly on its next pass.
  */
 export function statusFromCallback(body) {
   const data = body?.data || {}
@@ -100,14 +119,18 @@ export function statusFromCallback(body) {
   if (data.resultJson) {
     try {
       const parsed = typeof data.resultJson === 'string' ? JSON.parse(data.resultJson) : data.resultJson
-      resultUrls = (parsed?.resultUrls || []).filter(u => typeof u === 'string')
+      resultUrls = urlsFrom(parsed?.resultUrls)
     } catch { /* malformed — treat as none, the worker will ask KIE directly */ }
   }
+  if (!resultUrls.length) resultUrls = urlsFrom(data.info?.resultUrls ?? data.resultUrls)
 
   return {
     state,
     resultUrls,
-    failMsg: data.failMsg || data.failCode || null,
+    // The per-model shape carries no data.failMsg — its reason is the top-level
+    // `msg` ("Failed", "Client error"), which is worth keeping rather than
+    // filing every such failure as a bare "This generation failed."
+    failMsg: data.failMsg || data.failCode || (state === 'fail' ? body?.msg : null) || null,
     completeTime: data.completeTime || null,
   }
 }
