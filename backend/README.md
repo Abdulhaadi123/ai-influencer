@@ -102,11 +102,11 @@ restart. The API says so at startup when callbacks are off.
 
 ---
 
-## Email — SendGrid
+## Email — SMTP
 
 Two emails: **confirm your email** and **reset your password**. Both are sent
-from this server through the SendGrid API (`api/_lib/email.js`) and carry a
-one-time link to a page this server renders (`api/auth/pages.js`):
+from this server over SMTP (`api/_lib/email.js`) and carry a one-time link to a
+page this server renders (`api/auth/pages.js`):
 
 | Link | Page |
 |---|---|
@@ -118,21 +118,33 @@ scanners open every link in an email as it arrives. Links are https pages, not
 `aiinfluencer://` links, because mail clients strip custom schemes and a page
 also works on a computer.
 
-**Setup in SendGrid:**
+**Setup:** four values in `.env`, plus `PUBLIC_BASE_URL` (the links point there).
 
-1. **Settings → Sender Authentication → Authenticate Your Domain.** Add the CNAME
-   records it gives you at your DNS provider (on Cloudflare: **DNS only**, grey
-   cloud). Without this, emails land in spam. A `@gmail.com` sender will not work.
-2. **Settings → API Keys → Create API Key** → *Restricted Access* → **Mail Send:
-   Full Access**, everything else off.
-3. In `.env`: `SENDGRID_API_KEY`, `EMAIL_FROM=noreply@your-domain.com`, and
-   `PUBLIC_BASE_URL=https://api.your-domain.com` (the links point there).
+| | |
+|---|---|
+| `SMTP_HOST` | e.g. `smtp.gmail.com`, or your host's mail server |
+| `SMTP_PORT` | `465` (TLS immediately) or `587` (STARTTLS). `SMTP_SECURE` follows from this and rarely needs setting. |
+| `SMTP_USER` | the full mailbox address |
+| `SMTP_PASS` | the mailbox password — for Gmail, an **app password** |
+| `EMAIL_FROM` | optional; defaults to `SMTP_USER` |
 
-Click and open tracking are turned off per message: click tracking would route
-one-time tokens through SendGrid's link redirector.
+**Gmail:** turn on 2-step verification, then create an app password at
+<https://myaccount.google.com/apppasswords> and use that as `SMTP_PASS` — the
+account password will not work. Leave `EMAIL_FROM` unset: Gmail requires the
+From address to be the mailbox that signed in.
 
-**Locally**, without a SendGrid key, emails are written to the API's log instead
-of sent — the link is right there to open. In production a missing key is an
+Two limits worth knowing before real users: a free Gmail account caps at roughly
+**500 messages a day**, and mail from `@gmail.com` is more likely to be filtered
+than mail from a domain you have authenticated (SPF/DKIM). For anything beyond
+early testing, move `SMTP_*` to a mailbox on your own domain or a transactional
+provider — it is four environment variables, not a code change.
+
+No link is rewritten. A provider's click tracking would route one-time
+verification and reset tokens through a third party's redirector, which leaks the
+token and breaks the link when the tracker expires.
+
+**Locally**, with `SMTP_*` unset, emails are written to the API's log instead of
+sent — the link is right there to open. In production missing settings are an
 error, not a silent skip.
 
 ---
@@ -168,7 +180,7 @@ cp .env.example .env && nano .env
 ```
 
 - `POSTGRES_PASSWORD` — letters and digits only: `openssl rand -hex 32`
-- `PUBLIC_BASE_URL`, SendGrid, S3 and KIE values — see the comments in the file
+- `PUBLIC_BASE_URL`, SMTP, S3 and KIE values — see the comments in the file
 
 Edit `Caddyfile` and replace `api.example.com` with your domain.
 
@@ -264,7 +276,7 @@ local stand-ins in tests; production leaves them unset.
 
 ## What lives on this server
 
-The **database**, the **AWS keys** and the **SendGrid and KIE keys**. Anything
+The **database**, the **AWS keys** and the **mailbox and KIE credentials**. Anything
 that gets onto this box can read every user's data. Keep it patched
 (`unattended-upgrades`), SSH on keys only, and install nothing that does not need
 to be there.

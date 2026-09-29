@@ -1,6 +1,6 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- * Email — sent through SendGrid.
+ * Email — sent over SMTP.
  * ─────────────────────────────────────────────────────────────────────────────
  *
  * Two emails exist: confirm your address, and reset your password. Each carries
@@ -9,18 +9,46 @@
  * custom schemes like `aiinfluencer://`, and a web page also works when the
  * email is opened on a computer.
  *
- * Needs SENDGRID_API_KEY and EMAIL_FROM (an address on a domain verified in
- * SendGrid). Without them, outside production, the email is written to the log
- * instead — so sign-up and password reset can be tried locally. In production a
- * missing key is an error, never a silent skip.
+ * Needs SMTP_HOST, SMTP_USER, SMTP_PASS and EMAIL_FROM. Without them, outside
+ * production, the email is written to the log instead — so sign-up and password
+ * reset can be tried locally. In production missing settings are an error, never
+ * a silent skip.
  *
- * SendGrid's click tracking is turned off for every message: it rewrites links
- * through SendGrid's own domain, which would send one-time tokens through a
- * third party and break the link besides.
+ * ── Why SMTP and not a provider's HTTP API ───────────────────────────────────
+ *
+ * This used to post to SendGrid's REST API, which meant an account, a verified
+ * sending domain and an API key before a single email could go out. SMTP works
+ * with any mailbox that offers it — a Gmail app password, a hosting provider's
+ * mailbox, or a transactional service later on — and changing provider becomes
+ * four environment variables rather than a code change.
+ *
+ * Nothing rewrites the links. A provider's click tracking would route one-time
+ * verification and reset tokens through a third party's redirector, which both
+ * leaks the token and breaks the link when the tracker expires.
  */
 
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || ''
-const EMAIL_FROM = process.env.EMAIL_FROM || ''
+import nodemailer from 'nodemailer'
+
+const SMTP_HOST = process.env.SMTP_HOST || ''
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465)
+const SMTP_USER = process.env.SMTP_USER || ''
+const SMTP_PASS = process.env.SMTP_PASS || ''
+
+/**
+ * 465 is implicit TLS; 587 starts plain and upgrades with STARTTLS. Derived
+ * from the port so the two settings cannot contradict each other, and
+ * overridable for a server that does something unusual.
+ */
+const SMTP_SECURE = process.env.SMTP_SECURE
+  ? process.env.SMTP_SECURE === 'true'
+  : SMTP_PORT === 465
+
+/**
+ * Gmail — and most providers — require the From address to be the mailbox that
+ * authenticated, and silently rewrite or reject anything else. So it defaults to
+ * the SMTP user rather than being a third value to keep in step by hand.
+ */
+const EMAIL_FROM = process.env.EMAIL_FROM || SMTP_USER
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || process.env.APP_NAME || 'AI Influencer'
 const APP_NAME = process.env.APP_NAME || 'AI Influencer'
 const isProduction = process.env.NODE_ENV === 'production'
@@ -37,7 +65,7 @@ const isProduction = process.env.NODE_ENV === 'production'
 const LOG_ONLY = process.env.EMAIL_TRANSPORT === 'log'
 
 export function emailConfigured() {
-  return LOG_ONLY || !!(SENDGRID_API_KEY && EMAIL_FROM)
+  return LOG_ONLY || !!(SMTP_HOST && SMTP_USER && SMTP_PASS && EMAIL_FROM)
 }
 
 /** Whether mail is only being logged — the server says so loudly at startup. */
@@ -59,36 +87,78 @@ export function publicBaseUrl() {
 const escapeHtml = value =>
   String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
+/**
+ * One pooled connection, made on first use.
+ *
+ * Built lazily so importing this module never opens a socket — the tests and
+ * the worker both load it without sending anything. Pooled because sign-up
+ * bursts would otherwise pay a TLS handshake per email, and every timeout is
+ * bounded: a mail server that accepts a connection and then goes quiet must not
+ * hold a request open.
+ */
+let transport = null
+function transporter() {
+  transport ??= nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    pool: true,
+    maxConnections: 2,
+    maxMessages: 50,
+    connectionTimeout: 15_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 30_000,
+  })
+  return transport
+}
+
+/**
+ * Open a connection and authenticate, without sending anything.
+ *
+ * What you want after changing SMTP settings: it separates "the mailbox refused
+ * these credentials" from "nothing was configured" and from "the mail server is
+ * unreachable", none of which look different once a real send fails inside
+ * sendInBackground.
+ *
+ * @returns {Promise<{ok: boolean, reason: string|null}>}
+ */
+export async function verifyTransport() {
+  if (LOG_ONLY) return { ok: true, reason: 'EMAIL_TRANSPORT=log — nothing is sent' }
+  if (!emailConfigured()) return { ok: false, reason: 'SMTP is not configured' }
+  try {
+    await transporter().verify()
+    return { ok: true, reason: null }
+  } catch (e) {
+    return { ok: false, reason: [e?.code, e?.response || e?.message].filter(Boolean).join(' — ') }
+  }
+}
+
 export async function sendEmail({ to, subject, text, html }) {
   if (LOG_ONLY || !emailConfigured()) {
-    if (isProduction && !LOG_ONLY) throw new Error('SENDGRID_API_KEY and EMAIL_FROM must be set on the server.')
-    const why = LOG_ONLY ? 'EMAIL_TRANSPORT=log' : 'SendGrid is not configured'
+    if (isProduction && !LOG_ONLY) {
+      throw new Error('SMTP_HOST, SMTP_USER, SMTP_PASS and EMAIL_FROM must be set on the server.')
+    }
+    const why = LOG_ONLY ? 'EMAIL_TRANSPORT=log' : 'SMTP is not configured'
     console.log(`[email] ${why} — logging instead of sending.\n  to: ${to}\n  subject: ${subject}\n\n${text}\n`)
     return
   }
 
-  const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${SENDGRID_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: { email: EMAIL_FROM, name: EMAIL_FROM_NAME },
-      personalizations: [{ to: [{ email: to }] }],
+  try {
+    await transporter().sendMail({
+      from: { name: EMAIL_FROM_NAME, address: EMAIL_FROM },
+      to,
       subject,
-      content: [
-        { type: 'text/plain', value: text },
-        { type: 'text/html', value: html },
-      ],
-      tracking_settings: {
-        click_tracking: { enable: false, enable_text: false },
-        open_tracking: { enable: false },
-      },
-    }),
-    signal: AbortSignal.timeout(15_000),
-  })
-
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`SendGrid refused the email (HTTP ${res.status}): ${detail.slice(0, 300)}`)
+      text,
+      html,
+    })
+  } catch (e) {
+    // Never include the credentials in what propagates: this message reaches the
+    // server log, and a stack from an auth failure is a common place for one to
+    // surface. `code` and `response` are the useful parts (EAUTH, ECONNECTION,
+    // and the server's own refusal line).
+    const detail = [e?.code, e?.response || e?.message].filter(Boolean).join(' — ')
+    throw new Error(`The mail server refused the email: ${String(detail).slice(0, 300)}`)
   }
 }
 
@@ -96,8 +166,9 @@ export async function sendEmail({ to, subject, text, html }) {
  * Send without making the request wait, and without letting a failure escape.
  *
  * Forgot-password and resend must answer identically whether or not the account
- * exists; waiting for SendGrid only when it does would make "exists" measurably
- * slower. The failure still goes to the log, where someone can act on it.
+ * exists; waiting for the mail server only when it does would make "exists"
+ * measurably slower. The failure still goes to the log, where someone can act
+ * on it.
  */
 export function sendInBackground(promiseFactory, what) {
   Promise.resolve()

@@ -44,7 +44,7 @@ Dockerfile; nothing in it imports app code, and the app knows only its URL
 app ──(access token)──►  backend API ──► PostgreSQL   users, sessions, influencers, gallery, queue
                               │      ──► S3            files (private; presigned URLs only)
                               │      ──► api.kie.ai    generation (the only holder of the key)
-                              │      ──► SendGrid      confirmation and password-reset emails
+                              │      ──► SMTP          confirmation and password-reset emails
                          backend worker ──► KIE + S3   collects finished jobs while the app is closed
 
 api.kie.ai ──(HMAC-signed callback)──► backend API      a finished job, within seconds
@@ -70,9 +70,9 @@ other session, which is the case it existed for.
 - Sessions: random access + refresh tokens stored only as SHA-256 hashes,
   checked against the database on every call, refresh tokens rotated with
   replay detection (`backend/api/_lib/sessions.js`).
-- Emails: SendGrid API from the backend. Links open small web pages on the
-  backend (`backend/api/auth/pages.js`), not screens in the app — mail clients
-  strip custom-scheme links.
+- Emails: SMTP from the backend (`SMTP_HOST` / `SMTP_USER` / `SMTP_PASS`). Links
+  open small web pages on the backend (`backend/api/auth/pages.js`), not screens
+  in the app — mail clients strip custom-scheme links.
 - No answer reveals whether an email is registered.
 
 ## Generation stack
@@ -131,7 +131,7 @@ npx expo export --platform android --no-bytecode  # prove it still bundles
 ```
 
 From the Android emulator the backend on this computer is `http://10.0.2.2:8080`.
-Without SendGrid configured, the backend writes emails (with their links) to its
+Without SMTP configured, the backend writes emails (with their links) to its
 log instead of sending them.
 
 ## Things not to do
