@@ -84,6 +84,7 @@ export function createApp() {
   app.post('/api/influencers/delete', deleteInfluencer)
 
   app.get('/api/generations/by-asset', generations.byAsset)
+  app.get('/api/generations/by-influencer', generations.byInfluencer)
   app.post('/api/generations/add', generations.add)
   app.post('/api/generations/delete', deleteGeneration)
 
@@ -149,12 +150,12 @@ async function main() {
   await migrate()
 
   if (emailLogOnly()) {
-    console.warn('[server] EMAIL_TRANSPORT=log — emails are written to this log and NOT sent. Set SendGrid before real users sign up.')
+    console.warn('[server] EMAIL_TRANSPORT=log — emails are written to this log and NOT sent. Configure SMTP before real users sign up.')
   } else if (!emailConfigured()) {
     console.warn(
       process.env.NODE_ENV === 'production'
-        ? '[server] SENDGRID_API_KEY / EMAIL_FROM are not set — verification and reset emails CANNOT be sent.'
-        : '[server] SendGrid is not configured — emails will be written to this log instead.',
+        ? '[server] SMTP_HOST / SMTP_USER / SMTP_PASS are not set — verification and reset emails CANNOT be sent.'
+        : '[server] SMTP is not configured — emails will be written to this log instead.',
     )
   }
 

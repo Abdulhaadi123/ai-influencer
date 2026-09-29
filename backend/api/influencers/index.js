@@ -40,6 +40,15 @@ const NOT_NULL_DEFAULTS = { name: '', type: 'Influencer' }
 const MAX_TEXT = 20_000
 const MAX_ARRAY = 100
 
+/**
+ * How many of an influencer's newest gallery entries the roster carries.
+ *
+ * Enough to fill the first screen of the Gallery grid; the rest is paged in.
+ * Every entry here costs a presigned URL on the client, so this number is the
+ * app's startup cost per influencer.
+ */
+const GALLERY_PREVIEW = 12
+
 /** The request's patch, reduced to known columns with checked values. */
 function cleanRow(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw badRequest('Nothing to save.')
@@ -106,17 +115,48 @@ export const list = userRoute(async (req, res, user) => {
     `select ${INFLUENCER_COLUMNS} from influencers where user_id = $1 order by created_at desc`,
     [user.id],
   )
-  const generations = influencers.length
+  const ids = influencers.map(i => i.id)
+
+  // Only the newest few per influencer. This query had no LIMIT at all, so
+  // opening the app fetched every generation the account had ever made and the
+  // client then asked storage to sign a URL for every one of them — an
+  // account with a few hundred clips paid that cost on every launch, and again
+  // every three minutes when the URLs were refreshed. The rest of a gallery is
+  // fetched by the Gallery tab as it is scrolled (generations/index.js).
+  const generations = ids.length
     ? await many(
         `select id, influencer_id, asset_id, kind, label, created_at
-           from generations
-          where user_id = $1 and influencer_id = any($2::uuid[])
-          order by created_at desc`,
-        [user.id, influencers.map(i => i.id)],
+           from (
+             select g.id, g.influencer_id, g.asset_id, g.kind, g.label, g.created_at,
+                    row_number() over (
+                      partition by g.influencer_id order by g.created_at desc, g.id desc
+                    ) as rn
+               from generations g
+              where g.user_id = $1 and g.influencer_id = any($2::uuid[])
+           ) t
+          where t.rn <= $3
+          order by t.created_at desc`,
+        [user.id, ids, GALLERY_PREVIEW],
       )
     : []
+
+  // The true totals, so a gallery showing 12 of 200 can still say 200 and know
+  // there is more to fetch.
+  const counts = ids.length
+    ? await many(
+        `select influencer_id,
+                count(*)::int as total,
+                count(*) filter (where kind = 'video')::int as videos,
+                count(*) filter (where kind = 'image')::int as images
+           from generations
+          where user_id = $1 and influencer_id = any($2::uuid[])
+          group by influencer_id`,
+        [user.id, ids],
+      )
+    : []
+
   noStore(res)
-  res.json({ influencers, generations })
+  res.json({ influencers, generations, counts, previewLimit: GALLERY_PREVIEW })
 }, { tag: '[influencers/list]', message: 'Unable to load your influencers. Please try again.' })
 
 /**

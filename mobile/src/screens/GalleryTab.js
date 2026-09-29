@@ -15,11 +15,24 @@
  * players: clips are 9:16, so stacked full-width each one filled the whole
  * screen and you could never see what you had. Tapping a tile opens the
  * lightbox, which is where playback, sharing and deleting live.
+ *
+ * ── Why a FlatList and not a ScrollView ──────────────────────────────────────
+ *
+ * Every video tile holds an expo-video player, and a ScrollView mounts all of
+ * them at once — a hundred clips meant a hundred decoders alive together, which
+ * is what made opening this tab slow and left the grid stuttering. A windowed
+ * FlatList mounts only the rows near the viewport and unmounts the rest, so the
+ * number of live players stays roughly constant however long the history is.
+ *
+ * The roster only carries the newest few entries (backend GALLERY_PREVIEW), so
+ * this screen also pages the rest in as it is scrolled. The filter chips show
+ * the gallery's REAL totals, which come from the server, not the count of what
+ * happens to be loaded.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, ScrollView, Image, Pressable, StyleSheet, Alert, Modal,
+  View, Text, FlatList, Image, Pressable, StyleSheet, Alert, Modal, ActivityIndicator,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useVideoPlayer, VideoView } from 'expo-video'
@@ -38,8 +51,9 @@ export default function GalleryTab({ influencer }) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const bottomInset = useBottomInset()
-  const { removeGeneration } = useInfluencers()
+  const { removeGeneration, loadMoreGenerations } = useInfluencers()
   const [filter, setFilter] = useState('all')
+  const [loadingMore, setLoadingMore] = useState(false)
   // The entry as it was when opened. The roster re-signs its URLs every few
   // minutes, and handing the player a new URL would restart a clip mid-view.
   const [openEntry, setOpenEntry] = useState(null)
@@ -55,11 +69,45 @@ export default function GalleryTab({ influencer }) {
     [history],
   )
 
-  const counts = useMemo(() => ({
-    all: all.length,
-    video: all.filter(e => (e.type || 'video') === 'video').length,
-    image: all.filter(e => (e.type || 'video') === 'image').length,
-  }), [all])
+  /**
+   * The gallery's real size, from the server — not the number of entries that
+   * happen to be loaded. Falls back to what is loaded for a record that predates
+   * the counts (or an influencer created in this session).
+   */
+  const counts = useMemo(() => {
+    const server = influencer.galleryCounts
+    return {
+      all: server?.total ?? all.length,
+      video: server?.videos ?? all.filter(e => (e.type || 'video') === 'video').length,
+      image: server?.images ?? all.filter(e => (e.type || 'video') === 'image').length,
+    }
+  }, [influencer.galleryCounts, all])
+
+  const moreToLoad = all.length < counts.all
+
+  /**
+   * Fetch the next page.
+   *
+   * `exhausted` latches on a failure as well as on the last page: onEndReached
+   * fires again the moment a short list settles, and without it a failing
+   * request would be retried in a tight loop.
+   */
+  const exhausted = useRef(false)
+  useEffect(() => { exhausted.current = false }, [influencer.id])
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || exhausted.current) return
+    setLoadingMore(true)
+    try {
+      const { added, hasMore } = await loadMoreGenerations(influencer.id)
+      if (!hasMore || added === 0) exhausted.current = true
+    } catch (e) {
+      exhausted.current = true
+      console.warn('[gallery] could not load more:', e?.message ?? e)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [influencer.id, loadingMore, loadMoreGenerations])
 
   const items = useMemo(
     () => (filter === 'all' ? all : all.filter(e => (e.type || 'video') === filter)),
@@ -123,61 +171,83 @@ export default function GalleryTab({ influencer }) {
     )
   }
 
+  const filterBar = (
+    <View style={styles.filters}>
+      {[
+        { label: 'All', value: 'all' },
+        { label: 'Videos', value: 'video' },
+        { label: 'Images', value: 'image' },
+      ].map(f => {
+        const active = filter === f.value
+        const n = counts[f.value]
+        return (
+          <Pressable
+            key={f.value}
+            onPress={() => setFilter(f.value)}
+            disabled={n === 0}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active, disabled: n === 0 }}
+            style={[
+              styles.filter,
+              {
+                backgroundColor: active ? colors.brand : colors.surface,
+                borderColor: active ? colors.brand : colors.borderSubtle,
+                opacity: n === 0 ? 0.45 : 1,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.filterText,
+                { color: active ? '#FFFFFF' : colors.textSecondary },
+              ]}
+            >
+              {f.label} {n}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+
   return (
     <>
-      <ScrollView
+      <FlatList
         style={{ flex: 1 }}
         contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
-      >
-        <View style={styles.filters}>
-          {[
-            { label: 'All', value: 'all' },
-            { label: 'Videos', value: 'video' },
-            { label: 'Images', value: 'image' },
-          ].map(f => {
-            const active = filter === f.value
-            const n = counts[f.value]
-            return (
-              <Pressable
-                key={f.value}
-                onPress={() => setFilter(f.value)}
-                disabled={n === 0}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active, disabled: n === 0 }}
-                style={[
-                  styles.filter,
-                  {
-                    backgroundColor: active ? colors.brand : colors.surface,
-                    borderColor: active ? colors.brand : colors.borderSubtle,
-                    opacity: n === 0 ? 0.45 : 1,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.filterText,
-                    { color: active ? '#FFFFFF' : colors.textSecondary },
-                  ]}
-                >
-                  {f.label} {n}
-                </Text>
-              </Pressable>
-            )
-          })}
-        </View>
-
-        {items.length === 0 ? (
-          <Text style={[styles.noneForFilter, { color: colors.textTertiary }]}>
-            No {filter === 'video' ? 'videos' : 'images'} yet.
-          </Text>
-        ) : (
-          <View style={styles.grid}>
-            {items.map(entry => (
-              <Tile key={entry.id} entry={entry} onPress={() => setOpenEntry(entry)} />
-            ))}
-          </View>
+        data={items}
+        keyExtractor={entry => String(entry.id)}
+        numColumns={2}
+        columnWrapperStyle={styles.column}
+        renderItem={({ item }) => (
+          <Tile entry={item} onPress={() => setOpenEntry(item)} />
         )}
-      </ScrollView>
+        ListHeaderComponent={filterBar}
+        ListEmptyComponent={
+          <Text style={[styles.noneForFilter, { color: colors.textTertiary }]}>
+            {moreToLoad
+              ? 'Loading…'
+              : `No ${filter === 'video' ? 'videos' : 'images'} yet.`}
+          </Text>
+        }
+        ListFooterComponent={
+          loadingMore
+            ? <ActivityIndicator style={styles.footer} size="small" color={colors.brand} />
+            : moreToLoad
+              ? <Text style={[styles.footerText, { color: colors.textTertiary }]}>
+                  {all.length} of {counts.all} loaded
+                </Text>
+              : null
+        }
+        onEndReached={moreToLoad ? loadMore : null}
+        onEndReachedThreshold={0.5}
+        // Only the rows near the viewport hold a video player; the rest are
+        // unmounted, which is the whole point of moving off a ScrollView.
+        initialNumToRender={6}
+        maxToRenderPerBatch={6}
+        windowSize={5}
+        removeClippedSubviews
+      />
 
       <Lightbox
         entry={open}
@@ -190,8 +260,13 @@ export default function GalleryTab({ influencer }) {
   )
 }
 
-/** One grid thumbnail. Videos render a paused frame with a play badge. */
-function Tile({ entry, onPress }) {
+/**
+ * One grid thumbnail. Videos render a paused frame with a play badge.
+ *
+ * Memoised on the entry so the three-minute URL refresh — which rewrites the
+ * roster — does not tear down and rebuild every visible player.
+ */
+const Tile = memo(function Tile({ entry, onPress }) {
   const { colors } = useTheme()
   const isVideo = (entry.type || 'video') === 'video'
 
@@ -222,7 +297,7 @@ function Tile({ entry, onPress }) {
       </Text>
     </Pressable>
   )
-}
+}, (a, b) => a.entry.id === b.entry.id && a.entry.url === b.entry.url)
 
 /**
  * Muted, paused, no controls — this is a poster frame, not a player. Playback
@@ -307,8 +382,10 @@ const styles = StyleSheet.create({
 
   noneForFilter: { fontSize: 14, paddingVertical: space.xxl, textAlign: 'center' },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  column: { justifyContent: 'space-between' },
   tile: { width: '48%', marginBottom: space.lg },
+  footer: { paddingVertical: space.lg },
+  footerText: { fontSize: 12.5, textAlign: 'center', paddingVertical: space.lg },
   thumbWrap: {
     width: '100%', aspectRatio: 9 / 16, borderRadius: radius.md,
     overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#000',

@@ -25,9 +25,10 @@ import { resolveUrls } from './assets'
  * API row → the object screens consume.
  * @param {object} row
  * @param {Map<string,string>} urls  assetId → signed URL
- * @param {object[]} history         this influencer's gallery entries, newest first
+ * @param {object[]} history         this influencer's newest gallery entries
+ * @param {{total, videos, images}|null} counts  the gallery's real totals
  */
-function toApp(row, urls, history = []) {
+function toApp(row, urls, history = [], counts = null) {
   const url = id => (id ? urls.get(String(id)) ?? null : null)
 
   return {
@@ -78,6 +79,18 @@ function toApp(row, urls, history = []) {
     })),
 
     generationHistory: history,
+
+    /**
+     * How much is in this influencer's gallery in total, against how much of it
+     * is loaded. `history` is only the newest few (see GALLERY_PREVIEW on the
+     * server); the Gallery tab pages in the rest as it is scrolled, so it needs
+     * the real totals to label its filters and to know when to stop asking.
+     */
+    galleryCounts: {
+      total: Number(counts?.total ?? history.length),
+      videos: Number(counts?.videos ?? history.filter(h => h.type === 'video').length),
+      images: Number(counts?.images ?? history.filter(h => h.type === 'image').length),
+    },
   }
 }
 
@@ -90,6 +103,10 @@ export function toGalleryEntry(row, url) {
     url: url ?? null,
     assetId: row.asset_id,
     date: new Date(row.created_at).getTime(),
+    // The timestamp exactly as Postgres wrote it, for the paging cursor. `date`
+    // is milliseconds and a timestamptz has microseconds, so a cursor built
+    // from it could re-fetch or skip the row on the page boundary.
+    createdAt: row.created_at,
   }
 }
 
@@ -238,11 +255,17 @@ function collectAssetIds(rows, generations) {
 }
 
 /**
- * The signed-in user's whole roster, gallery attached. Two round trips however
- * many influencers there are: the rows, and one batch of signed URLs.
+ * The signed-in user's whole roster, with the newest slice of each gallery
+ * attached. Two round trips however many influencers there are: the rows, and
+ * one batch of signed URLs.
+ *
+ * Deliberately NOT the whole gallery. Every entry costs a presigned URL, and
+ * signing every clip an account had ever made — on launch, and again on every
+ * refresh — was what made opening the app slow. The Gallery tab pages in the
+ * rest (data/generations.js listForInfluencer).
  */
 export async function list() {
-  const { influencers: rows = [], generations = [] } = await apiFetch('/api/influencers')
+  const { influencers: rows = [], generations = [], counts = [] } = await apiFetch('/api/influencers')
   if (!rows.length) return []
 
   const urls = await resolveUrls(collectAssetIds(rows, generations))
@@ -253,8 +276,9 @@ export async function list() {
     entries.push(toGalleryEntry(g, urls.get(String(g.asset_id))))
     historyByInfluencer.set(g.influencer_id, entries)
   }
+  const countsById = new Map((counts || []).map(c => [c.influencer_id, c]))
 
-  return rows.map(r => toApp(r, urls, historyByInfluencer.get(r.id) || []))
+  return rows.map(r => toApp(r, urls, historyByInfluencer.get(r.id) || [], countsById.get(r.id)))
 }
 
 /**

@@ -10,7 +10,7 @@
  */
 
 import { apiFetch } from '../api/client'
-import { resolveUrl } from './assets'
+import { resolveUrl, resolveUrls } from './assets'
 import { toGalleryEntry } from './influencers'
 
 async function withUrl(row) {
@@ -25,6 +25,41 @@ export async function findByAsset(assetId) {
   if (!assetId) return null
   const { generation } = await apiFetch(`/api/generations/by-asset?assetId=${encodeURIComponent(assetId)}`)
   return withUrl(generation)
+}
+
+/**
+ * One page of an influencer's gallery, newest first.
+ *
+ * The roster carries only the newest few entries, so this is how the Gallery tab
+ * reaches the rest. Pass the last entry you hold as the cursor — its exact
+ * `createdAt` and `id` — rather than an offset: a result collected while the
+ * user scrolls would shift every offset and silently skip or repeat an entry.
+ *
+ * @param {object} opts
+ * @param {string} opts.influencerId
+ * @param {string|null} [opts.beforeAt]  the last held entry's `createdAt`
+ * @param {string|null} [opts.beforeId]  the last held entry's `id`
+ * @param {number} [opts.limit]
+ * @returns {Promise<{entries: object[], hasMore: boolean}>}
+ */
+export async function listForInfluencer({ influencerId, beforeAt = null, beforeId = null, limit = 30 }) {
+  if (!influencerId) return { entries: [], hasMore: false }
+
+  const params = new URLSearchParams({ influencerId, limit: String(limit) })
+  // Both halves or neither: one alone cannot order anything, and the server
+  // refuses a half cursor.
+  if (beforeAt && beforeId) {
+    params.set('beforeAt', String(beforeAt))
+    params.set('beforeId', String(beforeId))
+  }
+
+  const { generations = [], hasMore = false } = await apiFetch(`/api/generations/by-influencer?${params.toString()}`)
+  // One batch of signed URLs for the page, the same way the roster does it.
+  const urls = await resolveUrls(generations.map(g => g.asset_id))
+  return {
+    entries: generations.map(g => toGalleryEntry(g, urls.get(String(g.asset_id)))),
+    hasMore,
+  }
 }
 
 /**

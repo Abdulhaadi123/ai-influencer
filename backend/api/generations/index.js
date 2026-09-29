@@ -8,11 +8,14 @@
  * entry that already exists returns that entry instead of a duplicate.
  */
 
-import { one } from '../_lib/db.js'
+import { one, many } from '../_lib/db.js'
 import { userRoute, badRequest, forbidden, noStore } from '../_lib/http.js'
 import { isUuid, text, ASSET_KINDS } from '../_lib/validate.js'
 
 const COLUMNS = 'id, influencer_id, asset_id, kind, label, created_at'
+
+/** Page size for the Gallery's own fetches. */
+const MAX_PAGE = 60
 
 /** GET /api/generations/by-asset?assetId= → { generation | null } */
 export const byAsset = userRoute(async (req, res, user) => {
@@ -22,6 +25,43 @@ export const byAsset = userRoute(async (req, res, user) => {
   noStore(res)
   res.json({ generation })
 }, { tag: '[generations/by-asset]', message: 'Unable to load the gallery. Please try again.' })
+
+/**
+ * GET /api/generations/by-influencer?influencerId=&limit=&beforeAt=&beforeId=
+ * → { generations, hasMore }
+ *
+ * One influencer's gallery, newest first, in pages — because the roster only
+ * carries the newest few (influencers/index.js).
+ *
+ * Keyset pagination on (created_at, id), not OFFSET: a result collected while
+ * the user is scrolling shifts every offset by one, which silently skips or
+ * repeats an entry. Pass back the last row's `created_at` and `id`.
+ */
+export const byInfluencer = userRoute(async (req, res, user) => {
+  const { influencerId, beforeAt = null, beforeId = null } = req.query || {}
+  if (!isUuid(influencerId)) throw badRequest('influencerId is required.')
+  const limit = Math.min(Math.max(Number(req.query?.limit) || 30, 1), MAX_PAGE)
+
+  if (beforeAt !== null && Number.isNaN(new Date(String(beforeAt)).getTime())) {
+    throw badRequest('beforeAt is not a valid time.')
+  }
+  if (beforeId !== null && !isUuid(beforeId)) throw badRequest('beforeId is not valid.')
+  // Both halves of the cursor or neither — one alone cannot order anything.
+  const cursor = beforeAt !== null && beforeId !== null
+
+  // One row more than asked for, to answer hasMore without a second count.
+  const rows = await many(
+    `select ${COLUMNS} from generations
+      where user_id = $1 and influencer_id = $2
+        and ($3::boolean is false or (created_at, id) < ($4::timestamptz, $5::uuid))
+      order by created_at desc, id desc
+      limit $6`,
+    [user.id, influencerId, cursor, cursor ? beforeAt : null, cursor ? beforeId : null, limit + 1],
+  )
+
+  noStore(res)
+  res.json({ generations: rows.slice(0, limit), hasMore: rows.length > limit })
+}, { tag: '[generations/by-influencer]', message: 'Unable to load the gallery. Please try again.' })
 
 /** POST /api/generations/add  { assetId, influencerId?, kind?, label? } → { generation } */
 export const add = userRoute(async (req, res, user) => {

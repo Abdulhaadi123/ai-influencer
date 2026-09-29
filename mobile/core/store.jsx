@@ -188,10 +188,53 @@ export function StoreProvider({ children }) {
   /** Put an entry at the front of an influencer's gallery, at most once. */
   const showInGallery = useCallback((influencerId, entry) => {
     if (entry?.assetId && removedAssets.current.has(String(entry.assetId))) return
-    setInfluencersState(prev => prev.map(i =>
-      i.id === influencerId && !(i.generationHistory || []).some(g => g.id === entry.id)
-        ? { ...i, generationHistory: [entry, ...(i.generationHistory || [])] }
-        : i))
+    setInfluencersState(prev => prev.map(i => {
+      if (i.id !== influencerId) return i
+      if ((i.generationHistory || []).some(g => g.id === entry.id)) return i
+      const counts = i.galleryCounts || { total: 0, videos: 0, images: 0 }
+      const isVideo = (entry.type || 'video') === 'video'
+      return {
+        ...i,
+        generationHistory: [entry, ...(i.generationHistory || [])],
+        // Keep the totals honest, or a gallery showing "12 of 200" never
+        // notices the 201st.
+        galleryCounts: {
+          total: counts.total + 1,
+          videos: counts.videos + (isVideo ? 1 : 0),
+          images: counts.images + (isVideo ? 0 : 1),
+        },
+      }
+    }))
+  }, [])
+
+  /**
+   * Append the next page of an influencer's gallery.
+   *
+   * @returns {Promise<{added: number, hasMore: boolean}>}
+   */
+  const loadMoreGenerations = useCallback(async influencerId => {
+    const current = influencersRef.current.find(i => i.id === influencerId)
+    if (!current) return { added: 0, hasMore: false }
+
+    const history = current.generationHistory || []
+    const oldest = history[history.length - 1]
+    const { entries, hasMore } = await generationRepo.listForInfluencer({
+      influencerId,
+      beforeAt: oldest?.createdAt ?? null,
+      beforeId: oldest?.id ?? null,
+    })
+    if (!alive.current) return { added: 0, hasMore }
+
+    let added = 0
+    setInfluencersState(prev => prev.map(i => {
+      if (i.id !== influencerId) return i
+      const seen = new Set((i.generationHistory || []).map(g => g.id))
+      const fresh = entries.filter(e =>
+        !seen.has(e.id) && !removedAssets.current.has(String(e.assetId)))
+      added = fresh.length
+      return fresh.length ? { ...i, generationHistory: [...(i.generationHistory || []), ...fresh] } : i
+    }))
+    return { added, hasMore }
   }, [])
 
   /** Append a finished generation to an influencer's gallery. */
@@ -224,7 +267,17 @@ export function StoreProvider({ children }) {
     setInfluencersState(prev => prev.map(i => {
       if (i.id !== influencerId) return i
       const entry = (i.generationHistory || []).find(g => g.id === generationId)
-      const next = { ...i, generationHistory: (i.generationHistory || []).filter(g => g.id !== generationId) }
+      const counts = i.galleryCounts || { total: 0, videos: 0, images: 0 }
+      const wasVideo = (entry?.type || 'video') === 'video'
+      const next = {
+        ...i,
+        generationHistory: (i.generationHistory || []).filter(g => g.id !== generationId),
+        galleryCounts: entry ? {
+          total: Math.max(0, counts.total - 1),
+          videos: Math.max(0, counts.videos - (wasVideo ? 1 : 0)),
+          images: Math.max(0, counts.images - (wasVideo ? 0 : 1)),
+        } : counts,
+      }
       // The file may also be a reference sheet or the main image. The database
       // clears those fields itself; this stops the screen — and the next video
       // request — from using a link to a file that no longer exists.
@@ -292,9 +345,11 @@ export function StoreProvider({ children }) {
       addGeneration,
       adoptGeneration,
       removeGeneration,
+      loadMoreGenerations,
     }),
     [influencers, setInfluencers, loading, loadedFor, userId, error, refresh, refreshUrls,
-     addInfluencer, updateInfluencer, removeInfluencer, addGeneration, adoptGeneration, removeGeneration],
+     addInfluencer, updateInfluencer, removeInfluencer, addGeneration, adoptGeneration,
+     removeGeneration, loadMoreGenerations],
   )
 
   // Brand deals are not yet wired to a screen on mobile. The context stays so
@@ -314,7 +369,8 @@ export function StoreProvider({ children }) {
  * @returns {[Array, Function] & {
  *   influencers: Array, loading: boolean, error: string|null, refresh: Function, refreshUrls: Function,
  *   addInfluencer: Function, updateInfluencer: Function, removeInfluencer: Function,
- *   addGeneration: Function, adoptGeneration: Function, removeGeneration: Function
+ *   addGeneration: Function, adoptGeneration: Function, removeGeneration: Function,
+ *   loadMoreGenerations: Function
  * }}
  */
 export function useInfluencers() {
