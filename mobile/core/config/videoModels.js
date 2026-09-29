@@ -391,3 +391,30 @@ export function getVideoModel(id) {
 export function getMotionModel(id) {
   return MOTION_MODELS.find(m => m.id === id) || MOTION_MODELS[0]
 }
+
+/**
+ * The length this model will actually produce for a requested one.
+ *
+ * Every `buildInput` above already snaps the REQUEST with `nearest`, so the job
+ * KIE receives has always been valid. What did not follow was the PROMPT: the
+ * studio built it from the number the user picked, so asking a model that only
+ * does 8s for 15s sent an 8-second job described as "FORMAT: 15s ... 0:00 to
+ * 0:15", with action beats timed past the end of the clip. Ask here first and
+ * use one number for both.
+ */
+export function durationFor(id, requested) {
+  const allowed = getVideoModel(id).durations
+  return allowed?.length ? nearest(requested, allowed) : Number(requested)
+}
+
+/**
+ * Which of the studio's offered lengths this model can actually produce, so the
+ * control cannot offer one that would be silently snapped to something else.
+ *
+ * Never empty: a model overlapping none of them falls back to its own list.
+ */
+export function offeredDurations(id, offered) {
+  const allowed = getVideoModel(id).durations || []
+  const usable = (offered || []).filter(d => allowed.includes(d))
+  return usable.length ? usable : allowed
+}

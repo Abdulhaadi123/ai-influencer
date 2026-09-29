@@ -121,7 +121,11 @@ function parseAdditionalNotes(notes, durationSecs) {
       } else {
         const m = s.match(/at\s+(\d+)\s*s(?:ec(?:ond)?s?)?/i)
         if (m) {
-          const sec = parseInt(m[1])
+          // Clamped into the clip, the same way the "at the end" branch above is.
+          // A beat written "at 13s" against an 8-second clip printed "At 0:13" in
+          // a plan that ends at 0:08 — a direction the model cannot follow, and
+          // one that reads as a longer clip than the one being generated.
+          const sec = Math.min(parseInt(m[1]), Math.max(durationSecs - 1, 1))
           fraction = Math.min(sec / durationSecs, 1)
           ts = `0:${String(sec).padStart(2, '0')}`
         }
