@@ -6,6 +6,8 @@
  *
  *   • The same alert is not stacked. Editing a field while offline saves on
  *     change, and each failed save used to raise its own identical alert.
+ *   • Not enough credits is not shown here either: the navigation shell has already offered
+ *     the Credits screen (src/hooks/useBilling.js), and a second alert would only repeat it.
  *   • An ended session is not shown at all. The auth provider signs out and the
  *     sign-in screen explains; an alert on top would say it twice.
  */
@@ -13,6 +15,7 @@
 import { Alert } from 'react-native'
 
 import { userMessage, isSessionEnded } from '@core/errors'
+import { isOutOfCredits } from '@core/billing/outOfCredits'
 
 const REPEAT_WINDOW_MS = 4000
 const lastShown = new Map()
@@ -24,6 +27,7 @@ const lastShown = new Map()
  */
 export function showError(title, error, fallback) {
   if (isSessionEnded(error)) return
+  if (isOutOfCredits(error)) return
 
   const message = userMessage(error, fallback)
   const key = `${title}\n${message}`

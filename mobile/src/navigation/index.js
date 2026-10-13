@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native'
+import { View, Text, ActivityIndicator, Pressable, StyleSheet } from 'react-native'
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
@@ -30,15 +30,20 @@ import InfluencerDetailScreen from '../screens/InfluencerDetailScreen'
 import CreateScreen from '../screens/CreateScreen'
 import QueueScreen from '../screens/QueueScreen'
 import SettingsScreen from '../screens/SettingsScreen'
+import CreditsScreen from '../screens/CreditsScreen'
 
 import SignInScreen from '../screens/auth/SignInScreen'
 import SignUpScreen from '../screens/auth/SignUpScreen'
 import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen'
 
 import { useQueueSync } from '../hooks/useQueueSync'
-import { useCollectedResults } from '../hooks/useCollectedResults'
+import { useCollectedResults, usePollingWhileForeground } from '../hooks/useCollectedResults'
 import { useAssetUrlRefresh } from '../hooks/useAssetUrlRefresh'
-import { useTheme, space } from '../theme'
+import { useBilling } from '../hooks/useBilling'
+import { useCredits } from '../hooks/useCredits'
+import { formatCredits } from '@core/billing/packs'
+import { navigationRef, openCredits } from './ref'
+import { useTheme, space, radius } from '../theme'
 
 const Tab = createBottomTabNavigator()
 const Stack = createNativeStackNavigator()
@@ -94,6 +99,27 @@ function InfluencersStack() {
   )
 }
 
+/**
+ * The balance, in the header of every tab that has one. Shown only when credits matter
+ * (useCredits: charging is on, or the account holds some); tapping it opens the Credits screen.
+ */
+function CreditsChip() {
+  const { colors } = useTheme()
+  const credits = useCredits()
+  if (!credits.visible || credits.balance === null) return null
+  const low = credits.balance <= 0
+  return (
+    <Pressable
+      onPress={openCredits}
+      accessibilityRole="button"
+      accessibilityLabel={`${formatCredits(credits.balance)} credits. Open credits.`}
+      style={[styles.chip, { backgroundColor: low ? 'rgba(220,38,38,0.10)' : colors.brandSoft }]}
+    >
+      <Text style={[styles.chipText, { color: low ? colors.danger : colors.brandDeep }]}>✦ {formatCredits(credits.balance)}</Text>
+    </Pressable>
+  )
+}
+
 function MainTabs() {
   const { colors } = useTheme()
   const { userId } = useAuth()
@@ -104,8 +130,11 @@ function MainTabs() {
   // Results the server's worker saved while the app was open reach the gallery
   // without a reload.
   useCollectedResults()
+  usePollingWhileForeground()
   // Signed media URLs expire after ten minutes; this keeps the roster's fresh.
   useAssetUrlRefresh()
+  // Who is signed in to the store, the balance, and the "not enough credits" alert.
+  useBilling()
 
   const activeJobs = useActiveJobCount(userId)
 
@@ -115,6 +144,8 @@ function MainTabs() {
         headerStyle: { backgroundColor: colors.bg },
         headerTintColor: colors.textPrimary,
         headerTitleStyle: { fontWeight: '600' },
+        headerRight: () => <CreditsChip />,
+        headerRightContainerStyle: { paddingRight: space.lg },
         tabBarActiveTintColor: colors.brand,
         tabBarInactiveTintColor: colors.textTertiary,
         tabBarStyle: { backgroundColor: colors.bgSecondary, borderTopColor: colors.borderSubtle },
@@ -157,6 +188,27 @@ function MainTabs() {
         options={{ tabBarIcon: ({ color }) => <TabIcon glyph="⚙️" color={color} /> }}
       />
     </Tab.Navigator>
+  )
+}
+
+/**
+ * Signed in: the tabs, and the screens that open over them. Credits is reached from the
+ * header chip, from Settings, and from the "not enough credits" alert.
+ */
+function SignedIn() {
+  const { colors } = useTheme()
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.bg },
+        headerTintColor: colors.textPrimary,
+        headerTitleStyle: { fontWeight: '600' },
+        contentStyle: { backgroundColor: colors.bg },
+      }}
+    >
+      <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
+      <Stack.Screen name="Credits" component={CreditsScreen} options={{ title: 'Credits' }} />
+    </Stack.Navigator>
   )
 }
 
@@ -214,8 +266,8 @@ export default function RootNavigator() {
   if (initialising) return <Splash />
 
   return (
-    <NavigationContainer theme={navTheme}>
-      {isSignedIn ? <MainTabs /> : <AuthFlow />}
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
+      {isSignedIn ? <SignedIn /> : <AuthFlow />}
     </NavigationContainer>
   )
 }
@@ -224,4 +276,6 @@ const styles = StyleSheet.create({
   splash: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.lg },
   splashText: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
   configTitle: { fontSize: 18, fontWeight: '700' },
+  chip: { paddingHorizontal: space.md, paddingVertical: space.xs + 2, borderRadius: radius.pill },
+  chipText: { fontSize: 14, fontWeight: '700' },
 })

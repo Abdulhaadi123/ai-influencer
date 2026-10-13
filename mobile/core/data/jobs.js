@@ -26,6 +26,8 @@
 
 import { apiFetch } from '../api/client'
 import { isSessionEnded } from '../errors'
+import { createPollPacer } from './pollPacer'
+import { refreshCredits } from './billing'
 
 /** KIE's own vocabulary for "still working". */
 export const ACTIVE_STATES = ['waiting', 'queuing', 'generating']
@@ -75,9 +77,9 @@ export function isDeleted(job) {
   return job?.state === 'success' && !job?.assetId && !job?.resultUrl
 }
 
-/** Every job for the signed-in user, newest first. */
-export async function listJobs({ limit = 60 } = {}) {
-  const { jobs } = await apiFetch(`/api/jobs?limit=${limit}`)
+/** Every job for the signed-in user, newest first — or, with `activeOnly`, just the ones still running. */
+export async function listJobs({ limit = 60, activeOnly = false } = {}) {
+  const { jobs } = await apiFetch(`/api/jobs?limit=${limit}${activeOnly ? '&active=1' : ''}`)
   return (jobs || []).map(toApp)
 }
 
@@ -133,6 +135,9 @@ export async function registerJobs(entries) {
   if (!valid.length) return []
 
   const { jobs } = await apiFetch('/api/jobs/register', { method: 'POST', body: { entries: valid } })
+  nudgePolling()
+  // A generation just started, and its price was taken: the balance has moved.
+  refreshCredits()
   return (jobs || []).map(toApp)
 }
 
@@ -163,17 +168,22 @@ export async function clearSettled() {
 
 // ── Change notifications ─────────────────────────────────────────────────────
 
-/** How often the shared poller asks what changed. */
-const POLL_INTERVAL_MS = 5000
+/**
+ * How often to ask is decided by pollPacer.js: quick while a job is running or
+ * something has just happened, slow when nothing has, and not at all while the
+ * app is in the background.
+ */
+const pacer = createPollPacer()
 
 const subscribers = new Set()
 let pollUserId = null
 let cursor = null
 let timer = null
 let polling = false
+let paused = false
 
 async function pollOnce() {
-  if (polling || !subscribers.size) return
+  if (polling || paused || !subscribers.size) return
   polling = true
   const forUser = pollUserId
   try {
@@ -182,13 +192,18 @@ async function pollOnce() {
     // The user changed while the request was out: its answer belongs to nobody here.
     if (forUser !== pollUserId) return
 
+    const rows = json?.jobs || []
+    pacer.observe({ activeCount: json?.activeCount, changed: rows.length })
+    // A job that failed gave its credits back; one that finished is settled. Either way the balance may have moved.
+    if (rows.length && cursor) refreshCredits()
+
     const firstPoll = !cursor
     cursor = json?.cursor ?? cursor
     // The first answer only sets the starting point; each screen loads its own
     // current state when it subscribes.
     if (firstPoll) return
 
-    for (const row of json?.jobs || []) {
+    for (const row of rows) {
       const payload = { eventType: 'UPDATE', new: row }
       for (const handler of [...subscribers]) {
         try { handler(payload) } catch (e) { console.warn('[jobs] subscriber failed:', e?.message ?? e) }
@@ -199,6 +214,49 @@ async function pollOnce() {
   } finally {
     polling = false
   }
+}
+
+function stopTimer() {
+  if (timer) { clearTimeout(timer); timer = null }
+}
+
+/** Ask once more after the pacer's delay — a single pending timer at any moment. */
+function scheduleNext() {
+  stopTimer()
+  if (!subscribers.size || paused) return
+  timer = setTimeout(tick, pacer.delay())
+}
+
+async function tick() {
+  timer = null
+  await pollOnce()
+  scheduleNext()
+}
+
+function pollNow() {
+  stopTimer()
+  tick()
+}
+
+/**
+ * Something just started (a job was recorded, the app came to the front): ask at
+ * once, and stay quick for a while. Safe to call with nobody listening.
+ */
+export function nudgePolling() {
+  pacer.touch()
+  if (subscribers.size && !paused) pollNow()
+}
+
+/**
+ * The app went to the background (true) or came back (false). A backgrounded app
+ * asks nothing; coming back is something that happened, so it asks at once.
+ */
+export function setPollingPaused(value) {
+  const next = Boolean(value)
+  if (next === paused) return
+  paused = next
+  if (paused) stopTimer()
+  else nudgePolling()
 }
 
 /**
@@ -217,17 +275,17 @@ export function subscribe(userId, handler) {
   }
 
   subscribers.add(handler)
-  if (!timer) {
-    pollOnce()
-    timer = setInterval(pollOnce, POLL_INTERVAL_MS)
+  if (subscribers.size === 1) {
+    pacer.touch()
+    if (!paused) pollNow()
   }
 
   return () => {
     subscribers.delete(handler)
-    if (!subscribers.size && timer) {
-      clearInterval(timer)
-      timer = null
+    if (!subscribers.size) {
+      stopTimer()
       cursor = null
+      pacer.reset()
     }
   }
 }

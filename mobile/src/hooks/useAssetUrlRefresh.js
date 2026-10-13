@@ -25,7 +25,8 @@ export function useAssetUrlRefresh() {
       refreshUrls().catch(e => console.warn('[urls] refresh failed:', e?.message ?? e))
     }
 
-    const id = setInterval(run, URL_REFRESH_INTERVAL_MS)
+    // Not while backgrounded: nothing is on screen, and coming back refreshes at once (below).
+    const id = setInterval(() => { if (AppState.currentState === 'active') run() }, URL_REFRESH_INTERVAL_MS)
     const sub = AppState.addEventListener('change', state => {
       if (state === 'active') run()
     })

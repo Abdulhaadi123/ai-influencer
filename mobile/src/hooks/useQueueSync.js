@@ -39,7 +39,8 @@ export function useQueueSync(intervalMs = DEFAULT_INTERVAL_MS) {
 
     syncActiveJobs()
 
-    const id = setInterval(() => { syncActiveJobs() }, intervalMs)
+    // A backgrounded app asks nothing; the AppState handler below catches up on return.
+    const id = setInterval(() => { if (AppState.currentState === 'active') syncActiveJobs() }, intervalMs)
 
     // Timers are throttled or stopped while backgrounded, so coming back is
     // its own trigger rather than something the interval can be relied on for.

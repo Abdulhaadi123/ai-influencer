@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useInfluencers } from '@core/store'
 import { generateThreeImages, STILL_RUNNING } from '@core/services/generation'
+import { IMAGE_MODEL_ID } from '@core/config/generation'
 import { uploadLocal, resolveUrl, remove as removeAsset } from '@core/data/assets'
 import { COPY_ATTRIBUTES, buildImagePrompts } from '@core/prompts/influencerPrompts'
 import { buildNewInfluencer, buildCreationParams } from '@core/newInfluencer'
@@ -27,6 +28,7 @@ import { persistGenerated } from '@core/platform/persistMedia'
 import { userMessage } from '@core/errors'
 
 import { useTheme, space, radius } from '../theme'
+import CostNote from '../components/CostNote'
 import { Section, Button } from '../components/ui'
 import { pickImageWithPrompt } from '../lib/picker'
 import { showError } from '../lib/alerts'
@@ -504,6 +506,7 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
           One image will be generated. You can regenerate it if you want a different result.
         </Text>
         {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
+        <CostNote model={IMAGE_MODEL_ID} />
         <Button title="Generate image" onPress={onGenerate} />
       </View>
     )

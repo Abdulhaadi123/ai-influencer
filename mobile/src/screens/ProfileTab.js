@@ -34,6 +34,8 @@ import { showError } from '../lib/alerts'
 import { persistGenerated } from '@core/platform/persistMedia'
 
 import { useTheme, space, radius } from '../theme'
+import CostNote from '../components/CostNote'
+import { IMAGE_MODEL_ID } from '@core/config/generation'
 import { Section, Row, Button, Collapsible, Field } from '../components/ui'
 import IdentityRefs from '../components/IdentityRefs'
 import { pickImageWithPrompt } from '../lib/picker'
@@ -205,6 +207,7 @@ export default function ProfileTab({ influencer, navigation }) {
                   </View>
                 ) : null}
               </View>
+              <CostNote model={IMAGE_MODEL_ID} />
               <View style={styles.buttonRow}>
                 <View style={styles.flex}>
                   <Button title="Regenerate" onPress={regenerate} disabled={regenerating || !!pendingTaskId} />

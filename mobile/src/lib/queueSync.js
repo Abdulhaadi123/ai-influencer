@@ -31,7 +31,8 @@ export function syncActiveJobs() {
 
   inFlight = (async () => {
     try {
-      const active = (await listJobs()).filter(isActive)
+      // Only the running ones are asked for: this runs every half minute, idle or not.
+      const active = (await listJobs({ activeOnly: true })).filter(isActive)
       if (!active.length) return []
       return await refreshJobs(active.map(j => j.taskId))
     } catch (e) {

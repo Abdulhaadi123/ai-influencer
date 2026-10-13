@@ -5,7 +5,9 @@ import { compressImage } from '../../../platform/media'
 import { registerJobs, syncJob } from '../../../data/jobs'
 import { urlForGeneration } from '../../../data/assets'
 import { replaceImageTags } from '../../../prompts/videoPrompt'
+import { fitPrompt } from '../../../prompts/fitPrompt'
 import { createProgress } from '../progress'
+import { OUT_OF_CREDITS, notifyOutOfCredits } from '../../../billing/outOfCredits'
 import { AppError, ERROR_CODES, generatorMessage, isSessionEnded } from '../../../errors'
 
 /**
@@ -30,7 +32,11 @@ export const STILL_RUNNING = 'STILL_RUNNING'
  */
 async function refusal(res) {
   const own = res.error
-  if (own && (typeof own.code === 'string' || !res.status)) return own
+  if (own && (typeof own.code === 'string' || !res.status)) {
+    // Our own API refusing for lack of credits: say so once, so the app can offer the way out.
+    if (own.code === OUT_OF_CREDITS) notifyOutOfCredits(own.body)
+    return own
+  }
   const body = await res.json().catch(() => null)
   return generatorError(body?.code ?? res.status, body?.msg)
 }
@@ -38,6 +44,15 @@ async function refusal(res) {
 /** A generator answer that did not start a job. */
 function generatorError(code, detail) {
   if (detail) console.warn(`[KIE] code ${code}: ${detail}`)
+  // KIE answers "prompt exceeds maximum length of 800 characters" with the same
+  // code 500 as a genuine outage. "Try again in a moment" is wrong for it — trying
+  // again never helps — so it gets its own sentence.
+  if (/exceeds? (the )?maximum (prompt )?length|prompt (is )?too long/i.test(String(detail || ''))) {
+    return new AppError(
+      'The text is too long for the selected model. Please shorten it or choose another model.',
+      { code: 'GENERATOR_PROMPT_TOO_LONG' },
+    )
+  }
   return new AppError(
     code === 200 ? 'Generation could not be started. Please try again.' : generatorMessage(code),
     { code: `GENERATOR_${code}` },
@@ -138,10 +153,14 @@ function capPrompt(p) {
   return p.slice(0, KIE_PROMPT_MAX - 3) + '...'
 }
 
+// What most video models accept (Kling 3.0's own limit is 2,500). A model with a
+// smaller one says so as `maxPromptChars` in videoModels.js — Wan 2.5 takes 800.
 const KIE_VIDEO_PROMPT_MAX = 2450
-function capVideoPrompt(p) {
-  if (!p || p.length <= KIE_VIDEO_PROMPT_MAX) return p
-  return p.slice(0, KIE_VIDEO_PROMPT_MAX - 3) + '...'
+
+/** Fit the prompt to the chosen model's limit, giving up the boilerplate before the person's own words. */
+function capVideoPrompt(p, limit = KIE_VIDEO_PROMPT_MAX) {
+  if (!p || p.length <= limit) return p
+  return fitPrompt(p, limit)
 }
 
 // ── Reference-upload cache ──────────────────────────────────────────
@@ -614,13 +633,13 @@ export async function generateVideo({ prompt, aspectRatio = '9:16', duration = 8
     let finalPrompt = prompt + promptSuffix
     // These models take plain text, so tags become words — chosen by what each
     // image is (referenceRoles), not by where it landed in the list.
-    finalPrompt = capVideoPrompt(replaceImageTags(finalPrompt, referenceRoles))
+    const chosen = getVideoModel(model)
+    finalPrompt = capVideoPrompt(replaceImageTags(finalPrompt, referenceRoles), chosen.maxPromptChars)
 
     // Each model declares how to map this request onto its own fields —
     // vendors differ (image_urls vs image_url vs reference_image_urls, mode vs
     // resolution), so the model id alone is not enough to swap between them.
     // Veo 3.1 moved onto this same endpoint, so it is no longer a special case.
-    const chosen = getVideoModel(model)
     const body = {
       model: chosen.id,
       input: chosen.buildInput({

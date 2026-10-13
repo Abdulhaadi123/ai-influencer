@@ -27,11 +27,14 @@ import { validatePassword, MIN_PASSWORD_LENGTH } from '@core/auth'
 import { userMessage } from '@core/errors'
 
 import { useBottomInset } from '../hooks/useBottomInset'
+import { useCredits } from '../hooks/useCredits'
+import { formatCredits } from '@core/billing/packs'
 import { useTheme, space, radius } from '../theme'
 import { Section, Row, Segmented, Button } from '../components/ui'
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ navigation }) {
   const { colors, preference, setPreference } = useTheme()
+  const credits = useCredits()
   const bottomInset = useBottomInset()
   const { user, profile, signOut, deleteAccount, changePassword } = useAuth()
 
@@ -61,6 +64,18 @@ export default function SettingsScreen() {
           <Button title="Sign out" variant="secondary" onPress={confirmSignOut} />
         </View>
       </Section>
+
+      {credits.visible ? (
+        <Section title="Credits">
+          <Row
+            label="Balance"
+            value={credits.balance === null ? '…' : `${formatCredits(credits.balance)} credits`}
+            right={<Text style={{ color: colors.textTertiary, fontSize: 18 }}>›</Text>}
+            onPress={() => navigation.navigate('Credits')}
+            last
+          />
+        </Section>
+      ) : null}
 
       <Section title="Appearance">
         <View style={styles.padded}>

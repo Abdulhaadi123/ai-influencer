@@ -38,6 +38,7 @@ import { persistGenerated } from '@core/platform/persistMedia'
 import { useInfluencers } from '@core/store'
 
 import { useTheme, space, radius } from '../theme'
+import CostNote from '../components/CostNote'
 import { Section, Button, Segmented, Collapsible, Field } from '../components/ui'
 import { pickImageWithPrompt } from '../lib/picker'
 import PromptSuggestion from '../components/PromptSuggestion'
@@ -499,7 +500,10 @@ export default function VideosTab({ influencer }) {
           </View>
         </Section>
       ) : (
-        <Button title="Generate video" onPress={generate} disabled={!canGenerate} />
+        <>
+          <CostNote model={chosenModel.id} seconds={duration} />
+          <Button title="Generate video" onPress={generate} disabled={!canGenerate} />
+        </>
       )}
 
       {results.length && !generating ? (

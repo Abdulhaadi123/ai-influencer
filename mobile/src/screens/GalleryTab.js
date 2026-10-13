@@ -41,11 +41,13 @@ import { shareMedia } from '../lib/share'
 import { showError } from '../lib/alerts'
 import { useInfluencers } from '@core/store'
 import { assetUses } from '@core/data/influencers'
+import { report as reportGeneration } from '@core/data/reports'
 
 import { useBottomInset } from '../hooks/useBottomInset'
 import { isServable, mediaSource } from '../lib/seedMedia'
 import { useTheme, space, radius } from '../theme'
 import { Button } from '../components/ui'
+import ReportSheet from '../components/ReportSheet'
 
 export default function GalleryTab({ influencer }) {
   const { colors } = useTheme()
@@ -155,6 +157,20 @@ export default function GalleryTab({ influencer }) {
     shareMedia(current.url, base + '-' + entry.id + (isVideo ? '.mp4' : '.jpg'))
   }, [influencer.name, all])
 
+  /**
+   * Flag a result as inappropriate. Rejects on failure — after saying so — so the
+   * report sheet stays open for another try instead of closing as if it worked.
+   */
+  const report = useCallback(async (entry, reason) => {
+    try {
+      await reportGeneration({ generationId: entry.id, reason })
+    } catch (e) {
+      showError('Could not send your report', e, 'Please try again.')
+      throw e
+    }
+    Alert.alert('Thank you', 'Your report was sent. We will review it.')
+  }, [])
+
   // Nothing generated yet at all — a single, calm empty state rather than an
   // empty grid with a filter bar above it that does nothing.
   if (all.length === 0) {
@@ -254,6 +270,7 @@ export default function GalleryTab({ influencer }) {
         influencerName={influencer.name}
         onClose={() => setOpenEntry(null)}
         onShare={() => open && share(open)}
+        onReport={reason => (open ? report(open, reason) : Promise.resolve())}
         onDelete={() => open && remove(open)}
       />
     </>
@@ -309,9 +326,10 @@ function TilePreview({ uri }) {
 }
 
 /** Full-screen viewer: playback plus the destructive/among-apps actions. */
-function Lightbox({ entry, influencerName, onClose, onShare, onDelete }) {
+function Lightbox({ entry, influencerName, onClose, onShare, onReport, onDelete }) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
+  const [reporting, setReporting] = useState(false)
 
   return (
     <Modal
@@ -345,10 +363,16 @@ function Lightbox({ entry, influencerName, onClose, onShare, onDelete }) {
 
         <View style={[styles.sheetActions, { paddingBottom: insets.bottom + space.lg }]}>
           <Button title="Share" variant="secondary" onPress={onShare} />
+          <Pressable onPress={() => setReporting(true)} accessibilityRole="button" style={styles.reportRow}>
+            <Text style={[styles.reportText, { color: colors.textSecondary }]}>Report</Text>
+          </Pressable>
           <Pressable onPress={onDelete} accessibilityRole="button" style={styles.deleteRow}>
             <Text style={[styles.deleteText, { color: colors.danger }]}>Delete</Text>
           </Pressable>
         </View>
+
+        {/* Inside this Modal, so it opens above the viewer on both platforms. */}
+        <ReportSheet visible={reporting} onClose={() => setReporting(false)} onSubmit={onReport} />
       </View>
     </Modal>
   )
@@ -426,6 +450,8 @@ const styles = StyleSheet.create({
   stageMedia: { width: '100%', height: '100%' },
 
   sheetActions: { paddingHorizontal: space.lg, paddingTop: space.lg, gap: space.sm },
+  reportRow: { alignItems: 'center', paddingVertical: space.sm },
+  reportText: { fontSize: 14.5, fontWeight: '600' },
   deleteRow: { alignItems: 'center', paddingVertical: space.md },
   deleteText: { fontSize: 15, fontWeight: '600' },
 })

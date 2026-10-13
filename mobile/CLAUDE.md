@@ -184,6 +184,32 @@ in which case they read as DIRECTION instead.
   per file, so they can race safely.
 - **"Clear finished" keeps unsaved results**, and removing one asks first.
 
+## Credits
+
+Generations cost credits, bought in packs through RevenueCat (`react-native-purchases`). The
+server owns every number (backend/README.md "Credits"); the app only shows them and starts
+purchases.
+
+| Piece | Where |
+|---|---|
+| Store, SDK, purchase | `core/platform/purchases.native.js` (web: a stand-in) — the only file that touches the SDK |
+| Balance, prices, packs (from `GET /api/billing/me`) | `core/data/billing.js` (a tiny shared store) + `useCredits` |
+| What is shown, in what order, what a generation costs | `core/billing/packs.js` — plain logic with tests: `npm test` |
+| "Not enough credits" (402 `INSUFFICIENT_CREDITS`) | announced once from `providers/kie.js` → `core/billing/outOfCredits.js` → one alert with a way to the Credits screen (`useBilling`) |
+| The screen, the header chip, the cost line before Generate | `CreditsScreen`, `CreditsChip` (navigation), `CostNote` |
+
+- **The app never grants credits.** The store tells RevenueCat, RevenueCat tells the server, the
+  server adds them. After a purchase the Credits screen *waits for the balance to rise*
+  (`waitForCredits`); nothing it does could add one.
+- **RevenueCat is always told OUR account id** (`logIn(userId)`), never an anonymous one — a
+  purchase on an id the server does not know cannot be credited. `logOut` is never called.
+- **Keys:** `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` (`goog_…`) for real builds;
+  `EXPO_PUBLIC_REVENUECAT_TEST_KEY` (`test_…`, simulated purchases) only in a dev build — the SDK
+  crashes a release build that holds it, and `__DEV__` keeps it out of one. Both are public values.
+- **Credits are shown only when they matter** (`creditsVisible`): charging is on, the account holds
+  or owes some, or it is a dev build. While the server is only watching, nobody sees "0 credits".
+- Adding the SDK needed a native rebuild (`npx expo run:android`); JS reload alone is not enough.
+
 ## Errors
 
 Every failure a person sees is a sentence from `core/errors.js`, never a raw
@@ -229,6 +255,7 @@ bundles.
 - **Don't delete a file a running job may still need** — check `hasActiveJobs`
   first; KIE downloads references when a job starts.
 - **Don't start a second token refresh** outside `session.js`.
+- **Don't add credits (or trust a balance) in the app**, and never configure RevenueCat with an anonymous id.
 
 ## Known gaps (real, unfixed)
 

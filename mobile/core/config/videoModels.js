@@ -48,6 +48,10 @@ function nearest(requested, allowed) {
 // buildInput receives:
 //   { prompt, imageUrls[], duration, aspectRatio, hasVoice, audioUrl }
 // and returns the `input` object for POST /api/v1/jobs/createTask.
+//
+// `maxPromptChars` (optional) is the model's own prompt limit when it is smaller than
+// the default the provider applies (2,450). Only Wan 2.5 has one so far; the others'
+// documented limits are 2,500 (Kling 3.0) or 5,000 and more.
 
 export const VIDEO_MODELS = [
   {
@@ -129,6 +133,10 @@ export const VIDEO_MODELS = [
     supportsSound: false,
     maxImages: 1,
     durations: [5, 10],
+    // KIE refuses a longer prompt outright ("prompt exceeds maximum length of 800
+    // characters"; its docs say the same). The studio's brief is ~1,200 characters
+    // before anything is typed, so it is fitted to this (core/prompts/fitPrompt.js).
+    maxPromptChars: 800,
     buildInput: ({ prompt, imageUrls, duration }) => ({
       prompt,
       duration: String(nearest(duration, [5, 10])),

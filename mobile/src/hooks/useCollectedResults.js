@@ -9,13 +9,18 @@
  * The signal is the queue row gaining an asset. The worker writes the gallery
  * row a moment after that, so the lookup retries briefly before giving up; if
  * the entry is already on screen, adopting it is a no-op.
+ *
+ * This hook is mounted for the whole signed-in session, so it is also where the
+ * app tells the change poller (core/data/jobs.js) when it goes to the background
+ * and comes back: a backgrounded app asks the server nothing.
  */
 
 import { useEffect } from 'react'
+import { AppState } from 'react-native'
 
 import { useAuth } from '@core/auth/AuthContext'
 import { useInfluencers } from '@core/store'
-import { subscribe } from '@core/data/jobs'
+import { subscribe, setPollingPaused } from '@core/data/jobs'
 
 const RETRY_DELAYS_MS = [500, 3000, 8000]
 
@@ -58,4 +63,13 @@ export function useCollectedResults() {
       timers.forEach(clearTimeout)
     }
   }, [userId, adoptGeneration])
+}
+
+/** Pause the change poller while the app is not in front; resume (and ask at once) when it is. */
+export function usePollingWhileForeground() {
+  useEffect(() => {
+    setPollingPaused(AppState.currentState !== 'active')
+    const sub = AppState.addEventListener('change', state => setPollingPaused(state !== 'active'))
+    return () => { sub.remove(); setPollingPaused(false) }
+  }, [])
 }
