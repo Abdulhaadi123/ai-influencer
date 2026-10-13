@@ -30,6 +30,7 @@ mobile/                the React Native (Expo) app              ← the product
 mobile/core/           shared, platform-agnostic logic
 backend/               API, worker, Postgres schema, Docker     ← see backend/README.md
 backend/db/migrations/ the database schema, applied on API start
+admin-panel/           the staff page (plain HTML/CSS/JS, no build) the backend serves at /admin
 web/                   the old Vite UI                          ← reference only
 ```
 

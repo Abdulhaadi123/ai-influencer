@@ -1,0 +1,13 @@
+{
+  "name": "influenza-admin-panel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The admin panel of AI Influencer Studio. Plain HTML, CSS and JavaScript with no build step; the backend serves it at /admin.",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "happy-dom": "^20.14.6"
+  }
+}
