@@ -14,6 +14,7 @@
 
 import { query } from './db.js'
 import { storeGeneratedResult, ResultError } from './results.js'
+import { moderateGeneratedResult } from './moderation/service.js'
 
 /**
  * Copy a finished result into the owner's storage and file it in the gallery.
@@ -40,6 +41,16 @@ export async function collect(job, tag = '[collect]') {
     )
     console.warn(`${tag} giving up on ${job.kie_task_id}: ${e.message}`)
     return false
+  }
+
+  // Checked before it is shown to anyone. Never throws, and never costs the
+  // result: if the checker cannot be reached the file stays, unchecked, and the
+  // worker checks it again (server/worker.js).
+  const { status } = await moderateGeneratedResult(job.user_id, stored.assetId)
+  if (status === 'blocked') {
+    // Stored (an admin can review it) but not filed: the owner never sees it.
+    console.warn(`${tag} ${job.kie_task_id} was blocked by content moderation → ${stored.assetId}`)
+    return true
   }
 
   // A job with no influencer came from the create wizard, before the record

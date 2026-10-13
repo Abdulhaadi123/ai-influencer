@@ -10,6 +10,11 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+# ffmpeg (with ffprobe) pulls frames out of videos so content moderation can check
+# them (api/_lib/moderation/frames.js). Installed before the user is dropped, and
+# before the code is copied, so it stays in its own cached layer.
+RUN apk add --no-cache ffmpeg
+
 # Dependencies first, so a code change does not invalidate the install layer.
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --no-audit --no-fund

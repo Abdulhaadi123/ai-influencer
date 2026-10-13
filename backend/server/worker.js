@@ -43,6 +43,9 @@ import { fileURLToPath } from 'node:url'
 import { many, query, closeDb } from '../api/_lib/db.js'
 import { collect } from '../api/_lib/collect.js'
 import { fetchKieTaskStatus, applyKieStatus, ACTIVE_STATES } from '../api/_lib/kieStatus.js'
+import { refundTask, sweepUnsettledSpends } from '../api/_lib/billing.js'
+import { moderationConfig } from '../api/_lib/moderation/config.js'
+import { listUncheckedResults, moderateGeneratedResult } from '../api/_lib/moderation/service.js'
 
 /** How often to sweep for work. */
 const CYCLE_MS = Number(process.env.WORKER_CYCLE_MS || 15_000)
@@ -179,8 +182,59 @@ export async function sweepUncollected(now = Date.now()) {
   for (const job of due) await collectWithBackoff(job, now)
 }
 
+/**
+ * Results that were stored without being checked — the checker was unreachable at
+ * the time (api/_lib/moderation/service.js). They are visible to their owner
+ * until this gets to them, which is the price of never withholding a result that
+ * has been paid for; a bad one is quarantined here.
+ *
+ * Retried with a growing wait per file, so a checker that is down for an hour is
+ * not asked about the same ten files every fifteen seconds.
+ */
+const checkFailures = new Map()
+const UNCHECKED_POOL = 50
+const UNCHECKED_PER_CYCLE = 5
+
+export async function sweepUnchecked(now = Date.now()) {
+  if (!moderationConfig().enabled) return
+
+  let assets
+  try {
+    assets = await listUncheckedResults({ limit: UNCHECKED_POOL })
+  } catch (e) {
+    console.error('[worker] could not read unchecked results:', e.message)
+    return
+  }
+
+  const waiting = new Set(assets.map(a => a.id))
+  for (const id of checkFailures.keys()) if (!waiting.has(id)) checkFailures.delete(id)
+
+  const due = assets.filter(a => !(checkFailures.get(a.id)?.retryAt > now)).slice(0, UNCHECKED_PER_CYCLE)
+  for (const asset of due) {
+    const { status } = await moderateGeneratedResult(asset.user_id, asset.id)
+    if (status === 'unchecked') {
+      const attempts = (checkFailures.get(asset.id)?.attempts ?? 0) + 1
+      checkFailures.set(asset.id, { attempts, retryAt: now + collectRetryDelay(attempts) })
+    } else {
+      checkFailures.delete(asset.id)
+    }
+  }
+}
+
+/** Credits taken for a request that never got an answer from KIE are given back (_lib/billing.js). */
+export async function sweepSpends() {
+  try {
+    const { refunded } = await sweepUnsettledSpends()
+    if (refunded) console.log(`[worker] gave back ${refunded} credits taken for requests that never reached the generator`)
+  } catch (e) {
+    console.error('[worker] could not sweep unsettled credit spends:', e?.message ?? e)
+  }
+}
+
 export async function cycle() {
   await sweepUncollected()
+  await sweepUnchecked()
+  await sweepSpends()
 
   const jobs = await many(
     `select id, user_id, influencer_id, kie_task_id, kind, label, state, result_url, created_at
@@ -197,11 +251,12 @@ export async function cycle() {
   const live = []
   for (const job of jobs) {
     if (Date.now() - new Date(job.created_at).getTime() > STALE_AFTER_MS) {
-      await query(
+      const timedOut = await query(
         `update generation_jobs set state = 'fail', fail_msg = 'Timed out — the generator never reported a result.'
           where id = $1 and state = any($2::text[])`,
         [job.id, ACTIVE_STATES],
       )
+      if (timedOut.rowCount) await refundTask(job.user_id, job.kie_task_id, 'Generation timed out')
       continue
     }
     live.push(job)

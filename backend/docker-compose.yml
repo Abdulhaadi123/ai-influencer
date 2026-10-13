@@ -37,6 +37,10 @@ services:
     environment:
       <<: *database-url
       PORT: 8080
+      ADMIN_UI_DIR: /admin-panel
+    volumes:
+      # The admin panel is its own folder (../admin-panel). Read-only: the server only hands it out.
+      - ../admin-panel:/admin-panel:ro
     expose:
       - "8080"
     depends_on:

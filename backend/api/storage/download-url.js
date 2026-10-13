@@ -30,9 +30,15 @@ export default userRoute(async (req, res, user) => {
   if (!Array.isArray(assetIds) || assetIds.length === 0) throw badRequest('assetIds must be a non-empty list.')
   if (assetIds.length > MAX_IDS) throw badRequest(`Ask for at most ${MAX_IDS} files at a time.`)
 
+  // A file content moderation blocked is never handed out, not even to its
+  // owner: it is absent here exactly like a file that is not theirs.
   const ids = [...new Set(assetIds.filter(isUuid))]
   const rows = ids.length
-    ? await many('select id, s3_key from assets where user_id = $1 and id = any($2::uuid[])', [user.id, ids])
+    ? await many(
+      `select id, s3_key from assets
+        where user_id = $1 and id = any($2::uuid[]) and moderation_status <> 'blocked'`,
+      [user.id, ids],
+    )
     : []
 
   const urls = {}

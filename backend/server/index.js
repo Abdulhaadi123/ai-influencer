@@ -39,6 +39,14 @@ import deleteAsset from '../api/storage/delete.js'
 import kie from '../api/kie.js'
 import kieCallback, { CALLBACK_PATH, webhooksConfigured } from '../api/kie-callback.js'
 import promptAssist from '../api/prompt-assist.js'
+import report from '../api/reports/index.js'
+import * as billing from '../api/billing/index.js'
+import revenueCatWebhook, { REVENUECAT_PATH, revenueCatConfigured } from '../api/revenuecat-webhook.js'
+import { billingEnforced } from '../api/_lib/billing.js'
+import { registerAdminRoutes } from '../api/admin/routes.js'
+import { adminUiAvailable, adminUiDir } from '../api/admin/ui.js'
+import { promoteConfiguredAdmins } from '../api/_lib/admin.js'
+import { describeModeration } from '../api/_lib/moderation/config.js'
 
 export function createApp() {
   const app = express()
@@ -121,6 +129,13 @@ export function createApp() {
   })
   app.all('/api/prompt-assist', promptAssist)
 
+  // ── Reporting and administration ─────────────────────────────────────────
+  app.post('/api/reports', report)
+
+  // ── Credits ──────────────────────────────────────────────────────────────
+  app.get('/api/billing/me', billing.me)
+  registerAdminRoutes(app)
+
   /**
    * KIE says a generation finished. Outside `/api` deliberately: it carries no
    * session — KIE cannot hold one — and proves the sender with an HMAC
@@ -128,6 +143,9 @@ export function createApp() {
    * it clear of the CORS layer and of the proxy route above.
    */
   app.all(CALLBACK_PATH, kieCallback)
+
+  /** RevenueCat reports a purchase. Same reasoning: no session, a shared secret instead (api/revenuecat-webhook.js). */
+  app.all(REVENUECAT_PATH, revenueCatWebhook)
 
   app.use((req, res) => res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' }))
 
@@ -165,6 +183,27 @@ async function main() {
       'Results are still collected, by the worker, within a minute or so.',
     )
   }
+
+  for (const { level, text } of describeModeration()) {
+    const log = level === 'info' ? console.log : level === 'warn' ? console.warn : console.error
+    log(`[server] ${text}`)
+  }
+
+  console.log(
+    billingEnforced()
+      ? '[server] Credits are ENFORCED: a request without enough credits is refused.'
+      : '[server] Credits are in shadow mode (BILLING_ENFORCED is not true): nothing is charged; the log says who would have been refused.',
+  )
+  if (!revenueCatConfigured()) {
+    console.warn('[server] REVENUECAT_WEBHOOK_AUTH is not set — purchases cannot be credited (the webhook refuses every delivery).')
+  }
+
+  if (!adminUiAvailable()) {
+    console.warn(`[server] The admin panel's files were not found at ${adminUiDir()} — /admin will answer 404. They live in the repository's admin-panel/ folder (README: "Admin panel").`)
+  }
+
+  const promoted = await promoteConfiguredAdmins()
+  if (promoted) console.log(`[server] ${promoted} account(s) promoted to admin from ADMIN_EMAILS.`)
 
   const port = Number(process.env.PORT || 8080)
   const server = createApp().listen(port, () => console.log(`[server] listening on :${port}`))

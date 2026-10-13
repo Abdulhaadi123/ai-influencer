@@ -11,6 +11,7 @@
 import { one, many } from '../_lib/db.js'
 import { userRoute, badRequest, forbidden, noStore } from '../_lib/http.js'
 import { isUuid, text, ASSET_KINDS } from '../_lib/validate.js'
+import { OUTPUT_REMOVED_MESSAGE } from '../_lib/moderation/service.js'
 
 const COLUMNS = 'id, influencer_id, asset_id, kind, label, created_at'
 
@@ -71,9 +72,10 @@ export const add = userRoute(async (req, res, user) => {
   if (influencerId !== null && !isUuid(influencerId)) throw badRequest('influencerId is not valid.')
   if (!ASSET_KINDS.includes(kind)) throw badRequest('kind is not valid.')
 
-  if (!(await one('select 1 from assets where id = $1 and user_id = $2', [assetId, user.id]))) {
-    throw forbidden('This file belongs to another account.')
-  }
+  const asset = await one('select moderation_status from assets where id = $1 and user_id = $2', [assetId, user.id])
+  if (!asset) throw forbidden('This file belongs to another account.')
+  // Filing a blocked file would put it back in front of its owner.
+  if (asset.moderation_status === 'blocked') throw forbidden(OUTPUT_REMOVED_MESSAGE, 'CONTENT_BLOCKED')
   if (influencerId && !(await one('select 1 from influencers where id = $1 and user_id = $2', [influencerId, user.id]))) {
     throw forbidden('This influencer belongs to another account.')
   }

@@ -16,6 +16,7 @@ import { one, query } from '../_lib/db.js'
 import { userRoute, badRequest, notFound, HttpError } from '../_lib/http.js'
 import { s3, BUCKET, MAX_UPLOAD_BYTES, deleteObject } from '../_lib/s3.js'
 import { isUuid } from '../_lib/validate.js'
+import { checkUploadInBackground } from '../_lib/moderation/service.js'
 
 export default userRoute(async (req, res, user) => {
   const { assetId } = req.body || {}
@@ -44,4 +45,8 @@ export default userRoute(async (req, res, user) => {
 
   await query('update assets set byte_size = $2 where id = $1', [asset.id, byteSize])
   res.json({ assetId: asset.id, byteSize })
+
+  // Checked now, after the answer has gone, so the verdict is waiting when the
+  // file is first used and the app is never made to wait for it.
+  void checkUploadInBackground(asset.id, user.id)
 }, { tag: '[storage/confirm]', message: 'Unable to confirm the upload. Please try again.' })

@@ -16,6 +16,7 @@
 
 import { findSessionByAccessToken } from './sessions.js'
 import { classifyServerError } from './errors.js'
+import { SUSPENDED_MESSAGE } from './suspension.js'
 
 export function bearerToken(req) {
   const header = req.headers?.authorization || ''
@@ -28,7 +29,7 @@ export function bearerToken(req) {
 /**
  * The signed-in caller, or null.
  *
- * @returns {Promise<{id, email, displayName, emailConfirmed, sessionId} | null>}
+ * @returns {Promise<{id, email, displayName, emailConfirmed, role, status, sessionId} | null>}
  * @throws when the database cannot be asked — that is not the caller's fault,
  *         and must not be answered as "sign in again"
  */
@@ -63,6 +64,13 @@ export async function requireUser(req, res) {
 
   if (!user) {
     res.status(401).json({ error: 'Please sign in to continue.', code: 'NOT_AUTHENTICATED' })
+    return null
+  }
+
+  // Suspending an account deletes its sessions, so this is rarely reached — it is
+  // the second lock on the same door, for a session that somehow outlived it.
+  if (user.status !== 'active') {
+    res.status(403).json({ error: SUSPENDED_MESSAGE, code: 'ACCOUNT_SUSPENDED' })
     return null
   }
   return user

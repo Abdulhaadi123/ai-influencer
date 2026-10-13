@@ -31,6 +31,7 @@ import {
   sendEmail, sendInBackground, confirmationEmail, passwordResetEmail, publicBaseUrl,
 } from '../_lib/email.js'
 import { createRateLimiter } from '../../lib/rateLimit.js'
+import { SUSPENDED_MESSAGE } from '../_lib/suspension.js'
 
 /**
  * Whether a new account must confirm its email before it can sign in. On by
@@ -176,6 +177,10 @@ export const signIn = publicRoute(async (req, res) => {
     throw new HttpError(403, 'Please verify your email address before signing in. Check your inbox for the verification link.', 'EMAIL_NOT_CONFIRMED')
   }
 
+  // Also only after the right password: telling a guesser "suspended" would
+  // confirm the address is registered.
+  if (user.status === 'suspended') throw new HttpError(403, SUSPENDED_MESSAGE, 'ACCOUNT_SUSPENDED')
+
   const session = await createSession(user, { userAgent: userAgentOf(req) })
   noStore(res)
   res.json({ session })
@@ -208,7 +213,8 @@ export const signOut = publicRoute(async (req, res) => {
 /** GET /api/auth/me → { user } */
 export const me = userRoute(async (req, res, user) => {
   noStore(res)
-  const { sessionId, ...visible } = user
+  // role and status are for the server's own checks, not for the app.
+  const { sessionId, role, status, ...visible } = user
   res.json({ user: visible })
 })
 

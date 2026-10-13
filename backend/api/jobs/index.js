@@ -24,13 +24,29 @@ const MAX_TASK_ID = 200
 
 const taskIdFrom = value => (typeof value === 'string' && value && value.length <= MAX_TASK_ID ? value : null)
 
-/** GET /api/jobs?limit= → { jobs } newest first */
+/**
+ * GET /api/jobs?limit=&active=1 → { jobs } newest first
+ *
+ * `active=1` returns only the jobs still running. The app's background sync asks for
+ * exactly those every half minute, and used to download the newest sixty jobs
+ * (~20 KB) to throw nearly all of them away.
+ */
 export const list = userRoute(async (req, res, user) => {
   const limit = Math.min(Math.max(Number(req.query?.limit) || 60, 1), 200)
-  const jobs = await many(
-    `select ${JOB_COLUMNS} from generation_jobs where user_id = $1 order by created_at desc limit $2`,
-    [user.id, limit],
-  )
+  const activeOnly = req.query?.active === '1' || req.query?.active === 'true'
+  // Two plain queries rather than one with an "or": the running-jobs one can then
+  // use jobs_active_idx and never walks an account's whole history to find three rows.
+  const jobs = activeOnly
+    ? await many(
+      `select ${JOB_COLUMNS} from generation_jobs
+        where user_id = $1 and state = any($3::text[])
+        order by created_at desc limit $2`,
+      [user.id, limit, ACTIVE_STATES],
+    )
+    : await many(
+      `select ${JOB_COLUMNS} from generation_jobs where user_id = $1 order by created_at desc limit $2`,
+      [user.id, limit],
+    )
   noStore(res)
   res.json({ jobs })
 }, { tag: '[jobs/list]', message: 'Unable to load the queue. Please try again.' })
@@ -69,7 +85,14 @@ export const changes = userRoute(async (req, res, user) => {
   const since = req.query?.since ? new Date(String(req.query.since)) : null
   if (since && Number.isNaN(since.getTime())) throw badRequest('since is not a valid time.')
 
-  const { cursor } = await one(`select now() - interval '5 seconds' as cursor`)
+  // The cursor and the count in one round trip — this endpoint is asked every few
+  // seconds by every open app. The cursor is taken BEFORE the rows are read, as it
+  // must be: a change committed between the two is then reported next time, not lost.
+  const { cursor, count } = await one(
+    `select now() - interval '5 seconds' as cursor, count(*)::int as count
+       from generation_jobs where user_id = $1 and state = any($2::text[])`,
+    [user.id, ACTIVE_STATES],
+  )
   const jobs = since
     ? await many(
         `select ${JOB_COLUMNS} from generation_jobs
@@ -79,10 +102,6 @@ export const changes = userRoute(async (req, res, user) => {
         [user.id, since],
       )
     : []
-  const { count } = await one(
-    'select count(*)::int as count from generation_jobs where user_id = $1 and state = any($2::text[])',
-    [user.id, ACTIVE_STATES],
-  )
 
   noStore(res)
   res.json({ jobs, cursor, activeCount: count })
@@ -107,8 +126,12 @@ export const sync = userRoute(async (req, res, user) => {
     ? await one(`select ${JOB_COLUMNS} from generation_jobs where user_id = $1 and kie_task_id = $2`, [user.id, taskId])
     : (await applyKieStatus({ userId: user.id, taskId, status })).job
 
+  // What KIE charged is the studio's cost, not the user's: it is recorded on the
+  // job (applyKieStatus) and shown to admins, and goes no further than here.
+  const { credits: _studioCost, ...visibleStatus } = status
+
   noStore(res)
-  res.json({ status, job })
+  res.json({ status: visibleStatus, job })
 }, { tag: '[jobs/sync]', message: 'Unable to check this generation. Please try again.' })
 
 /**

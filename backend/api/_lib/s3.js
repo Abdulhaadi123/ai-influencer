@@ -29,6 +29,9 @@ import {
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { randomUUID } from 'node:crypto'
+import { createWriteStream } from 'node:fs'
+import { pipeline } from 'node:stream/promises'
+import { Transform } from 'node:stream'
 
 export const BUCKET = process.env.S3_BUCKET || ''
 const REGION = process.env.AWS_REGION || 'us-east-1'
@@ -190,6 +193,59 @@ export async function putObject({ key, body, contentType }) {
 
 export async function deleteObject(key) {
   await s3().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
+}
+
+/** A stored object is larger than the caller is willing to read. */
+export class ObjectTooLargeError extends Error {
+  constructor(maxBytes) {
+    super(`The file is larger than ${maxBytes} bytes.`)
+    this.name = 'ObjectTooLargeError'
+  }
+}
+
+/**
+ * Read an object into memory, refusing past `maxBytes`.
+ *
+ * The cap is enforced on the bytes actually received as well as on the declared
+ * length: a length is a claim, and reading "as much as arrives" is how a large
+ * file becomes an out-of-memory crash.
+ */
+export async function getObjectBytes({ key, maxBytes }) {
+  const res = await s3().send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
+  if (Number(res.ContentLength || 0) > maxBytes) {
+    res.Body?.destroy?.()
+    throw new ObjectTooLargeError(maxBytes)
+  }
+
+  const chunks = []
+  let total = 0
+  for await (const chunk of res.Body) {
+    total += chunk.length
+    if (total > maxBytes) {
+      res.Body.destroy?.()
+      throw new ObjectTooLargeError(maxBytes)
+    }
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
+}
+
+/** Stream an object to a local file, refusing past `maxBytes`. For video, which is too large to hold in memory. */
+export async function downloadObjectToFile({ key, file, maxBytes }) {
+  const res = await s3().send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
+  if (Number(res.ContentLength || 0) > maxBytes) {
+    res.Body?.destroy?.()
+    throw new ObjectTooLargeError(maxBytes)
+  }
+
+  let total = 0
+  const cap = new Transform({
+    transform(chunk, _enc, done) {
+      total += chunk.length
+      done(total > maxBytes ? new ObjectTooLargeError(maxBytes) : null, chunk)
+    },
+  })
+  await pipeline(res.Body, cap, createWriteStream(file))
 }
 
 /**

@@ -83,11 +83,14 @@ export async function createSession(user, { userAgent = null } = {}) {
  * The signed-in user for an access token, or null when it is unknown, expired
  * or revoked.
  *
- * @returns {Promise<{id, email, displayName, emailConfirmed, sessionId} | null>}
+ * `role` and `status` come from the users row on every call — never from the
+ * token — so promoting, demoting or suspending someone is effective immediately.
+ *
+ * @returns {Promise<{id, email, displayName, emailConfirmed, role, status, sessionId} | null>}
  */
 export async function findSessionByAccessToken(accessToken) {
   const { rows } = await query(
-    `select s.id as session_id, s.last_used_at, u.id, u.email, u.display_name, u.email_confirmed_at
+    `select s.id as session_id, s.last_used_at, u.id, u.email, u.display_name, u.email_confirmed_at, u.role, u.status
        from sessions s
        join users u on u.id = s.user_id
       where s.access_hash = $1 and s.access_expires_at > now()`,
@@ -102,7 +105,7 @@ export async function findSessionByAccessToken(accessToken) {
       .catch(e => console.warn('[sessions] could not record last use:', e.message))
   }
 
-  return { ...publicUser(row), sessionId: row.session_id }
+  return { ...publicUser(row), role: row.role, status: row.status, sessionId: row.session_id }
 }
 
 /**
@@ -121,7 +124,7 @@ export async function refreshSession(refreshToken, { userAgent = null } = {}) {
       `select s.id, s.user_id, u.email, u.display_name, u.email_confirmed_at
          from sessions s
          join users u on u.id = s.user_id
-        where s.refresh_hash = $1 and s.refresh_expires_at > now()
+        where s.refresh_hash = $1 and s.refresh_expires_at > now() and u.status = 'active'
           for update of s`,
       [presented],
     )
@@ -133,7 +136,7 @@ export async function refreshSession(refreshToken, { userAgent = null } = {}) {
                 s.rotated_at > now() - $2::int * interval '1 second' as within_grace
            from sessions s
            join users u on u.id = s.user_id
-          where s.previous_refresh_hash = $1 and s.refresh_expires_at > now()
+          where s.previous_refresh_hash = $1 and s.refresh_expires_at > now() and u.status = 'active'
             for update of s`,
         [presented, REUSE_GRACE_SECONDS],
       ))

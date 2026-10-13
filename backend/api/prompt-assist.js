@@ -19,10 +19,13 @@
 
 import { requireUser, applyCors } from './_lib/auth.js'
 import { sendServerError } from './_lib/errors.js'
+import { screenText, ModerationRefusal } from './_lib/moderation/service.js'
 import { rateLimit } from '../lib/rateLimit.js'
 
 const OPENAI_KEY = process.env.OPENAI_API_KEY || ''
 const MODEL = process.env.PROMPT_ASSIST_MODEL || 'gpt-4o-mini'
+// Only so tests can stand in for OpenAI; production leaves it unset.
+const OPENAI_BASE = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '')
 
 /** Long enough for any real prompt; short enough that this cannot be used as a
  *  general-purpose LLM endpoint on our bill. */
@@ -97,7 +100,7 @@ export function keepsTimings(input, output) {
 
 export default async function handler(req, res) {
   if (applyCors(req, res)) return
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' })
 
   const user = await requireUser(req, res)
   if (!user) return
@@ -111,19 +114,31 @@ export default async function handler(req, res) {
   const rl = rateLimit(`assist:${user.id}`)
   if (!rl.ok) {
     res.setHeader('Retry-After', String(rl.retryAfter))
-    return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.' })
+    return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.', code: 'RATE_LIMITED' })
   }
 
-  const { text, kind = 'appearance' } = req.body || {}
-  const input = String(text || '').trim()
+  const { text } = req.body || {}
+  // Only the kinds listed above: `kind: "constructor"` is not a prompt.
+  const requested = req.body?.kind
+  const kind = typeof requested === 'string' && Object.hasOwn(SYSTEM, requested) ? requested : 'appearance'
+  const input = typeof text === 'string' ? text.trim() : ''
 
-  if (!input) return res.status(400).json({ error: 'text is required.' })
+  if (!input) return res.status(400).json({ error: 'text is required.', code: 'TEXT_REQUIRED' })
   if (input.length > MAX_INPUT_CHARS) {
-    return res.status(413).json({ error: 'This text is too long to improve.' })
+    return res.status(413).json({ error: 'This text is too long to improve.', code: 'TOO_LONG' })
   }
 
   try {
-    const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Refused text is not rewritten. (Not a strike either — this endpoint fires
+    // while the user is still typing; see moderation/events.js.)
+    await screenText({ user, text: input, source: 'prompt_assist' })
+  } catch (e) {
+    if (e instanceof ModerationRefusal) return res.status(e.status).json({ error: e.message, code: e.code })
+    return sendServerError(res, e, { tag: '[prompt-assist] moderation:', message: 'The prompt assistant is unavailable right now.' })
+  }
+
+  try {
+    const upstream = await fetch(`${OPENAI_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${OPENAI_KEY}`,
@@ -132,7 +147,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: MODEL,
         messages: [
-          { role: 'system', content: SYSTEM[kind] || SYSTEM.appearance },
+          { role: 'system', content: SYSTEM[kind] },
           { role: 'user', content: input },
         ],
         // Enough for a paragraph, capped so a runaway response cannot cost much.
@@ -144,7 +159,7 @@ export default async function handler(req, res) {
     if (!upstream.ok) {
       const detail = await upstream.text().catch(() => '')
       console.error('[prompt-assist] upstream', upstream.status, detail.slice(0, 200))
-      return res.status(502).json({ error: 'The prompt assistant is unavailable right now.' })
+      return res.status(502).json({ error: 'The prompt assistant is unavailable right now.', code: 'ASSISTANT_UNAVAILABLE' })
     }
 
     const json = await upstream.json()

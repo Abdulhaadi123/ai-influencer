@@ -8,11 +8,15 @@ own `package.json`, so deploying it does not bring React or Expo onto a server.
 backend/
   api/              the endpoints
     auth/           accounts and the pages email links open
+    admin/          the admin panel's API (its page is the separate admin-panel/ folder)
+    reports/        "report this result"
     _lib/           database, sessions, passwords, email, S3, errors
+      moderation/   content moderation: policy, classifier, frames, enforcement
   db/
     migrations/     the schema — applied automatically when the API starts
     migrate.js
   lib/              rate limiting
+  test/             unit and integration tests — `npm test`
   server/
     index.js        the API server (Express)
     worker.js       always-on job collector
@@ -21,6 +25,10 @@ backend/
   docker-compose.yml
   Caddyfile
 ```
+
+The admin panel's page — HTML, CSS and JavaScript with no build step — is its own folder,
+[`../admin-panel/`](../admin-panel/README.md), with its own tests. This server only hands the
+files out (`ADMIN_UI_DIR`, default `../admin-panel`).
 
 ---
 
@@ -77,6 +85,201 @@ restart. The API says so at startup when callbacks are off.
 
 ---
 
+## Content moderation
+
+The app makes images and video of people from text and photos users supply, so
+what goes in and what comes out is checked. All of it lives in
+`api/_lib/moderation/`; the endpoints only call `service.js`.
+
+| Checked | When | If refused |
+|---|---|---|
+| The text of a generation request (any field — the whole body is walked, so a new model's fields are covered) | before KIE is called | `400 CONTENT_BLOCKED`, nothing is spent |
+| Every file the request names | before KIE is called | `400 CONTENT_BLOCKED` / `MEDIA_UNVERIFIABLE` / `MEDIA_NOT_ALLOWED` |
+| A file sent through the proxy to KIE (`/api/file-base64-upload`) | before it is forwarded | `400 CONTENT_BLOCKED` |
+| An uploaded file | in the background after `/api/storage/confirm`, and again on first use | blocked for good |
+| A generated result | when it is stored (webhook, worker, ingest) | quarantined: hidden from its owner, kept for an admin |
+| Suggestion text (`/api/prompt-assist`) | before it is rewritten | `400 CONTENT_BLOCKED`, not a strike |
+| A task KIE's own filter refuses ("flagged as sensitive") | when the failed job settles (callback, sync, worker) | the job fails with KIE's words and nothing is charged; a `provider` item appears in the queue (`providerRefusals.js`, migration 003) — **not a strike**, since KIE does not say whether the prompt, the reference or its own output was the trouble |
+
+The classifier is OpenAI's `omni-moderation-latest` (free; reuses `OPENAI_API_KEY`).
+Video is checked by sampling frames with ffmpeg, which the Docker image installs.
+The endpoint accepts **one image per request** (more is HTTP 400 `too_many_images` —
+found by calling it for real), so each frame is sent on its own and the worst
+score wins (`splitForRequests` in `openai.js`). A request's time limit is
+`MODERATION_TIMEOUT_MS` plus a few seconds per megabyte sent (`timeoutFor`): a 2 MB
+PNG took 12–19 s to answer on a slow link and, against a flat 15 s, stayed
+`unchecked` forever.
+**KIE's own filter** is also switched on, server-side, for the models that have one
+(`api/_lib/moderation/kieFilters.js`) — `nsfw_checker` defaults to **off** at KIE.
+
+**What it cannot do.** OpenAI scores `sexual/minors` for *text only*; for an image
+it reports 0. So an image of a minor is not caught by this classifier, and the
+hard "any minors content suspends the account" rule only ever fires on text. If
+that matters, add an image-capable check (AWS Rekognition's face age range, for
+example) — `classifyImageBytes` and `classifyStored` in `service.js` are the
+places. Frame sampling can also miss a flash between two sampled frames, and the
+first display of a result inside the create wizard comes straight from the
+generator, before it is stored and checked.
+
+**Policy** is in `policy.js`: *block*, *review* (allowed, but a person looks) or
+*allow*, per category. The defaults are a starting point — watch the admin queue
+for a week, then tune with `MODERATION_THRESHOLDS`, for example
+`{"sexual":{"block":0.9},"violence":{"review":null}}`. The minors rule cannot be
+switched off or loosened past 0.5.
+
+**Strikes.** A refused prompt or upload is a strike; one tap that sends three
+prompts is one strike (counted per minute). `MODERATION_STRIKE_LIMIT` (5) strikes
+in `MODERATION_STRIKE_WINDOW_DAYS` (30) suspends the account, as does any minors
+refusal at once. Results the generator made, suggestion requests and user reports
+are never strikes. Dismissing an event in the admin panel withdraws its strike.
+Restoring a suspended account does **not** clear its strikes — at the limit, its next
+refusal suspends it again — so dismiss the items that were wrong first. Admins are
+never suspended automatically. (Counting is by clock minute, so two refusals a second
+apart across a minute boundary count as two.)
+
+**When the checker is down.** Requests are refused (`MODERATION_FAIL_MODE=closed`,
+the default) — a refused request costs a minute, an unchecked one a policy
+violation. Results already paid for are the opposite: they are stored and shown,
+and the worker checks them again later (with a growing wait), quarantining any that
+turn out bad.
+
+**Privacy.** A refused prompt keeps a 400-character excerpt in `moderation_events`
+so a reviewer can see what was refused; scores are kept, image contents never are.
+It all goes when the account is deleted.
+
+**Config:** `MODERATION_ENABLED`, `MODERATION_FAIL_MODE`, `MODERATION_THRESHOLDS`,
+`MODERATION_STRIKE_LIMIT`, `MODERATION_STRIKE_WINDOW_DAYS`, `MODERATION_SUSPEND_ON_MINORS`,
+`MODERATION_VIDEO_FRAMES`, `KIE_NSFW_CHECKER` — see `.env.example`. With no
+`OPENAI_API_KEY` moderation is off, and the server says so when it starts.
+
+---
+
+## Admin panel
+
+`https://<your domain>/admin` — **Influenza Admin**, a single-page app served by this
+server (plain ES modules, no build step, no dependencies) that calls `/api/admin/*`.
+It is light only, in the Influenza app's own palette (white and slate, with the app's
+blue); the name is set once in `ui/lib/brand.js`. Pages:
+Overview, Accounts, Jobs, Moderation, Prices, Audit log, Settings. Where you are and
+what you filtered by live in the address (`#/users?q=mia&status=suspended`,
+`#/moderation/<id>`), so a link can be sent to a colleague and Back/Forward work.
+
+- **Who.** An account whose `users.role` is `admin`, checked against the database
+  on every request (so demoting someone takes effect at once). The first admin is
+  set with `ADMIN_EMAILS` (comma separated; applied at start, only for existing
+  accounts with a confirmed email, and ignored while
+  `REQUIRE_EMAIL_CONFIRMATION=false`), or with SQL:
+  `update users set role = 'admin' where lower(email) = 'you@example.com';`
+  Removing an address from the list does not demote anyone; do that in the panel.
+- **What.**
+  - *Overview* — what needs attention first (moderation off or without a key, items
+    waiting, a high failure rate, models in use without a price, callbacks off), then
+    accounts, running jobs, credits, and KIE credits per day and per model for the
+    last 7, 30 or 90 whole UTC days.
+  - *Accounts* — search by email or name, filter, sort, page; a side panel per account
+    (strikes against the limit, devices, files, recent jobs and flags); suspend (with
+    a reason), restore, make/remove admin, delete (the account's email must be typed).
+  - *Jobs* — every generation with its state, model and what KIE charged. Read-only.
+  - *Moderation* — the queue with live counts; one item at a time with the scores
+    against the review/refuse lines; the file stays hidden until *Reveal*, which is
+    recorded; dismiss or confirm (optionally delete the file and/or suspend the
+    owner); deciding moves to the next item. `j`/`k` move through the list.
+  - *Prices* — credits per model and an on/off switch that is enforced at once;
+    turning a model off asks first. Models used without a price are listed.
+  - *Audit log* — filter by family of action and by admin. Append-only.
+  - *Settings* — how moderation and KIE are configured. Read-only.
+- **Safety.** Every admin action is written to `admin_audit_log` in the same
+  transaction as the action — if the entry cannot be written, the action does not
+  happen. Role changes take turns and the person making one must still be an admin
+  when it runs, so two admins demoting each other cannot leave nobody. Viewing a
+  user's file is logged. The page's Content-Security-Policy forbids inline script,
+  inline style and framing; the panel never inserts server data as HTML; it keeps
+  nothing in the browser at all (no `localStorage`, no cookie): the token lives in
+  memory only, so there is no CSRF. Tests enforce all of that over every panel file.
+- **Where the panel lives.** In the repository's `admin-panel/` folder, beside `backend/`. The
+  server looks there, or at `ADMIN_UI_DIR`; in Docker, `docker-compose.yml` mounts the folder
+  read-only at `/admin-panel`. Without it the server still starts, logs a warning, and answers
+  `/admin` with `404 ADMIN_UI_MISSING`. A panel-only change deploys with `git pull` and
+  `docker compose restart api` — no image rebuild (files are read once in production).
+- **Adding a file to the panel.** The panel is served from a fixed list
+  (`PANEL_FILES` in `api/admin/ui.js`); a test fails if `admin-panel/` and the list disagree.
+- **Not private by itself.** Nothing stops the internet reaching `/admin`; the
+  login does. For more, restrict it in the `Caddyfile` (a commented example is there).
+
+### What KIE charged
+
+When a job settles, KIE's `creditsConsumed` (from `recordInfo` or the callback) is
+stored on the job (`generation_jobs.kie_credits`; `0` for a failed task, null when
+KIE did not say). It is the studio's cost: the app never sees it — it is removed from
+`/api/jobs/sync` and from the `/api/kie` proxy's status answers, as the account
+balance is. Prices set in the admin panel are recorded, not yet charged — billing is
+a separate piece of work.
+
+The server also decides `callBackUrl` and `nsfw_checker` itself: anything the client
+sends for either is dropped, so a request cannot point KIE's callback somewhere else
+or switch KIE's filter off.
+
+---
+
+## Credits
+
+Users buy packs of credits and every generation spends the model's price — KIE's own
+model: prepaid, taken only for work that succeeds, and credits never expire. Purchases
+reach us from **RevenueCat**; nothing here talks to Google Play or the App Store.
+
+```
+app ──buys a pack──► RevenueCat ──POST /webhooks/revenuecat──► ledger (credit_ledger)
+app ──createTask──► /api/kie ──gate: take the price──► KIE ──job fails──► price given back
+```
+
+- **The ledger** (`credit_ledger`, migration 005): one row per change; a balance is the
+  sum of an account's rows, never stored. Kinds: `purchase`, `grant`/`adjust` (an admin),
+  `spend`, `refund`, `clawback` (a refunded purchase). Every row has an idempotency
+  `ref`, so a repeated webhook, sync or sweep changes nothing.
+- **The price** of a request is the model's row in `model_prices` (admin panel → Prices):
+  `credits` per video, per image, or per second of `input.duration`. A row with
+  `credits = 0` is a free model.
+- **The gate** (`api/_lib/billing.js`, called by `api/kie.js` after moderation) takes the price
+  *before* KIE is asked, under a per-account lock, so concurrent requests cannot spend the
+  same credits twice. It is given back at once if KIE refuses or never answers, when the job
+  fails (KIE's own filter included — those cost the user nothing), when the worker times a
+  job out, and by the worker's sweep for a spend that never got an answer.
+- **Packs** (`credit_packs`): which store product is worth how many credits. Seeded with
+  `credits_500`, `credits_1500`, `credits_5000` (RevenueCat Test Store); edit with SQL for now.
+  A product that is not listed is never credited.
+- **The webhook** (`api/revenuecat-webhook.js`): authenticated by the `Authorization` header
+  matching `REVENUECAT_WEBHOOK_AUTH` (unset = it refuses everything). `NON_RENEWING_PURCHASE`
+  credits the pack once per *store transaction*; `CANCELLATION` takes a refunded purchase's
+  credits back (the balance may go below zero, which blocks spending until it is made good).
+  Everything else is recorded in `billing_events` and ignored. One delivery = one transaction.
+- **The app** reads `GET /api/billing/me` → `{ balance, enforced, prices, packs }`. Not
+  enough credits is `402 INSUFFICIENT_CREDITS` (`balance`, `price` in the body).
+- **The admin** (account panel → Credits) sees the balance and history and can add or
+  remove credits with a reason (audited); Settings shows whether charging is on.
+
+### Switching it on
+
+| Variable | Meaning |
+|---|---|
+| `BILLING_ENFORCED` | Exactly `true` charges and refuses. Anything else is **shadow mode**: nothing is taken, nobody is stopped, and the log says `[billing] shadow: … would be refused`. |
+| `REVENUECAT_WEBHOOK_AUTH` | The `Authorization` value set on RevenueCat's webhook. Keep it in the server's secret store. |
+| `REVENUECAT_ACCEPT_SANDBOX` | Default `true`: RevenueCat test purchases are credited. Set `false` when real sales start. |
+
+Before enforcing: price **every** model in use (an unpriced model is refused once enforced —
+the overview lists them); read the shadow log for a week; give the accounts that must keep
+working (reviewers, staff) credits from the panel.
+
+### Not done yet
+
+- RevenueCat recommends confirming a webhook through its REST API (`GET /v1/subscribers/…`);
+  today the shared secret is the proof. Add it with the first real sandbox purchase.
+- One price per model: a model whose KIE cost depends on resolution has one number (use the
+  admin price list to set what you charge; each job's real KIE cost is on the job).
+- A result removed by our own moderation after it was paid for is not refunded.
+- No subscriptions, no iOS products.
+
+---
+
 ## Security model
 
 - **The database is only reachable by the backend.** The app calls the API and
@@ -99,6 +302,8 @@ restart. The API says so at startup when callbacks are off.
   hop re-checked (`api/_lib/results.js`).
 - **Only the server writes a job's state and result link**, from KIE's own
   answer (`api/_lib/kieStatus.js`).
+- **Every generation request is checked before it is paid for**, and a suspended
+  account is signed out everywhere and refused at sign-in (`api/_lib/suspension.js`).
 
 ---
 
@@ -167,10 +372,12 @@ sudo apt update && sudo apt install -y docker.io docker-compose-v2 git && sudo u
 
 Log out and back in so the group change applies.
 
-### 3. Only this folder
+### 3. Only these folders
+
+`backend/` is the server; `admin-panel/` is the staff page it serves at `/admin`.
 
 ```bash
-git clone --filter=blob:none --sparse -b aws-postgres https://github.com/<owner>/ai-influencer.git && cd ai-influencer && git sparse-checkout set backend && cd backend
+git clone --filter=blob:none --sparse -b aws-postgres https://github.com/<owner>/ai-influencer.git && cd ai-influencer && git sparse-checkout set backend admin-panel && cd backend
 ```
 
 ### 4. Configure
@@ -253,8 +460,37 @@ DATABASE_URL=postgres://user:pass@localhost:5432/app npm run worker
 The API applies migrations on start (`npm run migrate` does it on its own). From
 the Android emulator it is reachable at `http://10.0.2.2:8080`.
 
-`S3_ENDPOINT` and `KIE_BASE_URL` exist only to point at S3-compatible storage or
-local stand-ins in tests; production leaves them unset.
+`S3_ENDPOINT`, `KIE_BASE_URL`, `KIE_FILE_BASE_URL` and `OPENAI_BASE_URL` exist only
+to point at S3-compatible storage or local stand-ins in tests; production leaves
+them unset.
+
+### Tests
+
+```bash
+npm install
+npm test
+```
+
+Unit tests plus integration tests that run the real app against a real PostgreSQL
+(PGlite, embedded — no database to install) with local stand-ins for S3, KIE and
+OpenAI. Nothing reaches the internet and no credential is used. The frame tests
+use your own ffmpeg and skip (saying so) if it is not installed. The full run takes
+a few minutes (each integration file starts its own database).
+
+- `test/unit/` — policy, inputs, classifier client, frames, small helpers.
+- `test/integration/` — the proxy gate, results, credits, the admin API
+  (`admin`, `admin-depth`), moderation and sessions under load and at their edges
+  (`moderation-depth`), the proxy and suggestions (`proxy-depth`), migrations, and
+  `fuzz` (every admin parameter and field against hostile values).
+- The admin panel's own tests (every page, every action and what it sends, in a simulated
+  browser) live with it: `cd ../admin-panel && npm install && npm test`. What needs both
+  sides — that the panel's labels cover the server's moderation categories and its price
+  form follows the server's rules — is `test/integration/admin-panel-contract.test.js`. The
+  tests here that read the panel's files skip, saying so, if `admin-panel/` is not checked out.
+
+To try a change by hand, run a server against a throwaway database and open
+`/admin`; in development the panel files are read from disk on every request, so an
+edit shows on reload.
 
 ---
 
@@ -265,11 +501,15 @@ local stand-ins in tests; production leaves them unset.
 | Accounts | `POST /api/auth/signup` `login` `refresh` `logout` `change-password` `forgot-password` `resend-confirmation`; `GET/POST /api/auth/me`; `POST /api/account/delete` |
 | Email pages | `GET/POST /auth/confirm-email`, `GET/POST /auth/reset-password` |
 | Influencers | `GET /api/influencers`; `POST /api/influencers/create` `update` `delete` |
-| Gallery | `GET /api/generations/by-asset`; `POST /api/generations/add` `delete` |
+| Gallery | `GET /api/generations/by-asset` `by-influencer`; `POST /api/generations/add` `delete` |
 | Queue | `GET /api/jobs` `by-task` `active-count` `changes` `sync`; `POST /api/jobs/register` `remove` `clear-settled` |
+
+`GET /api/jobs?active=1` returns only the running jobs (the app's half-minute sync asks for exactly those). `GET /api/jobs/changes` is what every open app polls: quick (5 s) while a job is running or just changed, 30 s when idle, and not at all while the app is in the background — the pacing is the app's (`mobile/core/data/pollPacer.js`); the server's part is keeping each answer to two queries.
 | Settings | `GET/POST /api/studio-settings`; `GET /api/creation-params` |
 | Files | `POST /api/storage/upload-url` `confirm` `download-url` `ingest` `delete` |
 | Generation | `/api/kie/*` (proxy), `POST /api/prompt-assist` |
+| Reporting | `POST /api/reports` |
+| Admin | `/admin` (the page and its files); `GET /api/admin/stats` `usage?days=` `audit?action=&admin=` `config` `users?q=&status=&sort=&dir=` `users/detail?userId=` `jobs` `moderation?status=&source=&action=&userId=` `moderation/item?eventId=` `moderation/media?eventId=` `prices`; `POST /api/admin/users/suspend` `unsuspend` `set-role` `delete`, `moderation/resolve`, `prices/upsert` `delete` |
 | Callbacks | `POST /webhooks/kie` (signed by KIE, no session) |
 
 ---

@@ -34,7 +34,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 
 import { one } from './_lib/db.js'
 import { collect } from './_lib/collect.js'
-import { applyKieStatus } from './_lib/kieStatus.js'
+import { applyKieStatus, creditsFrom } from './_lib/kieStatus.js'
 import { createRateLimiter } from '../lib/rateLimit.js'
 
 const SECRET = process.env.KIE_WEBHOOK_SECRET || ''
@@ -132,6 +132,9 @@ export function statusFromCallback(body) {
     // filing every such failure as a bare "This generation failed."
     failMsg: data.failMsg || data.failCode || (state === 'fail' ? body?.msg : null) || null,
     completeTime: data.completeTime || null,
+    // Both shapes carry it in `data`; a callback that omits it leaves the job's
+    // charge unrecorded rather than guessed (see applyKieStatus).
+    credits: creditsFrom(data.creditsConsumed),
   }
 }
 

@@ -17,6 +17,7 @@ import { one } from '../_lib/db.js'
 import { userRoute, badRequest, forbidden, HttpError } from '../_lib/http.js'
 import { storeGeneratedResult, isAllowedResultSource, ResultError } from '../_lib/results.js'
 import { isUuid } from '../_lib/validate.js'
+import { moderateGeneratedResult, OUTPUT_REMOVED_MESSAGE } from '../_lib/moderation/service.js'
 
 export default userRoute(async (req, res, user) => {
   const { sourceUrl, influencerId = null } = req.body || {}
@@ -36,6 +37,13 @@ export default userRoute(async (req, res, user) => {
       sourceUrl,
       enforceQuota: true,
     })
+
+    // Checked before the app is told it has a result to file. The file is stored
+    // either way — a blocked one is quarantined, not destroyed — and an
+    // unreachable checker lets it through to be checked again later.
+    if ((await moderateGeneratedResult(user.id, assetId)).status === 'blocked') {
+      throw new HttpError(403, OUTPUT_REMOVED_MESSAGE, 'CONTENT_BLOCKED')
+    }
     res.json({ assetId, reused })
   } catch (e) {
     if (e instanceof ResultError) throw new HttpError(e.status, e.message, e.code)

@@ -11,6 +11,8 @@
  */
 
 import { one } from './db.js'
+import { recordProviderRefusal } from './moderation/providerRefusals.js'
+import { refundTask } from './billing.js'
 
 /** Overridable only so tests can stand in for KIE; production uses the default. */
 const KIE_BASE = process.env.KIE_BASE_URL || 'https://api.kie.ai'
@@ -22,6 +24,16 @@ export const JOB_COLUMNS = `
   id, influencer_id, kie_task_id, kind, label, model, state, result_url, asset_id, fail_msg,
   created_at, updated_at, completed_at
 `
+
+/**
+ * KIE's `creditsConsumed` as a number, or null when it did not say (absent, or
+ * not a plain non-negative number). Null is not zero: zero means "KIE charged
+ * nothing", which is what it reports for a failed task.
+ */
+export function creditsFrom(value) {
+  const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null
+}
 
 /** KIE refused the server's key. Not the caller's fault, and not retryable by them. */
 export class EngineKeyRejectedError extends Error {
@@ -35,12 +47,13 @@ export class EngineKeyRejectedError extends Error {
  * Ask KIE about one task, normalised.
  *
  * @returns {Promise<{state: string, resultUrls: string[], failMsg: string|null,
- *                    completeTime: number|null, progress: number}>}
+ *                    completeTime: number|null, progress: number, credits: number|null}>}
  *   state is KIE's own (waiting/queuing/generating/success/fail), or
  *   'ratelimited' (back off) or 'unknown' (no usable answer this time).
  *   `progress` is 0-100 where the model reports one, and 0 where it does not —
  *   it was being dropped, which is why a running job could only ever be shown
  *   as "started" or "finished".
+ *   `credits` is what KIE charged (`creditsConsumed`), null when it did not say.
  */
 export async function fetchKieTaskStatus(taskId) {
   const key = process.env.KIE_API_KEY || ''
@@ -52,7 +65,7 @@ export async function fetchKieTaskStatus(taskId) {
     signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
   })
 
-  const none = { resultUrls: [], failMsg: null, completeTime: null, progress: 0 }
+  const none = { resultUrls: [], failMsg: null, completeTime: null, progress: 0, credits: null }
   if (res.status === 401 || res.status === 403) throw new EngineKeyRejectedError()
   if (res.status === 429) return { state: 'ratelimited', ...none }
   if (!res.ok) return { state: 'unknown', ...none }
@@ -77,6 +90,7 @@ export async function fetchKieTaskStatus(taskId) {
     // Only some models report one. Clamped rather than trusted, and 0 means
     // "this model does not say" — never "no work done".
     progress: Math.max(0, Math.min(100, Number(d.progress) || 0)),
+    credits: creditsFrom(d.creditsConsumed),
   }
 }
 
@@ -96,23 +110,33 @@ export async function applyKieStatus({ userId, taskId, status }) {
 
   if (state === 'success' && status.resultUrls?.[0]) {
     const completedAt = status.completeTime ? new Date(status.completeTime) : new Date()
+    // What KIE charged is written in the same statement that settles the job, so
+    // it can never be missing from a job that is settled. It is not in
+    // JOB_COLUMNS: the app has no use for it; only the admin panel reads it.
     const moved = await one(
       `update generation_jobs
-          set state = 'success', result_url = $3, completed_at = $4
+          set state = 'success', result_url = $3, completed_at = $4, kie_credits = $6
         where user_id = $1 and kie_task_id = $2 and state = any($5::text[])
         returning ${JOB_COLUMNS}`,
-      [userId, taskId, status.resultUrls[0], completedAt, ACTIVE_STATES],
+      [userId, taskId, status.resultUrls[0], completedAt, ACTIVE_STATES, creditsFrom(status.credits)],
     )
     if (moved) return { job: moved, settledNow: true }
   } else if (state === 'fail') {
     const moved = await one(
       `update generation_jobs
-          set state = 'fail', fail_msg = $3, completed_at = now()
+          set state = 'fail', fail_msg = $3, completed_at = now(), kie_credits = $5
         where user_id = $1 and kie_task_id = $2 and state = any($4::text[])
         returning ${JOB_COLUMNS}`,
-      [userId, taskId, String(status.failMsg || 'This generation failed.').slice(0, 1000), ACTIVE_STATES],
+      [userId, taskId, String(status.failMsg || 'This generation failed.').slice(0, 1000), ACTIVE_STATES, creditsFrom(status.credits)],
     )
-    if (moved) return { job: moved, settledNow: true }
+    if (moved) {
+      // Only the write that settled the job gets here, so a refusal that arrives by
+      // callback, by sync and by the worker is still recorded once.
+      await recordProviderRefusal({ userId, taskId, model: moved.model, failMsg: status.failMsg })
+      // KIE charged nothing for it, so the user is not charged either.
+      await refundTask(userId, taskId, 'Generation failed')
+      return { job: moved, settledNow: true }
+    }
   } else if (ACTIVE_STATES.includes(state)) {
     // Only when it actually moved: rewriting "generating" over itself would be a
     // write per poll for no information.
