@@ -9,7 +9,9 @@
  *   • A balance is the SUM of an account's ledger rows (migration 005). Nothing
  *     stores it, so nothing can disagree with it.
  *   • The price of a request comes from `model_prices` (the admin panel edits it):
- *     `credits` per video, per image, or per second of `input.duration`.
+ *     `credits` per video, per image, or per second — of `input.duration`, or, for a
+ *     request that carries a video, of that video as the SERVER measures it
+ *     (clipLength.js). A model can also have a row per `mode` (prices.js).
  *   • The price is TAKEN when the request is accepted, before KIE is asked — inside
  *     a transaction that holds a per-account lock, so five requests at once cannot
  *     each see the same balance and all go through. If KIE then refuses (or never
@@ -37,6 +39,8 @@ import { randomUUID } from 'node:crypto'
 
 import { one, many, query, transaction } from './db.js'
 import { HttpError } from './http.js'
+import { modeOf, priceKeys } from './prices.js'
+import { clipSecondsOf, ClipError, MAX_CLIP_SECONDS } from './clipLength.js'
 
 /** Is the gate switched on? Anything but the exact word `true` is off. */
 export function billingEnforced(env = process.env) {
@@ -111,27 +115,48 @@ async function lockAccount(client, userId) {
 function secondsOf(payload) {
   const raw = payload?.input?.duration ?? payload?.duration
   const n = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw
-  return typeof n === 'number' && Number.isFinite(n) && n > 0 && n <= 600 ? n : null
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 && n <= MAX_CLIP_SECONDS ? n : null
 }
+
+/**
+ * The seconds a measured clip is billed as: whole seconds, rounded up — KIE bills a
+ * clip by the second. A container's reported length often carries a few milliseconds
+ * over the true one (4.0003 s for a 4 s clip), which must not cost a whole extra second,
+ * so up to 50 ms over is not counted.
+ */
+export const billedSeconds = clip => Math.max(1, Math.ceil(clip - 0.05))
 
 /**
  * The price of a createTask / veo body, from the price list.
  *
- * @returns {Promise<{amount: number, unit: string, model: string} | null>}
+ * A per-second price is applied to the longer of the duration the request names and the
+ * length of the video it carries (`measureClip`): a model such as Kling Motion Control
+ * bills the video, ignores any `duration`, and a client must not be able to pay for one
+ * second by writing one.
+ *
+ * @param {object} payload
+ * @param {{measureClip?: () => Promise<number|null>}} [opts]  how to measure the request's video, if it has one
+ * @returns {Promise<{amount: number, unit: string, model: string, seconds?: number, rate?: number} | null>}
  *          null when the model has no price row, or a per-second price cannot be
- *          applied because the request names no usable duration
+ *          applied because the request names no usable duration and carries no video
+ * @throws {ClipError}  the request carries a video whose length cannot be established
  */
-export async function priceOf(payload) {
+export async function priceOf(payload, { measureClip } = {}) {
   const model = payload?.model
-  if (typeof model !== 'string' || !model || model.includes('\u0000')) return null
-  const row = await one('select credits, unit from model_prices where model = $1', [model])
+  const keys = priceKeys(model, modeOf(payload))
+  if (!keys.length) return null
+
+  const rows = await many('select model, credits, unit from model_prices where model = any($1::text[])', [keys])
+  const row = keys.map(k => rows.find(r => r.model === k)).find(Boolean)   // the mode's own row beats the model's
   if (!row) return null
 
   const credits = asNumber(row.credits)
   if (row.unit === 'per_second') {
-    const seconds = secondsOf(payload)
+    const named = secondsOf(payload)
+    const clip = measureClip ? await measureClip() : null
+    const seconds = Math.max(named ?? 0, clip === null ? 0 : billedSeconds(clip)) || null
     if (seconds === null) return null
-    return { amount: round3(credits * seconds), unit: row.unit, model }
+    return { amount: round3(credits * seconds), unit: row.unit, model, seconds, rate: credits }
   }
   return { amount: round3(credits), unit: row.unit, model }
 }
@@ -147,7 +172,17 @@ export async function priceOf(payload) {
  * @throws {BillingRefusal}  only when billing is enforced
  */
 export async function reserve({ user, payload }) {
-  const price = await priceOf(payload)
+  let price = null
+  try {
+    price = await priceOf(payload, { measureClip: () => clipSecondsOf({ user, payload }) })
+  } catch (e) {
+    if (!(e instanceof ClipError)) throw e
+    // A video whose length is not known cannot be priced. Enforced: the person is told why.
+    // Shadow: nothing is stopped, but the log says it would have been.
+    if (billingEnforced()) throw new BillingRefusal(e.status, e.message, e.code)
+    console.warn(`[billing] shadow: the video of a ${JSON.stringify(payload?.model)} request could not be measured (${e.code}) — it would be refused`)
+    return null
+  }
 
   if (!billingEnforced()) {
     await reportShadow(user, payload, price)
@@ -163,11 +198,15 @@ export async function reserve({ user, payload }) {
       throw new BillingRefusal(402, INSUFFICIENT_MESSAGE, 'INSUFFICIENT_CREDITS', { balance, price: price.amount })
     }
     const { id } = await addEntry({
-      userId: user.id, kind: 'spend', delta: -price.amount, ref: `spend:${randomUUID()}`, model: price.model, note: 'Generation started',
+      userId: user.id, kind: 'spend', delta: -price.amount, ref: `spend:${randomUUID()}`, model: price.model, note: spendNote(price),
     }, client)
     return { id, amount: price.amount }
   })
 }
+
+/** What the ledger says about a spend: for a per-second price, the sum behind it. */
+const spendNote = price =>
+  price.unit === 'per_second' && price.seconds ? `Generation started (${price.seconds} s × ${price.rate})` : 'Generation started'
 
 /** What the gate would have done, written for whoever is deciding whether to switch it on. */
 async function reportShadow(user, payload, price) {

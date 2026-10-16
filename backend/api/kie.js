@@ -19,7 +19,7 @@
 
 import { requireUser, applyCors } from './_lib/auth.js'
 import { sendServerError } from './_lib/errors.js'
-import { isModelEnabled, MODEL_UNAVAILABLE_MESSAGE } from './_lib/prices.js'
+import { isModelEnabled, modeOf, MODEL_UNAVAILABLE_MESSAGE } from './_lib/prices.js'
 import { withProviderFilters } from './_lib/moderation/kieFilters.js'
 import { screenCreateRequest, screenBase64Upload, ModerationRefusal } from './_lib/moderation/service.js'
 import { callbackUrl } from './kie-callback.js'
@@ -145,7 +145,7 @@ async function checkBeforeSending(req, subPath, user) {
   }
   if (PAID_PATHS.has(subPath)) {
     const payload = readPayload(req)
-    if (!(await isModelEnabled(payload?.model))) {
+    if (!(await isModelEnabled(payload?.model, modeOf(payload)))) {
       throw new ModerationRefusal(403, 'MODEL_UNAVAILABLE', MODEL_UNAVAILABLE_MESSAGE)
     }
     await screenCreateRequest({ user, payload })

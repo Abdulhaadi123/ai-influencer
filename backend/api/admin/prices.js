@@ -6,7 +6,8 @@
  *   POST /api/admin/prices/delete  { model }
  *
  * Each row prices one KIE model in the app's own credits and says whether it may
- * be used (api/_lib/prices.js). The list also shows `unpriced`: models that jobs
+ * be used (api/_lib/prices.js). A model that KIE bills differently per mode can have a
+ * row per mode, named `<model>:<mode>` (`kling-3.0/motion-control:720p`). The list also shows `unpriced`: models that jobs
  * have actually used which have no row, so nothing is being served for free by
  * accident. Deleting a row does not disable the model — a model with no row is
  * allowed; to switch one off, keep its row and clear `enabled`.
@@ -51,7 +52,11 @@ export const list = adminRoute(async (_req, res) => {
     `select j.model, count(*)::int as jobs, coalesce(sum(j.kie_credits), 0) as kie_credits
        from generation_jobs j
       where j.model is not null and j.model <> ''
-        and not exists (select 1 from model_prices p where p.model = j.model)
+        and not exists (
+              select 1 from model_prices p
+               where p.model = j.model
+                  or left(p.model, length(j.model) + 1) = j.model || ':'   -- a row for one mode of the model prices it
+            )
       group by j.model
       order by jobs desc, j.model`,
   )
