@@ -71,9 +71,12 @@ export class ResultError extends Error {
  *
  * @param {string} url  already checked by the caller
  * @param {typeof fetch} [fetchImpl]  injectable for tests
+ * @param {{timeoutMs?: number}} [opts]  how long the whole chain of hops may take. The
+ *        default covers a slow download of the largest allowed file; a caller that has a
+ *        person waiting (moderation checking a linked file) asks for much less.
  */
-export async function fetchAllowedSource(url, fetchImpl = fetch) {
-  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
+export async function fetchAllowedSource(url, fetchImpl = fetch, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
+  const signal = AbortSignal.timeout(timeoutMs)
   let current = url
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {

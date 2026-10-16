@@ -94,8 +94,8 @@ what goes in and what comes out is checked. All of it lives in
 | Checked | When | If refused |
 |---|---|---|
 | The text of a generation request (any field — the whole body is walked, so a new model's fields are covered) | before KIE is called | `400 CONTENT_BLOCKED`, nothing is spent |
-| Every file the request names | before KIE is called | `400 CONTENT_BLOCKED` / `MEDIA_UNVERIFIABLE` / `MEDIA_NOT_ALLOWED` |
-| A file sent through the proxy to KIE (`/api/file-base64-upload`) | before it is forwarded | `400 CONTENT_BLOCKED` |
+| Every file the request names — ours, and any link on KIE's hosts (fetched and read, never trusted for where it lives) | before KIE is called | `400 CONTENT_BLOCKED` / `MEDIA_UNVERIFIABLE` / `MEDIA_NOT_ALLOWED`; `409 MEDIA_NOT_READY` for an upload not yet sealed (below) |
+| A file sent through the proxy to KIE (`/api/file-base64-upload`) | before it is forwarded | `400 CONTENT_BLOCKED` / `MEDIA_UNVERIFIABLE` |
 | An uploaded file | in the background after `/api/storage/confirm`, and again on first use | blocked for good |
 | A generated result | when it is stored (webhook, worker, ingest) | quarantined: hidden from its owner, kept for an admin |
 | Suggestion text (`/api/prompt-assist`) | before it is rewritten | `400 CONTENT_BLOCKED`, not a strike |
@@ -120,6 +120,38 @@ example) — `classifyImageBytes` and `classifyStored` in `service.js` are the
 places. Frame sampling can also miss a flash between two sampled frames, and the
 first display of a result inside the create wizard comes straight from the
 generator, before it is stored and checked.
+
+**What a file is comes from its bytes, never from what the client called it.**
+Audio is the one kind with no classifier, so it is the one kind let through
+unchecked — and that made "this is audio" a way round the check for everything else
+(an `uploadPath` of `audio/…`, a `data:audio/…` header, or an upload declared as
+`audio/mpeg` all used to send an explicit image to KIE unread). `sniff.js` now
+recognises audio by its first bytes (**MP3, WAV, M4A** — the types the app stores);
+only a file that really is audio skips the check, and a file that is none of image,
+video or audio is refused `MEDIA_UNVERIFIABLE`. Other audio formats are therefore
+refused. Audio itself is still not looked at.
+
+**A link on KIE's hosts is not a checked file.** It may be something KIE generated,
+a file uploaded through the proxy, or something left at a guessable address, so it
+is downloaded when a request uses it (SSRF-safe, 15 s limit, size-capped), classified
+like any file, and the verdict is remembered for ten minutes. At most 8 such links
+per request; a link that cannot be fetched is refused (or let through, with
+`MODERATION_FAIL_MODE=open`). The app's own screens send our S3 links, not KIE's, so
+nothing in the app is slowed by this.
+
+**An upload is sealed so the bytes checked are the bytes sent** (`seal.js`, migration
+`006_sealed_uploads.sql`, `assets.sealed_at`). The presigned upload link pins the
+key and the length, not the content, lives 30 minutes and can be used again — so a
+file could be replaced *after* it had been checked. `/api/storage/confirm` therefore
+copies the file, inside S3, to a key no link names (`…-sealed.<ext>`), points the
+asset at the copy and deletes the original; if that fails the upload is not
+confirmed and the app uploads again. An upload that was never confirmed is sealed
+when it is first used, and that request is answered `409 MEDIA_NOT_READY` — the
+retry names the sealed file. Uploads that predate sealing, and anything the server
+wrote itself, count as sealed once their link has expired, so nothing existing needs
+migrating. A second use of the old link writes to a key nothing refers to; it is
+swept with the account's other files. The IAM user needs `s3:GetObject` and
+`s3:PutObject` (CopyObject), which it already has.
 
 **Policy** is in `policy.js`: *block*, *review* (allowed, but a person looks) or
 *allow*, per category. The defaults are a starting point — watch the admin queue

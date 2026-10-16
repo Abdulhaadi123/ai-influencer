@@ -313,7 +313,7 @@ test('someone else\'s file is "not found" — and is not checked or revealed', a
   assert.equal((await stack.one('select moderation_status from assets where id = $1', [img.id])).moderation_status, 'unchecked', 'untouched')
 })
 
-test('a link we cannot check is refused; KIE\'s own hosts are allowed', async () => {
+test('a link we cannot check is refused', async () => {
   const u = await stack.createUser()
   const foreign = await createTask(u.token, { prompt: 'hello there', image_urls: ['https://images.example.com/a.jpg'] })
   assert.equal(foreign.status, 400)
@@ -322,8 +322,8 @@ test('a link we cannot check is refused; KIE\'s own hosts are allowed', async ()
   const data = await createTask(u.token, { prompt: 'hello there', image_urls: ['data:image/png;base64,AAAA'] })
   assert.equal(data.body.code, 'MEDIA_NOT_ALLOWED')
 
-  const kie = await createTask(u.token, { prompt: 'hello there', image_urls: ['https://tempfile.aiquickdraw.com/uploads/1.png'] })
-  assert.equal(kie.status, 200)
+  // A link on KIE's own hosts is not exempt: it is fetched and checked like anything else
+  // (moderation-bypass.test.js). It used to be allowed for its host alone.
 })
 
 test('a file that is not really an image cannot be checked, so it cannot be used', async () => {

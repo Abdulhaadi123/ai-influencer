@@ -92,9 +92,12 @@ const OWN_KEY = /^users\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
  *
  *   own     a file in this app's private bucket → `key` identifies the asset, and
  *           its moderation status is looked up
- *   kie     a file on KIE's own hosts. Only this server can put a file there
- *           (it holds the only key, and every upload goes through the proxy,
- *           which checks it), or KIE generated it.
+ *   kie     a file on KIE's own hosts. Where it CAME from says nothing about what is
+ *           in it: it may be something KIE generated, a file uploaded through the
+ *           proxy (which checks uploads, but not every way a file could have got
+ *           there), or something another account's result left lying at a guessable
+ *           address. It is therefore fetched and checked when it is used
+ *           (service.js screenKieLink) — never trusted for its host.
  *   other   anything else. Not checkable, so not allowed.
  *
  * @param {string} raw
@@ -102,6 +105,10 @@ const OWN_KEY = /^users\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
  * @returns {{kind: 'own', key: string} | {kind: 'kie'} | {kind: 'other'}}
  */
 export function classifyMediaUrl(raw, { bucket = '', endpoint = '' } = {}) {
+  // A control character is never part of a link someone meant. Refusing it here also keeps
+  // it from becoming a request to a host, with whatever that does to the one reading it.
+  if (typeof raw !== 'string' || /[\u0000-\u001f\u007f]/.test(raw)) return { kind: 'other' }
+
   let url
   try { url = new URL(raw) } catch { return { kind: 'other' } }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return { kind: 'other' }

@@ -18,6 +18,21 @@
  * The sentence never says which rule fired or by how much — that would be a map
  * for someone searching for the edge.
  *
+ * ── What a file IS comes from its bytes ──────────────────────────────────────
+ *
+ * Never from what the client called it. Audio is the one kind nothing can check,
+ * so "this is audio" must not be something a client can simply say: an explicit
+ * image uploaded with an `audio/…` path, a `data:audio/…` header, or an `audio/…`
+ * content type was once let through unread, and the link KIE gave back for it was
+ * then trusted by its host. Every file is sniffed (sniff.js); only what really is
+ * audio skips the check, and a file that is not recognisably an image, a video or
+ * audio cannot be used.
+ *
+ * Likewise a file is not trusted for WHERE it lives. A link into this app's bucket
+ * is looked up and checked; a link to KIE's hosts is fetched and checked when it is
+ * used (screenKieLink); and an upload is sealed (seal.js) so that the bytes checked
+ * are the bytes the generator later receives.
+ *
  * ── Before the money, never after ───────────────────────────────────────────
  *
  * Requests are checked BEFORE KIE is called, so a refused request costs
@@ -33,15 +48,20 @@
  * checker saw and overturn it. Only a human decision deletes it.
  */
 
+import { createWriteStream } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 
 import { one, many, transaction } from '../db.js'
 import {
-  BUCKET, MAX_UPLOAD_BYTES, getObjectBytes, downloadObjectToFile, ObjectTooLargeError,
+  BUCKET, MAX_UPLOAD_BYTES, getObjectBytes, getObjectHead, downloadObjectToFile, ObjectTooLargeError,
 } from '../s3.js'
+import { fetchAllowedSource, ResultError } from '../results.js'
 import { SUSPENDED_MESSAGE } from '../suspension.js'
+import { sealAsset, isSealed } from './seal.js'
 import { moderationConfig } from './config.js'
 import { classify, textItem, imageItem, ModerationUnavailableError } from './openai.js'
 import { evaluate, scoresOf } from './policy.js'
@@ -60,6 +80,7 @@ export const MESSAGES = Object.freeze({
   notAllowed: 'One of the files you selected cannot be used. Please choose a file from your library.',
   notFound: 'One of the files you selected could not be found.',
   tooMany: 'Too many files were attached to this request.',
+  notReady: 'One of the files you selected was not ready to be used. Please select it again.',
 })
 
 /** The job's message when its result is quarantined. Exact text matters: releaseAsset undoes only this one. */
@@ -218,20 +239,34 @@ async function withScratch(fn) {
 
 const eventSourceFor = asset => (asset.origin === 'generated' ? 'output' : asset.kind === 'video' ? 'video' : 'image')
 
-async function classifyStored(asset, cfg) {
-  if (asset.kind === 'audio') return null   // there is no audio classifier; nothing to read
+async function classifyStoredImage(asset, cfg) {
+  let bytes
+  try { bytes = await getObjectBytes({ key: asset.s3_key, maxBytes: cfg.maxImageBytes }) } catch (e) { throw storageProblem(e) }
+  return classifyImageBytes(bytes, cfg)
+}
 
-  if (asset.kind === 'image') {
-    let bytes
-    try { bytes = await getObjectBytes({ key: asset.s3_key, maxBytes: cfg.maxImageBytes }) } catch (e) { throw storageProblem(e) }
-    return classifyImageBytes(bytes, cfg)
-  }
-
+function classifyStoredVideo(asset, cfg) {
   return withScratch(async dir => {
     const file = path.join(dir, 'video')
     try { await downloadObjectToFile({ key: asset.s3_key, file, maxBytes: MAX_UPLOAD_BYTES }) } catch (e) { throw storageProblem(e) }
     return classifyVideoFile(file, cfg)
   })
+}
+
+async function classifyStored(asset, cfg) {
+  if (asset.kind === 'image') return classifyStoredImage(asset, cfg)
+  if (asset.kind !== 'audio') return classifyStoredVideo(asset, cfg)
+
+  // "Audio" is what the uploader called it when asking for the upload link, and audio is
+  // the one kind nothing can check — so an image uploaded under that name used to be
+  // marked clear without a single byte being read. Look at what it really is.
+  let head
+  try { head = await getObjectHead({ key: asset.s3_key }) } catch (e) { throw storageProblem(e) }
+  const sniffed = sniffMedia(head)
+  if (sniffed?.kind === 'audio') return null   // there is no audio classifier; nothing to read
+  if (sniffed?.kind === 'image') return classifyStoredImage(asset, cfg)
+  if (sniffed?.kind === 'video') return classifyStoredVideo(asset, cfg)
+  throw new UnverifiableMediaError('The file is not a recognised audio file.')
 }
 
 /**
@@ -251,6 +286,10 @@ export async function moderateAsset(asset, { cfg = moderationConfig() } = {}) {
     return { status: asset.moderation_status, newlyBlocked: false, decision: null }
   }
   if (!cfg.enabled) throw new ModerationUnavailableError('Content moderation is switched off.')
+
+  // Judged on a key that only this server can write to, so the file that is checked is the
+  // file the generator later receives (seal.js). Already done for anything confirmed.
+  try { asset = await sealAsset(asset) } catch (e) { throw storageProblem(e) }
 
   const result = await classifyStored(asset, cfg)
   const decision = result ? evaluate(result, cfg.rules) : { action: 'allow', hits: [], hardRule: false }
@@ -279,7 +318,7 @@ export async function moderateAsset(asset, { cfg = moderationConfig() } = {}) {
   return { status, newlyBlocked: status === 'blocked', decision }
 }
 
-const ASSET_COLUMNS = 'id, user_id, s3_key, kind, content_type, origin, moderation_status'
+const ASSET_COLUMNS = 'id, user_id, s3_key, kind, content_type, origin, moderation_status, sealed_at, created_at'
 
 const MAX_BACKGROUND_CHECKS = 3
 let backgroundChecks = 0
@@ -315,11 +354,19 @@ export async function checkUploadInBackground(assetId, userId) {
 
 // ── The files a request names ────────────────────────────────────────────────
 
+/** KIE-hosted links one request may name. Each is a download and a check, so the number is bounded. */
+const MAX_KIE_LINKS = 8
+
 /**
  * Every file a generation request references must be one that was checked and
- * allowed. Links into this app's bucket are looked up (and checked now if they
- * have not been); links to KIE's own hosts were put there through this server's
- * proxy, which checks them; any other link cannot be checked and is refused.
+ * allowed — and "checked" is decided here, not by where the link points:
+ *
+ *   • a link into this app's bucket is looked up (and checked now if it has not been);
+ *     it must be sealed, so the checked bytes are the bytes KIE fetches;
+ *   • a link to KIE's own hosts is fetched and checked now (screenKieLink). Its host
+ *     says who is serving it, not what it shows, and a file there can have come from
+ *     somewhere that was never checked;
+ *   • any other link cannot be checked and is refused.
  *
  * @param {{user: {id: string}, urls: string[], cfg: ReturnType<typeof moderationConfig>}} args
  */
@@ -327,19 +374,38 @@ async function screenReferences({ user, urls, cfg }) {
   if (urls.length > MAX_URLS) throw new ModerationRefusal(400, 'TOO_MANY_FILES', MESSAGES.tooMany)
 
   const keys = new Set()
+  const links = new Set()
   for (const raw of urls) {
     const where = classifyMediaUrl(raw, { bucket: BUCKET, endpoint: process.env.S3_ENDPOINT || '' })
     if (where.kind === 'own') keys.add(where.key)
-    else if (where.kind === 'other') throw new ModerationRefusal(400, 'MEDIA_NOT_ALLOWED', MESSAGES.notAllowed)
+    else if (where.kind === 'kie') links.add(raw)
+    else throw new ModerationRefusal(400, 'MEDIA_NOT_ALLOWED', MESSAGES.notAllowed)
   }
-  if (!keys.size) return
+  if (links.size > MAX_KIE_LINKS) throw new ModerationRefusal(400, 'TOO_MANY_FILES', MESSAGES.tooMany)
 
+  if (keys.size) await screenOwnFiles({ user, keys, cfg })
+  await Promise.all([...links].map(url => screenKieLink({ user, url, cfg })))
+}
+
+/** The caller's own files named by a request: found, sealed, and checked. */
+async function screenOwnFiles({ user, keys, cfg }) {
   // Scoped to the caller: a link to someone else's file is simply not found.
   const assets = await many(
     `select ${ASSET_COLUMNS} from assets where user_id = $1 and s3_key = any($2::text[])`,
     [user.id, [...keys]],
   )
   if (assets.length !== keys.size) throw new ModerationRefusal(400, 'MEDIA_NOT_FOUND', MESSAGES.notFound)
+
+  // An upload nobody confirmed can still be written to through its link, and the address
+  // this request names is that link's. Sealing it moves the file somewhere nobody can write,
+  // but this request still holds the old address — so it cannot go ahead; the next one, with
+  // the file selected again, names the sealed one. (The app confirms every upload, which
+  // seals it, so this is a client that skipped the step.) A blocked file is refused below.
+  const unsealed = assets.filter(a => a.moderation_status !== 'blocked' && !isSealed(a))
+  if (unsealed.length) {
+    await Promise.all(unsealed.map(a => sealAsset(a).catch(e => console.warn('[moderation] could not seal', a.id, e?.message ?? e))))
+    throw new ModerationRefusal(409, 'MEDIA_NOT_READY', MESSAGES.notReady)
+  }
 
   const verdicts = await Promise.all(assets.map(async asset => {
     if (asset.moderation_status === 'clear') return { asset, status: 'clear' }
@@ -369,6 +435,118 @@ async function screenReferences({ user, urls, cfg }) {
   }
 }
 
+// ── A file on KIE's hosts ────────────────────────────────────────────────────
+
+/** A person is waiting on the request this runs in; a slow CDN must not hold it for minutes. */
+const KIE_LINK_TIMEOUT_MS = 15_000
+
+/** A file that passed, by link, so several requests naming it (or one request, three times) fetch it once. */
+const LINK_VERDICT_TTL_MS = 10 * 60_000
+const LINK_VERDICTS_MAX = 500
+const passedLinks = new Map()      // url → when the verdict stops being reused
+const checkingLinks = new Map()    // url → the check in progress
+
+function rememberPassed(url, now = Date.now()) {
+  if (passedLinks.size >= LINK_VERDICTS_MAX) passedLinks.delete(passedLinks.keys().next().value)
+  passedLinks.set(url, now + LINK_VERDICT_TTL_MS)
+}
+
+/**
+ * Fetch a KIE-hosted file to disk, as strictly as results.js fetches a result: https only,
+ * KIE's hosts only, every redirect hop re-checked, and bounded in time and size.
+ */
+async function downloadLink(url, file, maxBytes) {
+  let res
+  try {
+    res = await fetchAllowedSource(url, fetch, { timeoutMs: KIE_LINK_TIMEOUT_MS })
+  } catch (e) {
+    // A redirect off KIE's hosts, or too many hops: this link can never be checked.
+    if (e instanceof ResultError) throw new UnverifiableMediaError('The file is not available from an allowed source.', e)
+    throw new ModerationUnavailableError('The file could not be fetched for checking.', { cause: e, retryable: true })
+  }
+
+  if (!res.ok) {
+    await res.body?.cancel?.().catch(() => {})
+    // Gone, or not ours to read: nothing to wait for. A struggling CDN: try again.
+    if (res.status === 429 || res.status >= 500) {
+      throw new ModerationUnavailableError(`The file host answered HTTP ${res.status}.`, { retryable: true })
+    }
+    throw new UnverifiableMediaError(`The file could not be fetched (HTTP ${res.status}).`)
+  }
+  if (Number(res.headers.get('content-length') || 0) > maxBytes) {
+    await res.body?.cancel?.().catch(() => {})
+    throw new UnverifiableMediaError('This file is too large to check.')
+  }
+  if (!res.body) throw new UnverifiableMediaError('The file is empty.')
+
+  let total = 0
+  const cap = new Transform({
+    transform(chunk, _enc, done) {
+      total += chunk.length
+      done(total > maxBytes ? new UnverifiableMediaError('This file is too large to check.') : null, chunk)
+    },
+  })
+  try {
+    await pipeline(Readable.fromWeb(res.body), cap, createWriteStream(file))
+  } catch (e) {
+    if (e instanceof UnverifiableMediaError) throw e
+    throw new ModerationUnavailableError('The file could not be read for checking.', { cause: e, retryable: true })
+  }
+}
+
+/** Download, sniff, classify. @returns {Promise<{source: string, result: object|null}>}  `result` is null for audio */
+function checkLink(url, cfg) {
+  return withScratch(async dir => {
+    const file = path.join(dir, 'file')
+    await downloadLink(url, file, MAX_UPLOAD_BYTES)
+
+    const sniffed = await sniffFile(file)
+    if (sniffed?.kind === 'audio') return { source: 'audio', result: null }
+    if (sniffed?.kind === 'video') return { source: 'video', result: await classifyVideoFile(file, cfg) }
+    if (sniffed?.kind === 'image') {
+      // Never read a large file into memory just to be told it is too large.
+      if ((await fs.stat(file)).size > cfg.maxImageBytes) throw new UnverifiableMediaError('This image is too large to check.')
+      return { source: 'image', result: await classifyImageBytes(await fs.readFile(file), cfg) }
+    }
+    throw new UnverifiableMediaError('The file is not a recognised image, video or audio file.')
+  })
+}
+
+/**
+ * A request names a file on KIE's hosts. Whoever wrote the link, the host says nothing about
+ * what is behind it — an upload that skipped the check, a result somebody else's account
+ * produced — so it is fetched and judged here, exactly as an uploaded file is, and the answer
+ * is the same: refused (and a strike, for the one who named it), held for review, or allowed.
+ *
+ * @throws {ModerationRefusal}
+ */
+async function screenKieLink({ user, url, cfg }) {
+  const until = passedLinks.get(url)
+  if (until && until > Date.now()) return
+
+  let pending = checkingLinks.get(url)
+  if (!pending) {
+    pending = checkLink(url, cfg).finally(() => checkingLinks.delete(url))
+    checkingLinks.set(url, pending)
+  }
+
+  let verdict
+  try {
+    verdict = await pending
+  } catch (e) {
+    if (!isUncheckable(e)) throw e
+    const refusal = whenUnchecked(e, cfg, 'a linked file')
+    if (refusal) throw refusal
+    return
+  }
+
+  // Audio: nothing to read it with. Everything else is judged like any other submission.
+  if (verdict.result) {
+    await settle({ user, source: verdict.source, cfg, file: true, decision: evaluate(verdict.result, cfg.rules) })
+  }
+  rememberPassed(url)
+}
+
 /**
  * Check a generation request before it is sent to KIE.
  *
@@ -391,6 +569,11 @@ export async function screenCreateRequest({ user, payload }) {
  * Audio is not checked (there is nothing to check it with); everything else must
  * be a real image or video.
  *
+ * "Audio" is a fact about the BYTES. This used to skip the check when the request
+ * said so — a `data:audio/…` header, or an `uploadPath` starting `audio/` — and both
+ * are the client's to write: an explicit image sent that way was forwarded to KIE
+ * unread, and the link KIE returned was then trusted. Neither field is consulted now.
+ *
  * @param {{user: {id: string}, payload: {base64Data?: string, uploadPath?: string}}} args
  * @throws {ModerationRefusal}
  */
@@ -400,13 +583,13 @@ export async function screenBase64Upload({ user, payload }) {
 
   const raw = payload?.base64Data
   if (typeof raw !== 'string' || !raw) return     // nothing to check; KIE will reject it
-  if (/^data:audio\//i.test(raw) || /^audio\//i.test(String(payload?.uploadPath || ''))) return
 
   let verdict
   try {
     const bytes = Buffer.from(raw.replace(/^data:[^,]*,/, ''), 'base64')
     const sniffed = sniffMedia(bytes.subarray(0, 32))
-    if (!sniffed) throw new UnverifiableMediaError('The file is not a recognised image or video.')
+    if (!sniffed) throw new UnverifiableMediaError('The file is not a recognised image, video or audio file.')
+    if (sniffed.kind === 'audio') return          // really audio: nothing can read it
 
     verdict = {
       source: sniffed.kind === 'video' ? 'video' : 'image',

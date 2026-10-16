@@ -157,6 +157,22 @@ test('anything else — other hosts, data URIs, junk — cannot be checked', () 
   }
 })
 
+test('a control character anywhere in a link makes it uncheckable — it never reaches a request', () => {
+  for (const url of [
+    'https://tempfile.aiquickdraw.com/a\u0000.png',
+    'https://tempfile.aiquickdraw.com/a.png\n',
+    'https://tempfile.aiquickdraw.com/a\r\nHost: evil.test',
+    'https://tempfile.aiquickdraw.com/a\u007f.png',
+    `https://my-bucket.s3.us-east-2.amazonaws.com/${KEY}\u0001`,
+  ]) assert.equal(classifyMediaUrl(url, where).kind, 'other', JSON.stringify(url))
+})
+
+test('a link that is not a string is not a link', () => {
+  for (const v of [null, undefined, 5, {}, [], ['https://tempfile.aiquickdraw.com/a.png']]) {
+    assert.equal(classifyMediaUrl(v, where).kind, 'other')
+  }
+})
+
 test('with no bucket configured nothing is "ours"', () => {
   assert.equal(classifyMediaUrl(`https://my-bucket.s3.us-east-2.amazonaws.com/${KEY}`, { bucket: '' }).kind, 'other')
 })

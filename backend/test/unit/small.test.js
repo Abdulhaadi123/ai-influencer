@@ -6,6 +6,8 @@ import assert from 'node:assert/strict'
 
 import { withProviderFilters, NSFW_CHECKER_MODELS, nsfwCheckerEnabled } from '../../api/_lib/moderation/kieFilters.js'
 import { sniffMedia } from '../../api/_lib/moderation/sniff.js'
+import { isSealed, sealedKeyFor } from '../../api/_lib/moderation/seal.js'
+import { UPLOAD_TTL_SECONDS } from '../../api/_lib/s3.js'
 import { moderationConfig, describeModeration } from '../../api/_lib/moderation/config.js'
 import { creditsFrom } from '../../api/_lib/kieStatus.js'
 import { statusFromCallback } from '../../api/kie-callback.js'
@@ -83,6 +85,65 @@ test('sniffMedia refuses what it does not know — including text posing as medi
   ]) assert.equal(sniffMedia(bytes), null)
   assert.equal(sniffMedia(null), null)
   assert.equal(sniffMedia(undefined), null)
+})
+
+test('sniffMedia knows audio from its bytes: WAV, MP3 (tag or bare frame), M4A', () => {
+  assert.deepEqual(sniffMedia(Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVEfmt '), Buffer.alloc(8)])), { kind: 'audio', contentType: 'audio/wav' })
+  assert.deepEqual(sniffMedia(pad([0x49, 0x44, 0x33, 0x04, 0x00])), { kind: 'audio', contentType: 'audio/mpeg' })
+  assert.deepEqual(sniffMedia(pad([0xff, 0xfb, 0x90, 0x00])), { kind: 'audio', contentType: 'audio/mpeg' })
+  for (const brand of ['M4A ', 'M4B ', 'M4P ']) {
+    assert.deepEqual(sniffMedia(Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftyp' + brand), Buffer.alloc(16)])), { kind: 'audio', contentType: 'audio/mp4' }, brand)
+  }
+})
+
+test('sniffMedia: a JPEG is never taken for an MPEG frame, nor a video for audio', () => {
+  // FF D8 starts every JPEG; the MPEG frame sync is FF E0 and up. The images are checked first
+  // and the sync test needs all three top bits, so the two cannot be confused.
+  assert.equal(sniffMedia(pad([0xff, 0xd8, 0xff, 0xdb])).kind, 'image')
+  assert.equal(sniffMedia(pad([0xff, 0xd8, 0x00, 0x00])), null, 'FF D8 without the third FF is neither')
+  // An ordinary MP4 brand stays a video.
+  assert.equal(sniffMedia(Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom'), Buffer.alloc(16)])).kind, 'video')
+  // A RIFF that is neither WEBP nor WAVE is nothing we store.
+  assert.equal(sniffMedia(Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('AVI LIST'), Buffer.alloc(8)])), null)
+})
+
+// ── Sealing ──────────────────────────────────────────────────────────────────
+
+const MIN = 60 * 1000
+const LINK_LIFE_MS = UPLOAD_TTL_SECONDS * 1000
+const NOW = Date.UTC(2026, 9, 14, 12, 0, 0)
+const ago = ms => new Date(NOW - ms)
+
+test('isSealed: only a young, unconfirmed upload is open to rewriting', () => {
+  // The one case that is not sealed.
+  assert.equal(isSealed({ origin: 'upload', sealed_at: null, created_at: ago(1 * MIN) }, NOW), false)
+  // Everything else is.
+  assert.equal(isSealed({ origin: 'upload', sealed_at: ago(0), created_at: ago(1 * MIN) }, NOW), true, 'sealed_at set')
+  assert.equal(isSealed({ origin: 'generated', sealed_at: null, created_at: ago(1 * MIN) }, NOW), true, 'the server wrote it; no link exists')
+  assert.equal(isSealed({ origin: 'generated', sealed_at: null, created_at: null }, NOW), true)
+})
+
+test('isSealed: an upload counts as sealed only after its link is certainly dead', () => {
+  const at = ms => isSealed({ origin: 'upload', sealed_at: null, created_at: ago(ms) }, NOW)
+  assert.equal(at(LINK_LIFE_MS - MIN), false, 'link still valid')
+  assert.equal(at(LINK_LIFE_MS + 5 * MIN), false, 'expired, but inside the clock margin')
+  assert.equal(at(LINK_LIFE_MS + 16 * MIN), true, 'expired and past the margin')
+  assert.equal(at(180 * MIN), true, 'a file uploaded long before sealing existed')
+})
+
+test('isSealed: no creation time means unsealed, never a crash', () => {
+  assert.equal(isSealed({ origin: 'upload', sealed_at: null, created_at: null }, NOW), false)
+  assert.equal(isSealed({ origin: 'upload', sealed_at: null, created_at: 'not a date' }, NOW), false)
+  assert.equal(isSealed({ origin: 'upload' }, NOW), false)
+})
+
+test('sealedKeyFor keeps the folder and the extension and only marks the name', () => {
+  const dir = 'users/11111111-2222-3333-4444-555555555555/2026/10'
+  assert.equal(sealedKeyFor(`${dir}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jpg`), `${dir}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-sealed.jpg`)
+  assert.equal(sealedKeyFor(`${dir}/x.mp4`), `${dir}/x-sealed.mp4`)
+  assert.equal(sealedKeyFor(`${dir}/x`), `${dir}/x-sealed`, 'no extension')
+  assert.equal(sealedKeyFor('users/a.b/c'), 'users/a.b/c-sealed', 'a dot in a folder is not an extension')
+  assert.notEqual(sealedKeyFor(`${dir}/x.jpg`), `${dir}/x.jpg`, 'always a different key — a copy onto itself would seal nothing')
 })
 
 // ── Settings ─────────────────────────────────────────────────────────────────

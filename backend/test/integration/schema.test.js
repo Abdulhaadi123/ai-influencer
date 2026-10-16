@@ -29,7 +29,20 @@ async function legacyDatabase() {
 
 test('the migrations are numbered in order with no gaps', () => {
   const files = readdirSync(migrations).filter(f => f.endsWith('.sql')).sort()
-  assert.deepEqual(files, ['001_schema.sql', '002_moderation_admin.sql', '003_provider_refusals.sql', '004_admin_list_indexes.sql', '005_billing.sql'])
+  assert.deepEqual(files, ['001_schema.sql', '002_moderation_admin.sql', '003_provider_refusals.sql', '004_admin_list_indexes.sql', '005_billing.sql', '006_sealed_uploads.sql'])
+})
+
+test('006 adds sealed_at to a live table without touching a row, and nothing needs backfilling', async () => {
+  const db = await legacyDatabase()
+  // A young upload as it stood before sealing existed, next to the generated file legacyDatabase made.
+  await db.query(`insert into assets (user_id, s3_key, kind, origin, byte_size) values ($1, 'users/old/up.jpg', 'image', 'upload', 7)`, [USER])
+  for (const file of ['002_moderation_admin.sql', '003_provider_refusals.sql', '004_admin_list_indexes.sql', '005_billing.sql', '006_sealed_uploads.sql']) await db.exec(sql(file))
+
+  const column = (await db.query(`select data_type, is_nullable, column_default from information_schema.columns where table_name = 'assets' and column_name = 'sealed_at'`)).rows[0]
+  assert.deepEqual(column, { data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null }, 'nullable and no default: applying it rewrites nothing')
+  assert.deepEqual((await db.query('select count(*)::int as n from assets where sealed_at is not null')).rows[0], { n: 0 }, 'no row was marked by the migration')
+  assert.equal((await db.query('select count(*)::int as n from assets')).rows[0].n, 2, 'and none was lost')
+  await db.close()
 })
 
 test('002 applies on top of existing data and gives every old row a safe default', async () => {

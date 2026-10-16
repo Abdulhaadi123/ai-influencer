@@ -26,6 +26,7 @@
 
 import {
   S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, DeleteObjectsCommand, ListObjectsV2Command,
+  CopyObjectCommand,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { randomUUID } from 'node:crypto'
@@ -195,6 +196,23 @@ export async function deleteObject(key) {
   await s3().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
 }
 
+/**
+ * Copy an object to another key in the same bucket, inside S3 — the bytes never pass
+ * through this server. Used to move an upload onto a key that no presigned link
+ * names (api/_lib/moderation/seal.js).
+ *
+ * Content type and the rest of the metadata come across with it.
+ */
+export async function copyObject({ fromKey, toKey }) {
+  await s3().send(new CopyObjectCommand({
+    Bucket: BUCKET,
+    Key: toKey,
+    // Bucket and key, URL-encoded, as the API wants it.
+    CopySource: encodeURI(`${BUCKET}/${fromKey}`),
+    ServerSideEncryption: 'AES256',
+  }))
+}
+
 /** A stored object is larger than the caller is willing to read. */
 export class ObjectTooLargeError extends Error {
   constructor(maxBytes) {
@@ -228,6 +246,25 @@ export async function getObjectBytes({ key, maxBytes }) {
     chunks.push(chunk)
   }
   return Buffer.concat(chunks)
+}
+
+/**
+ * The first `bytes` bytes of an object, and no more — enough to tell what a file is
+ * (sniff.js) without fetching it.
+ *
+ * Asks for a range, and also stops reading once it has enough, so a store that ignores
+ * the range (some S3-compatible ones, and the test stand-in) still costs a few bytes.
+ */
+export async function getObjectHead({ key, bytes = 32 }) {
+  const res = await s3().send(new GetObjectCommand({ Bucket: BUCKET, Key: key, Range: `bytes=0-${bytes - 1}` }))
+  const chunks = []
+  let total = 0
+  for await (const chunk of res.Body) {
+    chunks.push(chunk)
+    total += chunk.length
+    if (total >= bytes) { res.Body.destroy?.(); break }
+  }
+  return Buffer.concat(chunks).subarray(0, bytes)
 }
 
 /** Stream an object to a local file, refusing past `maxBytes`. For video, which is too large to hold in memory. */

@@ -1,0 +1,24 @@
+-- ═════════════════════════════════════════════════════════════════════════════
+-- 006 — an upload is sealed once nobody but the server can write to it
+-- ═════════════════════════════════════════════════════════════════════════════
+--
+-- An upload goes to S3 through a presigned PUT link that stays valid for thirty
+-- minutes and can be used more than once. Content moderation checks the file after
+-- the upload — but a client holding the link could put DIFFERENT bytes under the
+-- same key afterwards (same length, which is all the link pins), and the file that
+-- was checked would no longer be the file the generator later fetched.
+--
+-- Sealing closes that. When an upload is confirmed the server copies it, inside S3,
+-- to a key no link names, points the asset at the copy, and deletes the original.
+-- From then on the bytes behind the asset cannot change, so what is checked is what
+-- is sent. `sealed_at` records that it happened.
+--
+-- Null means "not sealed (yet)". It is NOT a flag that something is wrong: files the
+-- server wrote itself (generated results) never need it, and uploads older than the
+-- link's lifetime are safe whether or not they were ever sealed — the link has long
+-- expired — so nothing here has to be backfilled. See api/_lib/moderation/seal.js.
+--
+-- Nullable and without a default, so this applies to a live table in an instant and
+-- the previous release keeps working against it.
+
+alter table assets add column sealed_at timestamptz;

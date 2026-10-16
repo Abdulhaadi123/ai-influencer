@@ -37,6 +37,8 @@ const readBody = req => new Promise(resolve => {
 function fakeS3(bucket) {
   const objects = new Map()   // key → { body: Buffer, contentType }
   const log = []
+  // Set `failCopy` to make the next CopyObject calls fail, the way a refusing S3 would.
+  const behaviour = { failCopy: false }
 
   const xml = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/xml' }); res.end(body) }
   const noSuchKey = res => xml(res, 404, '<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message></Error>')
@@ -50,6 +52,15 @@ function fakeS3(bucket) {
     const key = url.pathname.startsWith(prefix) ? decodeURIComponent(url.pathname.slice(prefix.length)) : null
 
     if (key !== null && key !== '') {
+      if (req.method === 'PUT' && req.headers['x-amz-copy-source']) {
+        // CopyObject: the bytes are copied here, inside the store, and never pass through the caller.
+        if (behaviour.failCopy) return xml(res, 500, '<?xml version="1.0" encoding="UTF-8"?><Error><Code>InternalError</Code><Message>We encountered an internal error. Please try again.</Message></Error>')
+        const source = decodeURIComponent(String(req.headers['x-amz-copy-source'])).replace(/^\//, '')
+        const from = objects.get(source.startsWith(`${bucket}/`) ? source.slice(bucket.length + 1) : source)
+        if (!from) return noSuchKey(res)
+        objects.set(key, { body: Buffer.from(from.body), contentType: from.contentType })
+        return xml(res, 200, '<?xml version="1.0" encoding="UTF-8"?><CopyObjectResult><ETag>"x"</ETag><LastModified>2026-01-01T00:00:00.000Z</LastModified></CopyObjectResult>')
+      }
       if (req.method === 'PUT') {
         objects.set(key, { body, contentType: req.headers['content-type'] || 'application/octet-stream' })
         res.writeHead(200, { etag: '"x"' }); return res.end()
@@ -81,7 +92,7 @@ function fakeS3(bucket) {
     }
     res.writeHead(400); res.end()
   })
-  return { server, objects, log }
+  return { server, objects, log, behaviour }
 }
 
 // ── Fake KIE ─────────────────────────────────────────────────────────────────
@@ -294,17 +305,24 @@ export async function startStack({ env = {} } = {}) {
       return { id: row.id, email: row.email, token: session.accessToken, refreshToken: session.refreshToken, password: password || 'a-long-test-password-1' }
     },
 
-    /** A file in the fake bucket plus its asset row. */
-    async putAsset({ userId, kind = 'image', origin = 'upload', bytes, contentType, influencerId = null, moderationStatus = 'unchecked' }) {
+    /**
+     * A file in the fake bucket plus its asset row.
+     *
+     * An upload is made as the app leaves it — confirmed, and therefore sealed — unless a test
+     * asks otherwise: `sealed: false` is an upload nobody confirmed (its link can still write to
+     * it), and `ageMinutes` makes the row older, for an upload from before sealing existed.
+     */
+    async putAsset({ userId, kind = 'image', origin = 'upload', bytes, contentType, influencerId = null, moderationStatus = 'unchecked', sealed = true, ageMinutes = 0 }) {
       const id = randomUUID()
-      const ext = kind === 'video' ? 'mp4' : 'jpg'
+      const ext = kind === 'video' ? 'mp4' : kind === 'audio' ? 'mp3' : 'jpg'
       const key = `users/${userId}/2026/10/${id}.${ext}`
-      const type = contentType || (kind === 'video' ? 'video/mp4' : 'image/jpeg')
+      const type = contentType || (kind === 'video' ? 'video/mp4' : kind === 'audio' ? 'audio/mpeg' : 'image/jpeg')
       s3.objects.set(key, { body: bytes, contentType: type })
       await db.query(
-        `insert into assets (id, user_id, influencer_id, s3_key, kind, origin, content_type, byte_size, moderation_status)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [id, userId, influencerId, key, kind, origin, type, bytes.length, moderationStatus],
+        `insert into assets (id, user_id, influencer_id, s3_key, kind, origin, content_type, byte_size, moderation_status, sealed_at, created_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, case when $10::boolean then now() else null end,
+                 now() - $11::int * interval '1 minute')`,
+        [id, userId, influencerId, key, kind, origin, type, bytes.length, moderationStatus, sealed, ageMinutes],
       )
       const url = `http://127.0.0.1:${s3Port}/${bucket}/${key}`   // a link into the bucket, as the app sends
       return { id, key, url }
@@ -323,7 +341,7 @@ export async function startStack({ env = {} } = {}) {
     /** Empty every table and reset the stand-ins, between tests. */
     async reset() {
       await db.query('truncate table users cascade')
-      s3.objects.clear(); s3.log.length = 0
+      s3.objects.clear(); s3.log.length = 0; s3.behaviour.failCopy = false
       kie.state.requests.length = 0; kie.state.tasks.clear(); kie.state.created = 0; kie.state.createStatus = null
       openai.state.requests.length = 0; openai.state.chat.length = 0; openai.state.maxInflight = 0; Object.assign(openai.state.chatMode, { status: null, content: undefined })
       Object.assign(openai.state.mode, { status: null, shape: 'per-item', delayMs: 0 })
