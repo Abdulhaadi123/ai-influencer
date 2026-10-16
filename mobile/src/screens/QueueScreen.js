@@ -40,8 +40,10 @@ import { syncActiveJobs } from '../lib/queueSync'
 import { shareMedia } from '../lib/share'
 import { showError } from '../lib/alerts'
 import { useBottomInset } from '../hooks/useBottomInset'
-import { useTheme, space, radius } from '../theme'
-import { Button } from '../components/ui'
+import { useTheme, space, radius, font, layout } from '../theme'
+import Screen, { ScreenHeader } from '../components/Screen'
+import { Button, GlassCard, EmptyState } from '../components/ui'
+import CreditsChip from '../components/CreditsChip'
 
 /** How often to ask KIE about running jobs while this screen is open. */
 const POLL_MS = 8000
@@ -179,90 +181,106 @@ export default function QueueScreen() {
   // cleared (see clearSettled), so they do not count.
   const settledCount = useMemo(() => jobs.filter(j => !isActive(j) && !isCollectable(j)).length, [jobs])
 
+  const header = <ScreenHeader title="Queue" size={22} right={<CreditsChip />} />
+
   if (loading) {
     return (
-      <View style={[styles.centre, { backgroundColor: colors.bg }]}>
-        <ActivityIndicator size="large" color={colors.brand} />
-      </View>
+      <Screen>
+        {header}
+        <View style={styles.centre}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </Screen>
     )
   }
 
   if (!jobs.length && loadError) {
     return (
-      <View style={[styles.empty, { backgroundColor: colors.bg, paddingBottom: bottomInset }]}>
-        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Unable to load the queue</Text>
-        <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>{loadError}</Text>
-        <View style={{ marginTop: space.lg }}>
-          <Button title="Try again" onPress={() => { setLoading(true); reload() }} />
+      <Screen>
+        {header}
+        <View style={[styles.empty, { paddingBottom: bottomInset }]}>
+          <EmptyState
+            icon="close"
+            title="Unable to load the queue"
+            body={loadError}
+            actionTitle="Try again"
+            onAction={() => { setLoading(true); reload() }}
+          />
         </View>
-      </View>
+      </Screen>
     )
   }
 
   if (!jobs.length) {
     return (
-      <View style={[styles.empty, { backgroundColor: colors.bg, paddingBottom: bottomInset }]}>
-        <View style={[styles.emptyIcon, { backgroundColor: colors.brandSoft }]}>
-          <Text style={styles.emptyGlyph}>🕓</Text>
+      <Screen>
+        {header}
+        <View style={[styles.empty, { paddingBottom: bottomInset }]}>
+          <EmptyState
+            icon="queue"
+            title="No generations yet"
+            body="Images and videos you generate appear here with their progress. Generation continues even if you close the app."
+          />
         </View>
-        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No generations yet</Text>
-        <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>
-          Images and videos you generate appear here with their progress.
-          Generation continues even if you close the app.
-        </Text>
-      </View>
+      </Screen>
     )
   }
 
   return (
-    <ScrollView
-      style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.brand} />
-      }
-    >
-      <View style={styles.summary}>
-        <Text style={[styles.summaryText, { color: colors.textSecondary }]}>
-          {activeCount > 0
-            ? `${activeCount} in progress${readyCount ? ` · ${readyCount} ready to save` : ''}`
-            : readyCount > 0
-            ? `${readyCount} ready to save`
-            : 'No generations in progress'}
-        </Text>
-        {activeCount > 0 ? <ActivityIndicator size="small" color={colors.brand} /> : null}
-      </View>
+    <Screen>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: bottomInset }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.primary} />
+        }
+      >
+        {header}
 
-      {loadError ? (
-        <Text style={[styles.hint, { color: colors.danger }]}>
-          {loadError} Pull down to refresh.
-        </Text>
-      ) : null}
+        <View style={styles.content}>
+          <View style={styles.summary}>
+            <Text style={[styles.summaryText, font('medium'), { color: colors.textSecondary }]}>
+              {activeCount > 0
+                ? `${activeCount} in progress${readyCount ? ` · ${readyCount} ready to save` : ''}`
+                : readyCount > 0
+                ? `${readyCount} ready to save`
+                : 'No generations in progress'}
+            </Text>
+            {activeCount > 0 ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+          </View>
 
-      {activeCount > 0 ? (
-        <Text style={[styles.hint, { color: colors.textTertiary }]}>
-          Generation continues in the background. Completed results are
-          available for 24 hours, so save them before they expire.
-        </Text>
-      ) : null}
+          {loadError ? (
+            <Text style={[styles.hint, { color: colors.danger }]}>
+              {loadError} Pull down to refresh.
+            </Text>
+          ) : null}
 
-      {jobs.map(job => (
-        <JobRow
-          key={job.id}
-          job={job}
-          saving={savingId === job.id}
-          onCollect={() => collect(job)}
-          onShare={() => share(job)}
-          onDiscard={() => discard(job)}
-        />
-      ))}
+          {activeCount > 0 ? (
+            <Text style={[styles.hint, { color: colors.textTertiary }]}>
+              Generation continues in the background. Completed results are
+              available for 24 hours, so save them before they expire.
+            </Text>
+          ) : null}
 
-      {settledCount > 0 ? (
-        <View style={{ marginTop: space.md }}>
-          <Button title="Clear completed" variant="secondary" onPress={clearDone} />
+          {jobs.map(job => (
+            <JobRow
+              key={job.id}
+              job={job}
+              saving={savingId === job.id}
+              onCollect={() => collect(job)}
+              onShare={() => share(job)}
+              onDiscard={() => discard(job)}
+            />
+          ))}
+
+          {settledCount > 0 ? (
+            <View style={{ marginTop: space.sm }}>
+              <Button title="Clear completed" variant="soft" onPress={clearDone} />
+            </View>
+          ) : null}
         </View>
-      ) : null}
-    </ScrollView>
+      </ScrollView>
+    </Screen>
   )
 }
 
@@ -272,49 +290,53 @@ function JobRow({ job, saving, onCollect, onShare, onDiscard }) {
   const status = describe(job, colors)
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-      <View style={styles.cardHead}>
-        <View style={styles.flex}>
-          <Text style={[styles.cardTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-            {job.label || 'Generation'}
-          </Text>
-          <Text style={[styles.cardMeta, { color: colors.textTertiary }]} numberOfLines={1}>
-            {relativeTime(job.createdAt)}{job.model ? ` · ${job.model}` : ''}
-          </Text>
-        </View>
-
-        <View style={[styles.pill, { backgroundColor: status.soft }]}>
-          {isActive(job) ? <ActivityIndicator size="small" color={status.tint} /> : null}
-          <Text style={[styles.pillText, { color: status.tint }]}>{status.label}</Text>
-        </View>
-      </View>
-
-      <Text style={[styles.cardBody, { color: colors.textSecondary }]}>{status.blurb}</Text>
-
-      {saving ? (
-        <View style={styles.savingRow}>
-          <ActivityIndicator size="small" color={colors.brand} />
-          <Text style={[styles.savingText, { color: colors.textSecondary }]}>Saving…</Text>
-        </View>
-      ) : (
-        <View style={styles.actions}>
-          {isCollectable(job) ? (
+    <View style={styles.cardWrap}>
+      <GlassCard>
+        <View style={styles.card}>
+          <View style={styles.cardHead}>
             <View style={styles.flex}>
-              <Button title="Save to gallery" onPress={onCollect} />
+              <Text style={[styles.cardTitle, font('medium'), { color: colors.textPrimary }]} numberOfLines={1}>
+                {job.label || 'Generation'}
+              </Text>
+              <Text style={[styles.cardMeta, { color: colors.textSecondary }]} numberOfLines={1}>
+                {relativeTime(job.createdAt)}{job.model ? ` · ${job.model}` : ''}
+              </Text>
             </View>
-          ) : null}
-          {job.assetId ? (
-            <View style={styles.flex}>
-              <Button title="Share" variant="secondary" onPress={onShare} />
+
+            <View style={[styles.pill, { backgroundColor: status.soft }]}>
+              {isActive(job) ? <ActivityIndicator size="small" color={status.tint} /> : null}
+              <Text style={[styles.pillText, font('semibold'), { color: status.tint }]}>{status.label}</Text>
             </View>
-          ) : null}
-          {!isActive(job) ? (
-            <Pressable onPress={onDiscard} hitSlop={8} style={styles.discard}>
-              <Text style={[styles.discardText, { color: colors.textTertiary }]}>Remove</Text>
-            </Pressable>
-          ) : null}
+          </View>
+
+          <Text style={[styles.cardBody, { color: colors.textSecondary }]}>{status.blurb}</Text>
+
+          {saving ? (
+            <View style={styles.savingRow}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={[styles.savingText, { color: colors.textSecondary }]}>Saving…</Text>
+            </View>
+          ) : (
+            <View style={styles.actions}>
+              {isCollectable(job) ? (
+                <View style={styles.flex}>
+                  <Button title="Save to gallery" size="sm" onPress={onCollect} />
+                </View>
+              ) : null}
+              {job.assetId ? (
+                <View style={styles.flex}>
+                  <Button title="Share" size="sm" variant="secondary" onPress={onShare} />
+                </View>
+              ) : null}
+              {!isActive(job) ? (
+                <Pressable onPress={onDiscard} hitSlop={8} style={styles.discard}>
+                  <Text style={[styles.discardText, font('medium'), { color: colors.textSecondary }]}>Remove</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          )}
         </View>
-      )}
+      </GlassCard>
     </View>
   )
 }
@@ -326,7 +348,7 @@ function JobRow({ job, saving, onCollect, onShare, onDiscard }) {
 function describe(job, colors) {
   if (job.state === 'fail') {
     return {
-      label: 'Failed', tint: colors.danger, soft: 'transparent',
+      label: 'Failed', tint: colors.danger, soft: colors.dangerSoft,
       blurb: job.failMsg || 'This generation failed.',
     }
   }
@@ -338,7 +360,7 @@ function describe(job, colors) {
   }
   if (isExpired(job)) {
     return {
-      label: 'Expired', tint: colors.danger, soft: 'transparent',
+      label: 'Expired', tint: colors.danger, soft: colors.dangerSoft,
       blurb: 'This result expired 24 hours after it was completed and is no longer available. It would need to be generated again.',
     }
   }
@@ -359,9 +381,9 @@ function describe(job, colors) {
     }
   }
   if (job.state === 'generating') {
-    return { label: 'Generating', tint: colors.brand, soft: colors.brandSoft, blurb: 'Generating now.' }
+    return { label: 'Generating', tint: colors.primary, soft: colors.accentSoft, blurb: 'Generating now.' }
   }
-  return { label: 'Queued', tint: colors.brand, soft: colors.brandSoft, blurb: 'Waiting to start.' }
+  return { label: 'Queued', tint: colors.primary, soft: colors.accentSoft, blurb: 'Waiting to start.' }
 }
 
 function relativeTime(ts) {
@@ -375,36 +397,30 @@ function relativeTime(ts) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: space.lg },
+  content: { paddingHorizontal: layout.pageGutter },
   flex: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  summary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.sm },
-  summaryText: { fontSize: 14, fontWeight: '600' },
-  hint: { fontSize: 12, lineHeight: 17, marginBottom: space.lg },
+  summary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.sm, marginHorizontal: space.xs },
+  summaryText: { fontSize: 14 },
+  hint: { fontSize: 12, lineHeight: 17, marginBottom: space.lg, marginHorizontal: space.xs },
 
-  card: {
-    borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth,
-    padding: space.lg, marginBottom: space.md, gap: space.sm,
-  },
+  cardWrap: { marginBottom: space.md },
+  card: { padding: space.lg, gap: space.sm },
   cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
-  cardTitle: { fontSize: 15, fontWeight: '700' },
+  cardTitle: { fontSize: 16 },
   cardMeta: { fontSize: 12, marginTop: 2 },
   cardBody: { fontSize: 13, lineHeight: 18 },
 
-  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill },
-  pillText: { fontSize: 12, fontWeight: '700' },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 5, borderRadius: radius.pill },
+  pillText: { fontSize: 12 },
 
   actions: { flexDirection: 'row', alignItems: 'center', gap: space.md, marginTop: space.xs },
   discard: { paddingVertical: space.sm, paddingHorizontal: space.sm },
-  discardText: { fontSize: 13, fontWeight: '600' },
+  discardText: { fontSize: 13 },
 
   savingRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.sm },
   savingText: { fontSize: 13 },
 
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xxl },
-  emptyIcon: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', marginBottom: space.lg },
-  emptyGlyph: { fontSize: 30 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: space.sm },
-  emptyBody: { fontSize: 14, lineHeight: 21, textAlign: 'center' },
+  empty: { flex: 1 },
 })

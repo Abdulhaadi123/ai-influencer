@@ -15,7 +15,7 @@ import { View, Text, Pressable, Modal, StyleSheet, ActivityIndicator } from 'rea
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { REPORT_REASONS } from '@core/data/reports'
-import { useTheme, space, radius } from '../theme'
+import { useTheme, space, radius, font, layout } from '../theme'
 
 /**
  * @param {object} props
@@ -48,32 +48,34 @@ export default function ReportSheet({ visible, onClose, onSubmit }) {
         {/* A press on the sheet itself must not fall through to the backdrop. */}
         <Pressable
           onPress={() => {}}
-          style={[styles.sheet, { backgroundColor: colors.surface, paddingBottom: insets.bottom + space.lg }]}
+          style={[styles.sheet, { backgroundColor: colors.sheet, paddingBottom: insets.bottom + space.lg }]}
         >
-          <Text style={[styles.title, { color: colors.textPrimary }]}>Report this result</Text>
+          <Text style={[styles.title, font('bold'), { color: colors.textPrimary }]}>Report this result</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             What is wrong with it? We review every report.
           </Text>
 
-          {REPORT_REASONS.map(reason => (
-            <Pressable
-              key={reason.id}
-              onPress={() => choose(reason.id)}
-              disabled={sending}
-              accessibilityRole="button"
-              style={({ pressed }) => [
-                styles.row,
-                { borderColor: colors.borderSubtle, opacity: sending ? 0.5 : pressed ? 0.7 : 1 },
-              ]}
-            >
-              <Text style={[styles.rowText, { color: colors.textPrimary }]}>{reason.label}</Text>
-            </Pressable>
-          ))}
+          <View style={styles.rows}>
+            {REPORT_REASONS.map(reason => (
+              <Pressable
+                key={reason.id}
+                onPress={() => choose(reason.id)}
+                disabled={sending}
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.row,
+                  { backgroundColor: colors.field, borderColor: colors.glassEdge, opacity: sending ? 0.5 : pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={[styles.rowText, font('regular'), { color: colors.textPrimary }]}>{reason.label}</Text>
+              </Pressable>
+            ))}
+          </View>
 
-          {sending ? <ActivityIndicator style={styles.spinner} color={colors.brand} /> : null}
+          {sending ? <ActivityIndicator style={styles.spinner} color={colors.primary} /> : null}
 
           <Pressable onPress={onClose} disabled={sending} accessibilityRole="button" style={styles.cancel}>
-            <Text style={[styles.cancelText, { color: colors.textSecondary }]}>Cancel</Text>
+            <Text style={[styles.cancelText, font('medium'), { color: colors.textSecondary }]}>Cancel</Text>
           </Pressable>
         </Pressable>
       </Pressable>
@@ -82,18 +84,20 @@ export default function ReportSheet({ visible, onClose, onSubmit }) {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(8,3,83,0.45)', justifyContent: 'flex-end' },
   sheet: {
-    borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg,
-    paddingHorizontal: space.lg, paddingTop: space.lg,
+    borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl,
+    paddingHorizontal: layout.pageGutter, paddingTop: space.xl,
   },
-  title: { fontSize: 17, fontWeight: '700' },
-  subtitle: { fontSize: 13.5, lineHeight: 19, marginTop: 4, marginBottom: space.md },
+  title: { fontSize: 18 },
+  subtitle: { fontSize: 13.5, lineHeight: 19, marginTop: 4, marginBottom: space.lg },
+  rows: { gap: space.sm },
   row: {
-    paddingVertical: space.md, borderTopWidth: StyleSheet.hairlineWidth,
+    minHeight: 48, borderRadius: radius.pill, borderWidth: 1,
+    paddingHorizontal: space.xl - 2, justifyContent: 'center',
   },
-  rowText: { fontSize: 15.5 },
-  spinner: { marginTop: space.sm },
+  rowText: { fontSize: 15 },
+  spinner: { marginTop: space.md },
   cancel: { alignItems: 'center', paddingVertical: space.md, marginTop: space.sm },
-  cancelText: { fontSize: 15, fontWeight: '600' },
+  cancelText: { fontSize: 15 },
 })

@@ -7,16 +7,21 @@
  * app into a signed-out state, and no screen inside the tabs ever renders
  * without a session.
  *
+ * No screen uses a native header: the design puts each title inside the page, so every
+ * screen draws its own (`ScreenHeader`), and the tab bar is the floating pill
+ * (`FloatingTabBar`) rather than a strip along the bottom.
+ *
  * ── The splash matters ───────────────────────────────────────────────────────
  *
  * On a cold start the session has to come out of the Keychain (native) or an
  * httpOnly cookie (web), which takes a moment. Rendering the sign-in screen
  * during that moment would flash it at every returning user on every launch, so
- * `initialising` gets its own state.
+ * `initialising` gets its own state — and shows the logo, which is what the design's
+ * splash screens are.
  */
 
-import { useCallback, useEffect, useState } from 'react'
-import { View, Text, ActivityIndicator, Pressable, StyleSheet } from 'react-native'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { View, Text, Animated, Easing, StyleSheet } from 'react-native'
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
@@ -32,6 +37,7 @@ import QueueScreen from '../screens/QueueScreen'
 import SettingsScreen from '../screens/SettingsScreen'
 import CreditsScreen from '../screens/CreditsScreen'
 
+import WelcomeScreen from '../screens/auth/WelcomeScreen'
 import SignInScreen from '../screens/auth/SignInScreen'
 import SignUpScreen from '../screens/auth/SignUpScreen'
 import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen'
@@ -40,18 +46,15 @@ import { useQueueSync } from '../hooks/useQueueSync'
 import { useCollectedResults, usePollingWhileForeground } from '../hooks/useCollectedResults'
 import { useAssetUrlRefresh } from '../hooks/useAssetUrlRefresh'
 import { useBilling } from '../hooks/useBilling'
-import { useCredits } from '../hooks/useCredits'
-import { formatCredits } from '@core/billing/packs'
-import { navigationRef, openCredits } from './ref'
-import { useTheme, space, radius } from '../theme'
+import FloatingTabBar from './FloatingTabBar'
+import Screen from '../components/Screen'
+import { Logo, LogoMark } from '../components/brand'
+import { navigationRef } from './ref'
+import { useTheme, space, font } from '../theme'
 
 const Tab = createBottomTabNavigator()
 const Stack = createNativeStackNavigator()
 const AuthStack = createNativeStackNavigator()
-
-function TabIcon({ glyph, color }) {
-  return <Text style={{ fontSize: 20, color }}>{glyph}</Text>
-}
 
 /**
  * Live count of running jobs for the Queue badge.
@@ -81,47 +84,14 @@ function useActiveJobCount(userId) {
 function InfluencersStack() {
   const { colors } = useTheme()
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.bg },
-        headerTintColor: colors.textPrimary,
-        headerTitleStyle: { fontWeight: '600' },
-        contentStyle: { backgroundColor: colors.bg },
-      }}
-    >
-      <Stack.Screen name="InfluencersList" component={InfluencersScreen} options={{ title: 'Influencers' }} />
-      <Stack.Screen
-        name="InfluencerDetail"
-        component={InfluencerDetailScreen}
-        options={({ route }) => ({ title: route.params?.name || 'Studio' })}
-      />
+    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+      <Stack.Screen name="InfluencersList" component={InfluencersScreen} />
+      <Stack.Screen name="InfluencerDetail" component={InfluencerDetailScreen} />
     </Stack.Navigator>
   )
 }
 
-/**
- * The balance, in the header of every tab that has one. Shown only when credits matter
- * (useCredits: charging is on, or the account holds some); tapping it opens the Credits screen.
- */
-function CreditsChip() {
-  const { colors } = useTheme()
-  const credits = useCredits()
-  if (!credits.visible || credits.balance === null) return null
-  const low = credits.balance <= 0
-  return (
-    <Pressable
-      onPress={openCredits}
-      accessibilityRole="button"
-      accessibilityLabel={`${formatCredits(credits.balance)} credits. Open credits.`}
-      style={[styles.chip, { backgroundColor: low ? 'rgba(220,38,38,0.10)' : colors.brandSoft }]}
-    >
-      <Text style={[styles.chipText, { color: low ? colors.danger : colors.brandDeep }]}>✦ {formatCredits(credits.balance)}</Text>
-    </Pressable>
-  )
-}
-
 function MainTabs() {
-  const { colors } = useTheme()
   const { userId } = useAuth()
 
   // Keeps KIE moving jobs forward while the app is open; the badge and the
@@ -140,53 +110,18 @@ function MainTabs() {
 
   return (
     <Tab.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.bg },
-        headerTintColor: colors.textPrimary,
-        headerTitleStyle: { fontWeight: '600' },
-        headerRight: () => <CreditsChip />,
-        headerRightContainerStyle: { paddingRight: space.lg },
-        tabBarActiveTintColor: colors.brand,
-        tabBarInactiveTintColor: colors.textTertiary,
-        tabBarStyle: { backgroundColor: colors.bgSecondary, borderTopColor: colors.borderSubtle },
-        sceneStyle: { backgroundColor: colors.bg },
-      }}
+      tabBar={props => <FloatingTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
     >
-      <Tab.Screen
-        name="Home"
-        component={HomeScreen}
-        options={{
-          title: 'AI Influencer Studio',
-          tabBarLabel: 'Home',
-          tabBarIcon: ({ color }) => <TabIcon glyph="🏠" color={color} />,
-        }}
-      />
-      <Tab.Screen
-        name="Influencers"
-        component={InfluencersStack}
-        options={{ headerShown: false, tabBarIcon: ({ color }) => <TabIcon glyph="👥" color={color} /> }}
-      />
-      <Tab.Screen
-        name="Create"
-        component={CreateScreen}
-        options={{ tabBarIcon: ({ color }) => <TabIcon glyph="✨" color={color} /> }}
-      />
+      <Tab.Screen name="Home" component={HomeScreen} options={{ tabBarLabel: 'Home' }} />
+      <Tab.Screen name="Influencers" component={InfluencersStack} options={{ tabBarLabel: 'Influencers' }} />
+      <Tab.Screen name="Create" component={CreateScreen} options={{ tabBarLabel: 'Create' }} />
       <Tab.Screen
         name="Queue"
         component={QueueScreen}
-        options={{
-          title: 'Queue',
-          tabBarLabel: 'Queue',
-          tabBarBadge: activeJobs > 0 ? activeJobs : undefined,
-          tabBarBadgeStyle: { backgroundColor: colors.brand, color: '#FFFFFF', fontSize: 11 },
-          tabBarIcon: ({ color }) => <TabIcon glyph="🕓" color={color} />,
-        }}
+        options={{ tabBarLabel: 'Queue', tabBarBadge: activeJobs > 0 ? activeJobs : undefined }}
       />
-      <Tab.Screen
-        name="Settings"
-        component={SettingsScreen}
-        options={{ tabBarIcon: ({ color }) => <TabIcon glyph="⚙️" color={color} /> }}
-      />
+      <Tab.Screen name="Settings" component={SettingsScreen} options={{ tabBarLabel: 'Settings' }} />
     </Tab.Navigator>
   )
 }
@@ -198,23 +133,25 @@ function MainTabs() {
 function SignedIn() {
   const { colors } = useTheme()
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.bg },
-        headerTintColor: colors.textPrimary,
-        headerTitleStyle: { fontWeight: '600' },
-        contentStyle: { backgroundColor: colors.bg },
-      }}
-    >
-      <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
-      <Stack.Screen name="Credits" component={CreditsScreen} options={{ title: 'Credits' }} />
+    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+      <Stack.Screen name="Main" component={MainTabs} />
+      <Stack.Screen name="Credits" component={CreditsScreen} />
     </Stack.Navigator>
   )
 }
 
 function AuthFlow() {
+  const { colors } = useTheme()
+  const { notice } = useAuth()
+  // A session that ended is explained on the sign-in screen, so go straight there; everyone
+  // else starts on the welcome screen. Read once: moving between the screens is the person's.
+  const initial = useRef(notice ? 'SignIn' : 'Welcome').current
   return (
-    <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+    <AuthStack.Navigator
+      initialRouteName={initial}
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}
+    >
+      <AuthStack.Screen name="Welcome" component={WelcomeScreen} />
       <AuthStack.Screen name="SignIn" component={SignInScreen} />
       <AuthStack.Screen name="SignUp" component={SignUpScreen} />
       <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
@@ -222,15 +159,38 @@ function AuthFlow() {
   )
 }
 
+/** The design's splash: the mark on white, which then settles into the full logo. */
 function Splash({ message }) {
   const { colors } = useTheme()
+  const appear = useRef(new Animated.Value(0)).current
+  const settle = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(appear, { toValue: 1, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.delay(250),
+      Animated.timing(settle, { toValue: 1, duration: 420, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+    ]).start()
+  }, [appear, settle])
+
   return (
-    <View style={[styles.splash, { backgroundColor: colors.bg }]}>
-      <ActivityIndicator size="large" color={colors.brand} />
-      {message ? (
-        <Text style={[styles.splashText, { color: colors.textSecondary }]}>{message}</Text>
-      ) : null}
-    </View>
+    <Screen>
+      <View style={styles.splash}>
+        <Animated.View style={{ opacity: appear, transform: [{ scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }] }}>
+          <View>
+            <Animated.View style={{ opacity: settle.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }), position: 'absolute', alignSelf: 'center' }}>
+              <LogoMark height={104} />
+            </Animated.View>
+            <Animated.View style={{ opacity: settle }}>
+              <Logo height={64} />
+            </Animated.View>
+          </View>
+        </Animated.View>
+        {message ? (
+          <Text style={[styles.splashText, font('regular'), { color: colors.textSecondary }]}>{message}</Text>
+        ) : null}
+      </View>
+    </Screen>
   )
 }
 
@@ -238,10 +198,12 @@ function Splash({ message }) {
 function ConfigError({ message }) {
   const { colors } = useTheme()
   return (
-    <View style={[styles.splash, { backgroundColor: colors.bg }]}>
-      <Text style={[styles.configTitle, { color: colors.danger }]}>Not configured</Text>
-      <Text style={[styles.splashText, { color: colors.textSecondary }]}>{message}</Text>
-    </View>
+    <Screen>
+      <View style={styles.splash}>
+        <Text style={[styles.configTitle, font('bold'), { color: colors.danger }]}>Not configured</Text>
+        <Text style={[styles.splashText, { color: colors.textSecondary }]}>{message}</Text>
+      </View>
+    </Screen>
   )
 }
 
@@ -254,7 +216,7 @@ export default function RootNavigator() {
     ...base,
     colors: {
       ...base.colors,
-      primary: colors.brand,
+      primary: colors.primary,
       background: colors.bg,
       card: colors.bgSecondary,
       text: colors.textPrimary,
@@ -275,7 +237,5 @@ export default function RootNavigator() {
 const styles = StyleSheet.create({
   splash: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.lg },
   splashText: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
-  configTitle: { fontSize: 18, fontWeight: '700' },
-  chip: { paddingHorizontal: space.md, paddingVertical: space.xs + 2, borderRadius: radius.pill },
-  chipText: { fontSize: 14, fontWeight: '700' },
+  configTitle: { fontSize: 20 },
 })

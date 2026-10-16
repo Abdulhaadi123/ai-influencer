@@ -22,11 +22,12 @@ import { joinPacks, formatCredits, describePrice } from '@core/billing/packs'
 
 import { useBottomInset } from '../hooks/useBottomInset'
 import { useCredits } from '../hooks/useCredits'
-import { useTheme, space, radius } from '../theme'
-import { Section } from '../components/ui'
+import { useTheme, space, font, layout } from '../theme'
+import Screen, { ScreenHeader } from '../components/Screen'
+import { Section, Button } from '../components/ui'
 import { showError } from '../lib/alerts'
 
-export default function CreditsScreen() {
+export default function CreditsScreen({ navigation }) {
   const { colors } = useTheme()
   const bottomInset = useBottomInset()
   const { userId } = useAuth()
@@ -92,20 +93,22 @@ export default function CreditsScreen() {
   const owes = balance !== null && balance < 0
 
   return (
+    <Screen>
+    <ScreenHeader title="Credits" size={22} onBack={() => navigation.goBack()} />
     <ScrollView
-      style={{ backgroundColor: colors.bg }}
       contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+      showsVerticalScrollIndicator={false}
     >
       <Section title="Your credits">
         <View style={styles.balanceBox}>
           {balance === null
-            ? <ActivityIndicator color={colors.brand} />
-            : <Text style={[styles.balance, { color: owes ? colors.danger : colors.textPrimary }]} accessibilityLabel={`${formatCredits(balance)} credits`}>{formatCredits(balance)}</Text>}
+            ? <ActivityIndicator color={colors.primary} />
+            : <Text style={[styles.balance, font('bold'), { color: owes ? colors.danger : colors.textPrimary }]} accessibilityLabel={`${formatCredits(balance)} credits`}>{formatCredits(balance)}</Text>}
           <Text style={[styles.balanceUnit, { color: colors.textSecondary }]}>credits</Text>
           {waiting ? (
             <View style={styles.waiting}>
-              <ActivityIndicator size="small" color={colors.brand} />
+              <ActivityIndicator size="small" color={colors.primary} />
               <Text style={[styles.note, { color: colors.textSecondary }]}>Adding your credits…</Text>
             </View>
           ) : null}
@@ -122,13 +125,13 @@ export default function CreditsScreen() {
 
       <Section title="Buy credits" footer="Credits never expire. If a generation fails, its credits come back.">
         {store.status === 'loading' ? (
-          <View style={styles.padded}><ActivityIndicator color={colors.brand} /></View>
+          <View style={styles.padded}><ActivityIndicator color={colors.primary} /></View>
         ) : store.status === 'unavailable' ? (
           <Text style={[styles.message, { color: colors.textSecondary }]}>Buying credits is not set up in this version of the app.</Text>
         ) : store.status === 'failed' ? (
           <View style={styles.padded}>
             <Text style={[styles.message, { color: colors.danger }]}>{store.message}</Text>
-            <Pressable onPress={loadStore} accessibilityRole="button"><Text style={[styles.link, { color: colors.brandDeep }]}>Try again</Text></Pressable>
+            <Pressable onPress={loadStore} accessibilityRole="button"><Text style={[styles.link, font('semibold'), { color: colors.link }]}>Try again</Text></Pressable>
           </View>
         ) : packs.length === 0 ? (
           <Text style={[styles.message, { color: colors.textSecondary }]}>No credit packs are available right now.</Text>
@@ -150,6 +153,7 @@ export default function CreditsScreen() {
         </Section>
       ) : null}
     </ScrollView>
+    </Screen>
   )
 }
 
@@ -161,24 +165,16 @@ function PackRow({ pack, last, disabled, busy, onBuy }) {
         <Text style={[styles.packTitle, { color: colors.textPrimary }]}>{pack.label}</Text>
         <Text style={[styles.packPrice, { color: colors.textSecondary }]}>{pack.price}</Text>
       </View>
-      <Pressable
-        onPress={onBuy}
-        disabled={disabled}
-        accessibilityRole="button"
-        accessibilityLabel={`Buy ${pack.label} for ${pack.price}`}
-        style={({ pressed }) => [styles.buy, { backgroundColor: colors.brand, opacity: disabled && !busy ? 0.45 : pressed ? 0.85 : 1 }]}
-      >
-        {busy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.buyLabel}>Buy</Text>}
-      </Pressable>
+      <Button title="Buy" size="sm" onPress={onBuy} disabled={disabled && !busy} loading={busy} style={styles.buy} />
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  content: { padding: space.lg, gap: space.sm },
+  content: { paddingHorizontal: layout.pageGutter, paddingTop: space.sm, gap: space.sm },
   padded: { padding: space.lg, gap: space.md },
   balanceBox: { padding: space.xl, alignItems: 'center', gap: space.xs },
-  balance: { fontSize: 44, fontWeight: '800', letterSpacing: -1 },
+  balance: { fontSize: 44, letterSpacing: -1 },
   balanceUnit: { fontSize: 14, fontWeight: '600' },
   waiting: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.sm },
   note: { fontSize: 13, lineHeight: 18, textAlign: 'center', marginTop: space.xs },
@@ -188,8 +184,7 @@ const styles = StyleSheet.create({
   packText: { flex: 1, gap: 2 },
   packTitle: { fontSize: 16, fontWeight: '600' },
   packPrice: { fontSize: 14 },
-  buy: { minWidth: 76, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.lg },
-  buyLabel: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  buy: { minWidth: 84 },
   costRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: space.lg, paddingVertical: space.md, gap: space.md },
   costName: { flex: 1, fontSize: 15 },
   costValue: { fontSize: 14 },

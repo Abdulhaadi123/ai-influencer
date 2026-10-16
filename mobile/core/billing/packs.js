@@ -66,17 +66,37 @@ function usableSeconds(seconds) {
 }
 
 /**
+ * The seconds a video of this length is billed as — the server's rule (billing.js
+ * billedSeconds): whole seconds rounded up, as KIE bills a clip, with 50 ms of slack for
+ * a container that reports a hair too long. For a clip the person picked; a length they
+ * chose from a list (5 s, 10 s) is already whole.
+ */
+export function billedSeconds(clipSeconds) {
+  const n = Number(clipSeconds)
+  return Number.isFinite(n) && n > 0 ? Math.max(1, Math.ceil(n - 0.05)) : null
+}
+
+/**
+ * The price row for a model: the row for its `mode` (`kling-3.0/motion-control:720p`) when the
+ * list has one — KIE bills some modes at different rates — otherwise the model's own.
+ */
+export function priceRow(prices, model, mode = null) {
+  const list = prices || []
+  return (mode ? list.find(p => p.model === `${model}:${mode}`) : null) || list.find(p => p.model === model) || null
+}
+
+/**
  * What the server will charge for one generation, so the screen can say so before
  * anyone taps. The same rule as the server's (backend/api/_lib/billing.js priceOf):
  * `credits` per video or image, or per second.
  *
  * @param {Array<{model: string, unit: string, credits: number}>} prices
  * @param {string} model
- * @param {{seconds?: number|string}} [request]
+ * @param {{seconds?: number|string, mode?: string|null}} [request]
  * @returns {number | null}  null when the model has no price, or a per-second price cannot be applied
  */
-export function costOf(prices, model, { seconds } = {}) {
-  const row = (prices || []).find(p => p.model === model)
+export function costOf(prices, model, { seconds, mode = null } = {}) {
+  const row = priceRow(prices, model, mode)
   if (!row) return null
   const credits = Number(row.credits)
   if (!Number.isFinite(credits) || credits < 0) return null

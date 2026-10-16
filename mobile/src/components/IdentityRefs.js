@@ -22,7 +22,7 @@ import { persistGenerated } from '@core/platform/persistMedia'
 import { userMessage } from '@core/errors'
 import { useInfluencers } from '@core/store'
 
-import { useTheme, space, radius } from '../theme'
+import { useTheme, space, radius, font } from '../theme'
 import { Section, Button } from '../components/ui'
 import { mediaSource } from '../lib/seedMedia'
 import { pickImageWithPrompt } from '../lib/picker'
@@ -36,20 +36,15 @@ export default function IdentityRefs({ influencer }) {
       footer="Generated from the main image and used to keep the influencer's appearance consistent in videos and motion copies."
     >
       <View style={styles.list}>
-        {IDENTITY_SLOTS.map((slot, i) => (
-          <RefSlot
-            key={slot.key}
-            slot={slot}
-            influencer={influencer}
-            last={i === IDENTITY_SLOTS.length - 1}
-          />
+        {IDENTITY_SLOTS.map(slot => (
+          <RefSlot key={slot.key} slot={slot} influencer={influencer} />
         ))}
       </View>
     </Section>
   )
 }
 
-function RefSlot({ slot, influencer, last }) {
+function RefSlot({ slot, influencer }) {
   const { colors } = useTheme()
   const { updateInfluencer, addGeneration } = useInfluencers()
   const [busy, setBusy] = useState(false)
@@ -158,15 +153,15 @@ function RefSlot({ slot, influencer, last }) {
   }, [influencer.id, slot.assetField, slot.label, updateInfluencer])
 
   return (
-    <View style={[styles.slot, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSubtle }]}>
+    <View style={styles.slot}>
       <View style={styles.head}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.label, { color: colors.textPrimary }]}>{slot.label}</Text>
-          <Text style={[styles.blurb, { color: colors.textTertiary }]}>{slot.blurb}</Text>
+          <Text style={[styles.label, font('medium'), { color: colors.textPrimary }]}>{slot.label}</Text>
+          <Text style={[styles.blurb, { color: colors.textSecondary }]}>{slot.blurb}</Text>
         </View>
         {source ? (
-          <View style={[styles.badge, { backgroundColor: colors.brandSoft }]}>
-            <Text style={[styles.badgeText, { color: colors.brandDeep }]}>Added</Text>
+          <View style={[styles.badge, { backgroundColor: colors.accentSoft }]}>
+            <Text style={[styles.badgeText, font('semibold'), { color: colors.primary }]}>Added</Text>
           </View>
         ) : null}
       </View>
@@ -174,14 +169,14 @@ function RefSlot({ slot, influencer, last }) {
       {source ? (
         <Image
           source={source}
-          style={[styles.preview, { aspectRatio: previewRatio(slot.aspectRatio), borderColor: colors.borderSubtle }]}
+          style={[styles.preview, { aspectRatio: previewRatio(slot.aspectRatio), backgroundColor: colors.surfaceAlt }]}
           resizeMode="contain"
         />
       ) : null}
 
       {busy || pendingTaskId ? (
-        <View style={[styles.progressBox, { borderColor: colors.borderSubtle }]}>
-          <ActivityIndicator size="small" color={colors.brand} />
+        <View style={[styles.progressBox, { borderColor: colors.border }]}>
+          <ActivityIndicator size="small" color={colors.primary} />
           <Text style={[styles.progressText, { color: colors.textSecondary }]}>
             {pendingTaskId
               ? 'Still generating. The image will appear here when it is ready.'
@@ -193,12 +188,13 @@ function RefSlot({ slot, influencer, last }) {
           <View style={styles.flex}>
             <Button
               title={source ? 'Regenerate' : 'Generate'}
-              variant={source ? 'secondary' : 'primary'}
+              size="sm"
+              variant="primary"
               onPress={generate}
             />
           </View>
           <View style={styles.flex}>
-            <Button title={source ? 'Replace' : 'Upload'} variant="secondary" onPress={replace} />
+            <Button title={source ? 'Replace' : 'Upload'} size="sm" variant="soft" onPress={replace} />
           </View>
         </View>
       )}
@@ -206,10 +202,10 @@ function RefSlot({ slot, influencer, last }) {
       {source && !busy && !pendingTaskId ? (
         <View style={styles.subActions}>
           <Pressable onPress={() => shareMedia(value, `${(influencer.name || 'ref').toLowerCase()}-${slot.key}.jpg`)} hitSlop={8}>
-            <Text style={[styles.subAction, { color: colors.brandDeep }]}>Share</Text>
+            <Text style={[styles.subAction, font('semibold'), { color: colors.primary }]}>Share</Text>
           </Pressable>
           <Pressable onPress={remove} hitSlop={8}>
-            <Text style={[styles.subAction, { color: colors.danger }]}>Remove</Text>
+            <Text style={[styles.subAction, font('semibold'), { color: colors.danger }]}>Remove</Text>
           </Pressable>
         </View>
       ) : null}
@@ -226,29 +222,29 @@ function previewRatio(ar) {
 }
 
 const styles = StyleSheet.create({
-  list: { paddingHorizontal: space.lg },
-  slot: { paddingVertical: space.lg, gap: space.md },
+  list: { paddingHorizontal: space.lg + 2, paddingVertical: space.sm },
+  slot: { paddingVertical: space.md + 2, gap: space.md },
 
   head: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
-  label: { fontSize: 15, fontWeight: '600' },
+  label: { fontSize: 15 },
   blurb: { fontSize: 12.5, lineHeight: 17, marginTop: 2 },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.sm },
-  badgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill },
+  badgeText: { fontSize: 11 },
 
-  preview: { width: '100%', borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#000' },
+  preview: { width: '100%', borderRadius: radius.md },
 
   progressBox: {
     flexDirection: 'row', alignItems: 'center', gap: space.sm,
     paddingVertical: space.md, paddingHorizontal: space.md,
-    borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderStyle: 'dashed',
+    borderRadius: radius.md, borderWidth: 1.2, borderStyle: 'dashed',
   },
-  progressText: { fontSize: 13 },
+  progressText: { fontSize: 13, flex: 1 },
 
   actions: { flexDirection: 'row', gap: space.md },
   flex: { flex: 1 },
 
   subActions: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: space.xs },
-  subAction: { fontSize: 13, fontWeight: '600' },
+  subAction: { fontSize: 13 },
 
   error: { fontSize: 13, lineHeight: 18 },
 })

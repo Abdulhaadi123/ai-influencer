@@ -69,12 +69,11 @@ export default function SignInScreen({ navigation }) {
 
   return (
     <AuthShell
-      title="Welcome back"
-      subtitle="Sign in to your account to continue."
+      title="Sign in"
       footer={
         <>
           <LinkButton title="Forgot password?" onPress={() => navigation.navigate('ForgotPassword')} />
-          <LinkButton title="Don't have an account? Sign up" onPress={() => navigation.navigate('SignUp')} />
+          <LinkButton prefix="Don't have an account?" title="Sign up" onPress={() => navigation.navigate('SignUp')} />
         </>
       }
     >

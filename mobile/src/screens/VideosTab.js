@@ -16,8 +16,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, TextInput, ScrollView, Image, Pressable,
-  ActivityIndicator, StyleSheet, Alert,
+  View, Text, ScrollView, Image, Pressable,
+  ActivityIndicator, StyleSheet,
 } from 'react-native'
 
 import { useBottomInset } from '../hooks/useBottomInset'
@@ -37,9 +37,11 @@ import { userMessage } from '@core/errors'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { useInfluencers } from '@core/store'
 
-import { useTheme, space, radius } from '../theme'
+import { useTheme, space, radius, font, layout } from '../theme'
 import CostNote from '../components/CostNote'
-import { Section, Button, Segmented, Collapsible, Field } from '../components/ui'
+import {
+  Section, Button, Segmented, Collapsible, Field, Chip, PillInput, Block, Notice, ProgressBar,
+} from '../components/ui'
 import { pickImageWithPrompt } from '../lib/picker'
 import PromptSuggestion from '../components/PromptSuggestion'
 import { usePromptSuggestion } from '../hooks/usePromptSuggestion'
@@ -273,50 +275,42 @@ export default function VideosTab({ influencer }) {
 
   return (
     <ScrollView
-      style={{ backgroundColor: colors.bg }}
       contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
       keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
     >
-      <Section title="Script" footer={`What ${influencer.name} says in the video. Leave blank for a video without speech.`}>
-        <View style={styles.padded}>
-          <TextInput
-            value={settings.dialogue || ''}
-            onChangeText={v => set('dialogue', v)}
-            placeholder={'e.g. I have been using this for a month and honestly…'}
-            placeholderTextColor={colors.textTertiary}
-            multiline
-            style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
-          />
-          <PromptSuggestion
-            suggestion={assist.suggestion}
-            loading={assist.loading}
-            onUse={() => { const next = assist.suggestion; set('dialogue', next); assist.ignore(next) }}
-            onDismiss={assist.dismiss}
-          />
-        </View>
-      </Section>
+      <Block title="Script" footer={`What ${influencer.name} says in the video. Leave blank for a video without speech.`}>
+        <PillInput
+          value={settings.dialogue || ''}
+          onChangeText={v => set('dialogue', v)}
+          placeholder={'e.g. I have been using this for a month and honestly…'}
+          multiline
+        />
+        <PromptSuggestion
+          suggestion={assist.suggestion}
+          loading={assist.loading}
+          onUse={() => { const next = assist.suggestion; set('dialogue', next); assist.ignore(next) }}
+          onDismiss={assist.dismiss}
+        />
+      </Block>
 
-      <Section
+      <Block
         title="Scene"
         footer={`Where the video happens and what ${influencer.name} does — separate from the script, which is what gets said. Times work: "at 5s, turns to camera".`}
       >
-        <View style={styles.padded}>
-          <TextInput
-            value={settings.scene || ''}
-            onChangeText={v => set('scene', v)}
-            placeholder={'e.g. Walking down a wet city street at night, neon signs behind. Holds the bottle up at 3s.'}
-            placeholderTextColor={colors.textTertiary}
-            multiline
-            style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
-          />
-          <PromptSuggestion
-            suggestion={sceneAssist.suggestion}
-            loading={sceneAssist.loading}
-            onUse={() => { const next = sceneAssist.suggestion; set('scene', next); sceneAssist.ignore(next) }}
-            onDismiss={sceneAssist.dismiss}
-          />
-        </View>
-      </Section>
+        <PillInput
+          value={settings.scene || ''}
+          onChangeText={v => set('scene', v)}
+          placeholder={'e.g. Walking down a wet city street at night, neon signs behind. Holds the bottle up at 3s.'}
+          multiline
+        />
+        <PromptSuggestion
+          suggestion={sceneAssist.suggestion}
+          loading={sceneAssist.loading}
+          onUse={() => { const next = sceneAssist.suggestion; set('scene', next); sceneAssist.ignore(next) }}
+          onDismiss={sceneAssist.dismiss}
+        />
+      </Block>
 
       <Section title={`Products · ${products.length}/${MAX_PRODUCTS}`} footer={`Optional. Products for ${influencer.name} to present in the video.`}>
         <View style={styles.padded}>
@@ -340,7 +334,6 @@ export default function VideosTab({ influencer }) {
             <View style={{ marginTop: products.length ? space.md : 0 }}>
               <Button
                 title={uploadingProduct ? 'Uploading…' : 'Add product image'}
-                variant="secondary"
                 onPress={addProduct}
                 disabled={uploadingProduct}
               />
@@ -359,16 +352,9 @@ export default function VideosTab({ influencer }) {
           {/* What will not fit. Shown before generating, because finding out
               afterwards means having already paid for the wrong clip. */}
           {dropWarning ? (
-            <View style={[styles.noticeBox, {
-              borderColor: selection.productsDropped > 0 ? colors.danger : colors.border,
-              backgroundColor: selection.productsDropped > 0 ? 'transparent' : colors.surfaceAlt,
-            }]}>
-              <Text style={[styles.noticeText, {
-                color: selection.productsDropped > 0 ? colors.danger : colors.textSecondary,
-              }]}>
-                {dropWarning}
-              </Text>
-            </View>
+            <Notice tone={selection.productsDropped > 0 ? 'error' : 'warn'} style={styles.noticeInCard}>
+              {dropWarning}
+            </Notice>
           ) : null}
         </View>
       </Section>
@@ -468,34 +454,26 @@ export default function VideosTab({ influencer }) {
         </Field>
       </Collapsible>
 
-      {error ? (
-        <View style={[styles.errorBox, { borderColor: colors.danger }]}>
-          <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
-        </View>
-      ) : null}
+      {error ? <Notice tone="error">{error}</Notice> : null}
 
       {handedOff ? (
-        <View style={[styles.errorBox, { borderColor: colors.brand, backgroundColor: colors.brandSoft }]}>
-          <Text style={[styles.errorText, { color: colors.textPrimary }]}>
-            Generation is taking longer than usual. You can save the video from
-            the Queue tab when it is ready.
-          </Text>
-        </View>
+        <Notice>
+          Generation is taking longer than usual. You can save the video from
+          the Queue tab when it is ready.
+        </Notice>
       ) : null}
 
       {generating ? (
         <Section title="Generating">
           <View style={[styles.padded, { gap: space.md }]}>
             <View style={styles.progressRow}>
-              <ActivityIndicator size="small" color={colors.brand} />
-              <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={[styles.progressText, font('medium'), { color: colors.textSecondary }]}>
                 {progress > 0 ? `${Math.round(progress)}%` : 'Starting…'}
               </Text>
             </View>
-            <View style={[styles.track, { backgroundColor: colors.surfaceAlt }]}>
-              <View style={[styles.fill, { width: `${Math.max(3, progress)}%`, backgroundColor: colors.brand }]} />
-            </View>
-            <Button title="Cancel" variant="secondary"
+            <ProgressBar value={progress} />
+            <Button title="Cancel" size="sm" variant="secondary"
               onPress={() => { cancelRef.current = true; setGenerating(false); setProgress(0) }} />
           </View>
         </Section>
@@ -526,37 +504,14 @@ export default function VideosTab({ influencer }) {
   )
 }
 
-function Chip({ label, active, onPress }) {
-  const { colors } = useTheme()
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-      style={[styles.chip, {
-        borderColor: active ? colors.brand : colors.border,
-        backgroundColor: active ? colors.brandSoft : 'transparent',
-      }]}
-    >
-      <Text style={[styles.chipText, { color: active ? colors.brand : colors.textSecondary }]}>{label}</Text>
-    </Pressable>
-  )
-}
-
 function ResultVideo({ uri }) {
   const player = useVideoPlayer(uri, p => { p.loop = true })
   return <VideoView style={styles.video} player={player} allowsFullscreen nativeControls contentFit="contain" />
 }
 
 const styles = StyleSheet.create({
-  content: { padding: space.lg, paddingTop: space.lg },
-  padded: { padding: space.lg },
-
-  input: {
-    borderWidth: StyleSheet.hairlineWidth, borderRadius: 10,
-    paddingHorizontal: space.md, paddingVertical: space.md,
-    fontSize: 15, minHeight: 110, textAlignVertical: 'top',
-  },
+  content: { paddingHorizontal: layout.pageGutter, paddingTop: space.sm },
+  padded: { padding: space.md + 2 },
 
   productRow: { flexDirection: 'row', gap: space.md, flexWrap: 'wrap' },
   product: { width: 76, height: 76, borderRadius: radius.md },
@@ -568,19 +523,11 @@ const styles = StyleSheet.create({
   removeText: { color: '#FFFFFF', fontSize: 15, lineHeight: 17, fontWeight: '700' },
 
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  chip: { paddingVertical: 7, paddingHorizontal: 13, borderRadius: radius.sm, borderWidth: 1.5 },
-  chipText: { fontSize: 13, fontWeight: '600' },
 
-  errorBox: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.md, padding: space.md, marginBottom: space.xl },
-  errorText: { fontSize: 13, lineHeight: 18 },
-
-  noticeBox: { borderWidth: 1, borderRadius: radius.md, padding: space.md, marginTop: space.md },
-  noticeText: { fontSize: 12.5, lineHeight: 18 },
+  noticeInCard: { marginTop: space.md, marginBottom: 0 },
 
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  progressText: { fontSize: 13, fontWeight: '600' },
-  track: { height: 6, borderRadius: 999, overflow: 'hidden' },
-  fill: { height: '100%', borderRadius: 999 },
+  progressText: { fontSize: 13 },
 
-  video: { width: '100%', aspectRatio: 9 / 16, borderRadius: radius.md, backgroundColor: '#000', maxHeight: 420 },
+  video: { width: '100%', height: 420, borderRadius: radius.md, backgroundColor: '#000' },
 })

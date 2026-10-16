@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { normalizeProductId, joinPacks, formatCredits, costOf, describePrice, costLine, creditsVisible } from './packs.js'
+import { normalizeProductId, joinPacks, formatCredits, costOf, describePrice, costLine, creditsVisible, billedSeconds, priceRow } from './packs.js'
 
 const store = [
   { id: 'credits_5000', productId: 'credits_5000', price: '$19.99', native: { n: 5000 } },
@@ -81,6 +81,28 @@ test('a cost that cannot be known is null — never a guess', () => {
 
 test('fractions of a credit are kept to three places', () => {
   assert.equal(costOf([{ model: 'x', unit: 'per_second', credits: 0.333 }], 'x', { seconds: 7 }), 2.331)
+})
+
+test('a mode with its own row is priced by it; a mode without one by the row of the model itself', () => {
+  const list = [
+    { model: 'kling-3.0/motion-control:720p', unit: 'per_second', credits: 20 },
+    { model: 'kling-3.0/motion-control:1080p', unit: 'per_second', credits: 27 },
+    { model: 'other/model', unit: 'per_second', credits: 5 },
+  ]
+  assert.equal(costOf(list, 'kling-3.0/motion-control', { seconds: 4, mode: '720p' }), 80)
+  assert.equal(costOf(list, 'kling-3.0/motion-control', { seconds: 4, mode: '1080p' }), 108)
+  assert.equal(costOf(list, 'kling-3.0/motion-control', { seconds: 4, mode: '4K' }), null, 'no row for that mode or the model')
+  assert.equal(costOf(list, 'other/model', { seconds: 4, mode: '1080p' }), 20, 'the model row when the mode has none')
+  assert.equal(priceRow(list, 'kling-3.0/motion-control', '720p').credits, 20)
+  assert.equal(priceRow(list, 'nothing', '720p'), null)
+})
+
+test('a picked clip is billed in whole seconds, rounded up, like the server does', () => {
+  assert.equal(billedSeconds(4), 4)
+  assert.equal(billedSeconds(4.0003), 4)
+  assert.equal(billedSeconds(3.4), 4)
+  assert.equal(billedSeconds(0.2), 1)
+  for (const bad of [0, -1, NaN, null, undefined, 'abc']) assert.equal(billedSeconds(bad), null, String(bad))
 })
 
 test('the price list reads as sentences', () => {

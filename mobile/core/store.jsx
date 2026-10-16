@@ -164,7 +164,12 @@ export function StoreProvider({ children }) {
       if (!saved || !alive.current || !isNewest()) return saved
       // Merge rather than replace: `saved` has no generationHistory (the update
       // does not re-query it) and overwriting would empty the gallery on screen.
-      setInfluencersState(prev => prev.map(i => (i.id === id ? { ...i, ...saved, generationHistory: i.generationHistory } : i)))
+      // The same goes for its totals: `saved` carries zeroes, and letting them
+      // through made the Gallery tab read "Images 00" (and disable that filter)
+      // after any edit to the influencer.
+      setInfluencersState(prev => prev.map(i => (i.id === id
+        ? { ...i, ...saved, generationHistory: i.generationHistory, galleryCounts: i.galleryCounts }
+        : i)))
       return saved
     } catch (e) {
       if (alive.current && previous && isNewest()) {

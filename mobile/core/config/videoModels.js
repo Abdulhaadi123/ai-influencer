@@ -338,6 +338,13 @@ export const VIDEO_MODELS = [
 //
 // buildInput receives: { prompt, imageUrl, videoUrl, mode }
 
+/**
+ * The resolution KIE calls a motion request's `mode`, from the studio's quality choice
+ * ('std' = 720p, anything else = 1080p). The price list is keyed by it too
+ * (`kling-3.0/motion-control:720p`), so what the screen quotes and what is sent agree.
+ */
+export const motionResolution = quality => (quality === 'std' ? '720p' : '1080p')
+
 export const MOTION_MODELS = [
   {
     id: 'kling-3.0/motion-control',
@@ -351,7 +358,7 @@ export const MOTION_MODELS = [
       prompt,
       input_urls: [imageUrl],
       video_urls: [videoUrl],
-      mode: mode === 'std' ? '720p' : '1080p',
+      mode: motionResolution(mode),
       character_orientation: 'video',
       background_source: 'input_video',
     }),
@@ -367,7 +374,7 @@ export const MOTION_MODELS = [
       prompt,
       input_urls: [imageUrl],
       video_urls: [videoUrl],
-      mode: mode === 'std' ? '720p' : '1080p',
+      mode: motionResolution(mode),
       character_orientation: 'video',
     }),
   },

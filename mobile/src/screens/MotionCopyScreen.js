@@ -13,8 +13,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, TextInput, ScrollView, Image, Pressable,
-  ActivityIndicator, StyleSheet, Alert,
+  View, Text, ScrollView, Image,
+  ActivityIndicator, StyleSheet,
 } from 'react-native'
 
 import { useBottomInset } from '../hooks/useBottomInset'
@@ -22,13 +22,15 @@ import { useVideoPlayer, VideoView } from 'expo-video'
 
 import { generateMotionCopy, STILL_RUNNING } from '@core/services/generation'
 import { uploadLocal, resolveUrl } from '@core/data/assets'
-import { MOTION_MODELS, DEFAULT_MOTION_MODEL, getMotionModel } from '@core/config/videoModels'
+import { MOTION_MODELS, DEFAULT_MOTION_MODEL, getMotionModel, motionResolution } from '@core/config/videoModels'
+import { billedSeconds } from '@core/billing/packs'
 import { userMessage } from '@core/errors'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { useInfluencers } from '@core/store'
 
-import { useTheme, space, radius } from '../theme'
-import { Section, Button, Segmented, Collapsible, Field } from '../components/ui'
+import { useTheme, space, radius, font, layout } from '../theme'
+import CostNote from '../components/CostNote'
+import { Section, Button, Segmented, Collapsible, Field, Chip, PillInput, Notice, ProgressBar } from '../components/ui'
 import { pickImageWithPrompt, pickVideo } from '../lib/picker'
 import ModelPicker from '../components/ModelPicker'
 import { shareMedia } from '../lib/share'
@@ -48,7 +50,7 @@ export default function MotionCopyScreen({ influencer }) {
   const [characterImage, setCharacterImage] = useState(() => characterOptions[0]?.url || null)
   // The uploaded driving video: a local URI for the preview, and the signed URL
   // KIE will fetch it from.
-  const [drivingVideo, setDrivingVideo] = useState(null)     // { previewUri, fetchUrl }
+  const [drivingVideo, setDrivingVideo] = useState(null)     // { previewUri, fetchUrl, seconds }
   const [videoName, setVideoName] = useState('')
   const [uploadingVideo, setUploadingVideo] = useState(false)
   const [prompt, setPrompt] = useState('')
@@ -104,7 +106,7 @@ export default function MotionCopyScreen({ influencer }) {
         byteSize: picked.size,
         influencerId: influencer?.id ?? null,
       })
-      setDrivingVideo({ previewUri: picked.uri, fetchUrl: await resolveUrl(assetId) })
+      setDrivingVideo({ previewUri: picked.uri, fetchUrl: await resolveUrl(assetId), seconds: picked.seconds })
     } catch (e) {
       setVideoName('')
       setError(userMessage(e, 'The video could not be uploaded. Please try again.'))
@@ -167,9 +169,9 @@ export default function MotionCopyScreen({ influencer }) {
 
   return (
     <ScrollView
-      style={{ backgroundColor: colors.bg }}
       contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
       keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
     >
       <Text style={[styles.sub, { color: colors.textSecondary }]}>
         Upload a motion video and {influencer?.name || 'your influencer'} will perform the same
@@ -185,26 +187,17 @@ export default function MotionCopyScreen({ influencer }) {
                 <View style={styles.flex}>
                   {characterOptions.length > 1 ? (
                     <View style={styles.chipRow}>
-                      {characterOptions.map(opt => {
-                        const on = characterImage === opt.url
-                        return (
-                          <Pressable
-                            key={opt.key}
-                            onPress={() => setCharacterImage(opt.url)}
-                            style={[styles.chip, {
-                              borderColor: on ? colors.brand : colors.border,
-                              backgroundColor: on ? colors.brandSoft : 'transparent',
-                            }]}
-                          >
-                            <Text style={[styles.chipText, { color: on ? colors.brand : colors.textSecondary }]}>
-                              {opt.label}
-                            </Text>
-                          </Pressable>
-                        )
-                      })}
+                      {characterOptions.map(opt => (
+                        <Chip
+                          key={opt.key}
+                          label={opt.label}
+                          active={characterImage === opt.url}
+                          onPress={() => setCharacterImage(opt.url)}
+                        />
+                      ))}
                     </View>
                   ) : null}
-                  <Button title="Upload image" variant="secondary" onPress={chooseCharacter} />
+                  <Button title="Upload image" size="sm" variant="soft" onPress={chooseCharacter} />
                 </View>
               </View>
             </View>
@@ -224,10 +217,10 @@ export default function MotionCopyScreen({ influencer }) {
               </Text>
               <View style={styles.choiceRow}>
                 <View style={styles.flex}>
-                  <Button title="Replace" variant="secondary" onPress={chooseVideo} />
+                  <Button title="Replace" size="sm" variant="soft" onPress={chooseVideo} />
                 </View>
                 <View style={styles.flex}>
-                  <Button title="Remove" variant="danger"
+                  <Button title="Remove" size="sm" variant="danger"
                     onPress={() => { setDrivingVideo(null); setVideoName('') }} />
                 </View>
               </View>
@@ -258,12 +251,10 @@ export default function MotionCopyScreen({ influencer }) {
         subtitle={`${getMotionModel(model).label}${prompt ? ' · Scene set' : ''}`}
       >
         <Field label="Scene direction" hint="Optional">
-          <TextInput
+          <PillInput
             value={prompt}
             onChangeText={setPrompt}
             placeholder="e.g. Bright studio background, soft lighting"
-            placeholderTextColor={colors.textTertiary}
-            style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
           />
         </Field>
 
@@ -279,38 +270,33 @@ export default function MotionCopyScreen({ influencer }) {
         </Field>
       </Collapsible>
 
-      {error ? (
-        <View style={[styles.errorBox, { borderColor: colors.danger, backgroundColor: colors.brandSoft }]}>
-          <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
-        </View>
-      ) : null}
+      {error ? <Notice tone="error">{error}</Notice> : null}
 
       {handedOff ? (
-        <View style={[styles.errorBox, { borderColor: colors.brand, backgroundColor: colors.brandSoft }]}>
-          <Text style={[styles.errorText, { color: colors.textPrimary }]}>
-            Generation is taking longer than usual. Motion copies take the longest
-            to generate. You can save the video from the Queue tab when it is ready.
-          </Text>
-        </View>
+        <Notice>
+          Generation is taking longer than usual. Motion copies take the longest
+          to generate. You can save the video from the Queue tab when it is ready.
+        </Notice>
       ) : null}
 
       {generating ? (
         <Section title="Working">
           <View style={[styles.padded, { gap: space.md }]}>
             <View style={styles.progressRow}>
-              <ActivityIndicator size="small" color={colors.brand} />
-              <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={[styles.progressText, font('medium'), { color: colors.textSecondary }]}>
                 {progress > 0 ? `${Math.round(progress)}%` : 'Starting…'}
               </Text>
             </View>
-            <View style={[styles.track, { backgroundColor: colors.surfaceAlt }]}>
-              <View style={[styles.fill, { width: `${Math.max(3, progress)}%`, backgroundColor: colors.brand }]} />
-            </View>
-            <Button title="Cancel" variant="secondary" onPress={cancel} />
+            <ProgressBar value={progress} />
+            <Button title="Cancel" size="sm" variant="secondary" onPress={cancel} />
           </View>
         </Section>
       ) : (
-        <Button title="Generate motion copy" onPress={generate} disabled={!canGenerate} />
+        <>
+          <CostNote model={model} mode={motionResolution(mode)} seconds={billedSeconds(drivingVideo?.seconds) ?? undefined} />
+          <Button title="Generate motion copy" onPress={generate} disabled={!canGenerate} />
+        </>
       )}
 
       {result && !generating ? (
@@ -339,28 +325,19 @@ function VideoPreview({ uri, autoPlay = false, loop = false }) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: space.lg, paddingTop: space.xl },
-  padded: { padding: space.lg },
+  content: { paddingHorizontal: layout.pageGutter, paddingTop: space.sm },
+  padded: { padding: space.md + 2 },
   flex: { flex: 1 },
-  sub: { fontSize: 14, lineHeight: 20, marginBottom: space.xl },
+  sub: { fontSize: 13, lineHeight: 19, marginBottom: space.xl, marginHorizontal: space.xs },
 
   characterRow: { flexDirection: 'row', gap: space.md, alignItems: 'flex-start' },
   characterThumb: { width: 84, height: 112, borderRadius: radius.md },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginBottom: space.md },
-  chip: { paddingVertical: 5, paddingHorizontal: 11, borderRadius: radius.sm, borderWidth: 1.5 },
-  chipText: { fontSize: 12, fontWeight: '600' },
 
-  video: { width: '100%', aspectRatio: 9 / 16, borderRadius: radius.md, backgroundColor: '#000' },
+  video: { width: '100%', alignSelf: 'center', aspectRatio: 9 / 16, borderRadius: radius.md, backgroundColor: '#000' },
   fileName: { fontSize: 12.5 },
   choiceRow: { flexDirection: 'row', gap: space.md },
 
-  input: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, paddingHorizontal: space.md, paddingVertical: space.md, fontSize: 15 },
-
-  errorBox: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.md, padding: space.md, marginBottom: space.xl },
-  errorText: { fontSize: 13, lineHeight: 18 },
-
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  progressText: { fontSize: 13, fontWeight: '600' },
-  track: { height: 6, borderRadius: 999, overflow: 'hidden' },
-  fill: { height: '100%', borderRadius: 999 },
+  progressText: { fontSize: 13 },
 })

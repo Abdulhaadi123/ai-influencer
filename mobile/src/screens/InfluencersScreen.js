@@ -1,21 +1,21 @@
 /**
- * Influencers — the native list of everyone in the shared store.
+ * Influencers — the list of everyone in the shared store.
  *
- * Reads `useInfluencers()` from @core/store, the exact hook the web app's
- * Influencers page uses, so both platforms show the same data from the same
- * source. The per-influencer studio (Profile / Videos / Motion Copy) is ported
- * in a later step; this screen is the list and navigation entry point.
+ * Reads `useInfluencers()` from @core/store. The per-influencer studio (Profile / Videos /
+ * Motion / Gallery) is InfluencerDetailScreen; this screen is the list and its way in.
  */
 
 import { useMemo } from 'react'
 import { View, Text, Image, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 
-import { useBottomInset } from '../hooks/useBottomInset'
-import { mediaSource } from '../lib/seedMedia'
-
 import { useInfluencers } from '@core/store'
 
-import { useTheme, space, radius } from '../theme'
+import { useBottomInset } from '../hooks/useBottomInset'
+import { mediaSource } from '../lib/seedMedia'
+import { useTheme, space, font, layout } from '../theme'
+import Screen, { ScreenHeader } from '../components/Screen'
+import { GlassCard, EmptyState } from '../components/ui'
+import CreditsChip from '../components/CreditsChip'
 
 export default function InfluencersScreen({ navigation }) {
   const { colors } = useTheme()
@@ -29,11 +29,14 @@ export default function InfluencersScreen({ navigation }) {
     [influencers]
   )
 
+  const header = <ScreenHeader title="Influencers" size={22} right={<CreditsChip />} />
+
   if (!data.length && roster.loading) {
     return (
-      <View style={[styles.empty, { backgroundColor: colors.bg }]}>
-        <ActivityIndicator size="large" color={colors.brand} />
-      </View>
+      <Screen>
+        {header}
+        <View style={styles.centre}><ActivityIndicator size="large" color={colors.primary} /></View>
+      </Screen>
     )
   }
 
@@ -41,62 +44,54 @@ export default function InfluencersScreen({ navigation }) {
   // that screen invited people to create duplicates of what they already had.
   if (!data.length && roster.error) {
     return (
-      <View style={[styles.empty, { backgroundColor: colors.bg }]}>
-        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Unable to load influencers</Text>
-        <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>{roster.error}</Text>
-        <Pressable
-          onPress={roster.refresh}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.emptyCta, { backgroundColor: colors.brand, opacity: pressed ? 0.85 : 1 }]}
-        >
-          <Text style={styles.emptyCtaText}>Try again</Text>
-        </Pressable>
-      </View>
+      <Screen>
+        {header}
+        <EmptyState
+          icon="close"
+          title="Unable to load influencers"
+          body={roster.error}
+          actionTitle="Try again"
+          onAction={roster.refresh}
+        />
+      </Screen>
     )
   }
 
   if (!data.length) {
     return (
-      <View style={[styles.empty, { backgroundColor: colors.bg }]}>
-        <View style={[styles.emptyIcon, { backgroundColor: colors.brandSoft }]}>
-          <Text style={styles.emptyGlyph}>✦</Text>
-        </View>
-        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No influencers yet</Text>
-        <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>
-          Create your first influencer to get started.
-        </Text>
-        <Pressable
-          onPress={() => navigation?.navigate?.('Create')}
-          accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.emptyCta,
-            { backgroundColor: colors.brand, opacity: pressed ? 0.85 : 1 },
-          ]}
-        >
-          <Text style={styles.emptyCtaText}>Create influencer</Text>
-        </Pressable>
-      </View>
+      <Screen>
+        {header}
+        <EmptyState
+          icon="sparkle"
+          title="No influencers yet"
+          body="Create your first influencer to get started."
+          actionTitle="Create influencer"
+          onAction={() => navigation?.navigate?.('Create')}
+        />
+      </Screen>
     )
   }
 
   return (
-    <FlatList
-      style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.list, { paddingBottom: bottomInset }]}
-      data={data}
-      keyExtractor={item => String(item.id)}
-      renderItem={({ item }) => (
-        <InfluencerCard
-          influencer={item}
-          onPress={() => navigation?.navigate?.('InfluencerDetail', { id: item.id, name: item.name })}
-        />
-      )}
-    />
+    <Screen>
+      <FlatList
+        contentContainerStyle={[styles.list, { paddingBottom: bottomInset }]}
+        data={data}
+        keyExtractor={item => String(item.id)}
+        ListHeaderComponent={header}
+        showsVerticalScrollIndicator={false}
+        renderItem={({ item }) => (
+          <InfluencerCard
+            influencer={item}
+            onPress={() => navigation?.navigate?.('InfluencerDetail', { id: item.id, name: item.name })}
+          />
+        )}
+      />
+    </Screen>
   )
 }
 
 function InfluencerCard({ influencer, onPress }) {
-  const { colors } = useTheme()
   // Resolve rather than trust the string: seed avatars are web-origin paths
   // that render blank, and must fall through to the letter placeholder.
   const image = mediaSource(influencer.mainImage || influencer.image)
@@ -105,71 +100,38 @@ function InfluencerCard({ influencer, onPress }) {
   return (
     <Pressable
       onPress={onPress}
-      android_ripple={{ color: colors.borderSubtle }}
-      style={({ pressed }) => [
-        styles.card,
-        {
-          backgroundColor: colors.surface,
-          borderColor: colors.borderSubtle,
-          opacity: pressed ? 0.9 : 1,
-        },
-      ]}
+      accessibilityRole="button"
+      accessibilityLabel={`${influencer.name || 'Unnamed'}, ${subtitle}`}
+      style={({ pressed }) => [styles.cardWrap, { opacity: pressed ? 0.88 : 1 }]}
     >
-      {image ? (
-        <Image source={image} style={styles.avatar} resizeMode="cover" />
-      ) : (
-        <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.brandSoft }]}>
-          <Text style={[styles.avatarLetter, { color: colors.brand }]}>
-            {(influencer.name || '?').charAt(0).toUpperCase()}
-          </Text>
+      <GlassCard tone="strong" radiusSize={22}>
+        <View style={styles.card}>
+          <View style={styles.cardText}>
+            <Text style={[styles.name, font('regular')]} numberOfLines={1}>{influencer.name || 'Unnamed'}</Text>
+            <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+          </View>
+          {image ? (
+            <Image source={image} style={styles.avatar} resizeMode="cover" />
+          ) : (
+            <View style={[styles.avatar, styles.avatarFallback]}>
+              <Text style={[styles.avatarLetter, font('bold')]}>{(influencer.name || '?').charAt(0).toUpperCase()}</Text>
+            </View>
+          )}
         </View>
-      )}
-
-      <View style={styles.cardText}>
-        <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
-          {influencer.name || 'Unnamed'}
-        </Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]} numberOfLines={1}>
-          {subtitle}
-        </Text>
-      </View>
-
-      <Text style={[styles.chevron, { color: colors.textTertiary }]}>›</Text>
+      </GlassCard>
     </Pressable>
   )
 }
 
 const styles = StyleSheet.create({
-  list: { padding: space.lg, gap: space.md },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  avatar: { width: 52, height: 52, borderRadius: radius.md },
-  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarLetter: { fontSize: 20, fontWeight: '700' },
+  centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  list: { flexGrow: 1 },
+  cardWrap: { paddingHorizontal: layout.pageGutter - 4, marginBottom: space.md + 2 },
+  card: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, paddingLeft: space.lg + 2, paddingRight: space.md },
   cardText: { flex: 1, gap: 2 },
-  name: { fontSize: 16, fontWeight: '600' },
-  subtitle: { fontSize: 13 },
-  chevron: { fontSize: 24, lineHeight: 26, paddingRight: space.xs },
-
-  emptyIcon: {
-    width: 72, height: 72, borderRadius: 36,
-    alignItems: 'center', justifyContent: 'center', marginBottom: space.lg,
-  },
-  emptyGlyph: { fontSize: 28 },
-  emptyCta: {
-    marginTop: space.xl,
-    paddingVertical: space.md, paddingHorizontal: space.xl,
-    borderRadius: radius.md,
-  },
-  emptyCtaText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
-
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.sm },
-  emptyTitle: { fontSize: 18, fontWeight: '600' },
-  emptyBody: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
+  name: { color: '#FFFFFF', fontSize: 22, letterSpacing: -0.3 },
+  subtitle: { color: 'rgba(255,255,255,0.62)', fontSize: 12 },
+  avatar: { width: 58, height: 58, borderRadius: 14 },
+  avatarFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.18)' },
+  avatarLetter: { color: '#FFFFFF', fontSize: 22 },
 })

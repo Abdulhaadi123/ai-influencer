@@ -1,20 +1,19 @@
 /**
  * Influencer detail — the studio for one influencer.
  *
- * The web app puts Profile / Videos / Motion Copy in a tab strip inside the
- * page. Same structure here, using a segmented control, which is the native
- * idiom for switching between sibling views.
- *
- * All four tabs are live. Gallery reads back the generation history that
+ * Profile / Videos / Motion / Gallery in the rounded pill bar the design puts under the
+ * influencer's name. All four tabs are live. Gallery reads back the generation history that
  * Videos and Motion Copy write, so results outlive the screen that made them.
  */
 
 import { useMemo, useState } from 'react'
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, Image, StyleSheet, ActivityIndicator } from 'react-native'
 
 import { useInfluencers } from '@core/store'
 
-import { useTheme, space } from '../theme'
+import { mediaSource } from '../lib/seedMedia'
+import { useTheme, space, layout } from '../theme'
+import Screen, { ScreenHeader } from '../components/Screen'
 import { Segmented } from '../components/ui'
 import GalleryTab from './GalleryTab'
 import MotionCopyScreen from './MotionCopyScreen'
@@ -40,48 +39,55 @@ export default function InfluencerDetailScreen({ route, navigation }) {
     () => (influencers || []).find(i => String(i.id) === String(id)),
     [influencers, id]
   )
-
-  if (!influencer && roster.loading) {
-    return (
-      <View style={[styles.missing, { backgroundColor: colors.bg }]}>
-        <ActivityIndicator size="large" color={colors.brand} />
-      </View>
-    )
-  }
+  const goBack = () => navigation.goBack()
 
   if (!influencer) {
     return (
-      <View style={[styles.missing, { backgroundColor: colors.bg }]}>
-        <Text style={[styles.missingText, { color: colors.textSecondary }]}>
-          This influencer could not be found.
-        </Text>
-      </View>
+      <Screen>
+        <ScreenHeader onBack={goBack} />
+        <View style={styles.missing}>
+          {roster.loading
+            ? <ActivityIndicator size="large" color={colors.primary} />
+            : <Text style={[styles.missingText, { color: colors.textSecondary }]}>This influencer could not be found.</Text>}
+        </View>
+      </Screen>
     )
   }
 
+  const avatar = mediaSource(influencer.mainImage)
+
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <View style={[styles.tabBar, { borderBottomColor: colors.borderSubtle }]}>
+    <Screen>
+      <ScreenHeader
+        onBack={goBack}
+        title={influencer.name || 'Studio'}
+        size={16}
+        right={avatar ? <Image source={avatar} style={styles.avatar} resizeMode="cover" /> : null}
+      />
+
+      <View style={styles.tabs}>
         <Segmented options={TABS} value={tab} onChange={setTab} />
       </View>
 
-      {tab === 'profile' ? (
-        <ProfileTab influencer={influencer} navigation={navigation} />
-      ) : tab === 'videos' ? (
-        <VideosTab influencer={influencer} />
-      ) : tab === 'motion' ? (
-        <MotionCopyScreen influencer={influencer} />
-      ) : (
-        <GalleryTab influencer={influencer} />
-      )}
-    </View>
+      <View style={styles.flex}>
+        {tab === 'profile' ? (
+          <ProfileTab influencer={influencer} navigation={navigation} />
+        ) : tab === 'videos' ? (
+          <VideosTab influencer={influencer} />
+        ) : tab === 'motion' ? (
+          <MotionCopyScreen influencer={influencer} />
+        ) : (
+          <GalleryTab influencer={influencer} />
+        )}
+      </View>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  tabBar: { paddingHorizontal: space.lg, paddingVertical: space.md, borderBottomWidth: StyleSheet.hairlineWidth },
-
+  flex: { flex: 1 },
+  tabs: { paddingHorizontal: layout.pageGutter, paddingBottom: space.md },
+  avatar: { width: 34, height: 34, borderRadius: 9 },
   missing: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl },
   missingText: { fontSize: 15 },
-
 })

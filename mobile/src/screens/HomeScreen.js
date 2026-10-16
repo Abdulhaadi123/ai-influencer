@@ -2,44 +2,40 @@
  * Home — the app's landing screen.
  *
  * Opening straight onto a list of influencers gives no sense of what the app
- * is for. This explains the three things it does, shows what you already have,
- * and points at the obvious next action.
+ * is for. This explains the three things it does, shows how many influencers
+ * you have, and points at the obvious next action.
  *
- * It reads live from the shared store, so the counts are real rather than
+ * It reads live from the shared store, so the count is real rather than
  * decorative.
  */
 
-import { useMemo } from 'react'
-import { View, Text, ScrollView, Image, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
-
-import { useBottomInset } from '../hooks/useBottomInset'
-import { isServable, mediaSource } from '../lib/seedMedia'
+import { View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 
 import { useInfluencers } from '@core/store'
 
-import { useTheme, space, radius } from '../theme'
+import { useBottomInset } from '../hooks/useBottomInset'
+import { useTheme, space, radius, font, layout } from '../theme'
+import Screen, { ScreenHeader } from '../components/Screen'
+import { GlassCard } from '../components/ui'
+import { Logo } from '../components/brand'
+import CreditsChip from '../components/CreditsChip'
+import Icon from '../components/icons'
 
 const FEATURES = [
   {
-    icon: '✦',
-    title: 'Create an influencer',
-    body: 'Generate a unique influencer from a description or a reference photo, and choose which features to match.',
-    tab: 'Create',
+    icon: 'video',
+    title: 'Product\nVideos',
+    body: 'Create videos of your influencer presenting a product with a script and voice of your choice',
+    tab: 'Influencers',
+    hint: 'Open an influencer and choose Videos',
   },
   {
-    icon: '🎬',
-    title: 'Product videos',
-    body: 'Create videos of your influencer presenting a product, with a script and voice of your choice.',
+    icon: 'motion',
+    title: 'Motion\nCopy',
+    body: 'Apply the movements and expressions from any video to your influencer',
     tab: 'Influencers',
-    hint: 'Available in the Videos tab of an influencer',
-  },
-  {
-    icon: '🕺',
-    title: 'Motion copy',
-    body: 'Apply the movements and expressions from any video to your influencer.',
-    tab: 'Influencers',
-    hint: 'Available in the Motion tab of an influencer',
+    hint: 'Open an influencer and choose Motion',
   },
 ]
 
@@ -49,137 +45,133 @@ export default function HomeScreen({ navigation }) {
   const roster = useInfluencers()
   const [influencers] = roster
   const { loading, error, refresh } = roster
-
-  const recent = useMemo(
-    () => (influencers || []).filter(i => isServable(i.mainImage)).slice(0, 6),
-    [influencers]
-  )
   const count = (influencers || []).length
 
   return (
-    <ScrollView
-      style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
-    >
-      {/* Masthead */}
-      <LinearGradient
-        colors={colors.brandGradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.hero}
+    <Screen>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.heroTitle}>AI Influencer Studio</Text>
-        <Text style={styles.heroSub}>
-          Create AI influencers, produce product videos and bring them to life with motion.
-        </Text>
-      </LinearGradient>
+        <ScreenHeader gutter={layout.gutter} left={<Logo height={26} />} right={<CreditsChip />} />
 
-      {/* A failed load used to read as "0 influencers" — to someone who has ten. */}
-      {error ? (
-        <View style={[styles.errorBanner, { borderColor: colors.danger }]}>
-          <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
-          <Pressable onPress={refresh} hitSlop={8} accessibilityRole="button">
-            <Text style={[styles.retry, { color: colors.brandDeep }]}>Try again</Text>
+        <View style={styles.body}>
+          {/* Masthead */}
+          <LinearGradient
+            colors={colors.heroGradient}
+            start={{ x: 0, y: 0.2 }}
+            end={{ x: 1, y: 0.8 }}
+            style={styles.hero}
+          >
+            <View style={styles.heroText}>
+              <Text style={[styles.heroTitle, font('bold')]}>AI Influencer{'\n'}Studio</Text>
+              <Text style={[styles.heroSub, font('regular')]}>
+                Create AI influencers, produce product videos and bring them to life with motion
+              </Text>
+            </View>
+            <View style={styles.heroSparkle} pointerEvents="none">
+              <Icon name="sparkle" size={96} color="rgba(255,255,255,0.28)" />
+            </View>
+          </LinearGradient>
+
+          {/* A failed load used to read as "0 influencers" — to someone who has ten. */}
+          {error ? (
+            <View style={[styles.errorBanner, { borderColor: colors.danger, backgroundColor: colors.dangerSoft }]}>
+              <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
+              <Pressable onPress={refresh} hitSlop={8} accessibilityRole="button">
+                <Text style={[styles.retry, font('semibold'), { color: colors.link }]}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          <Text style={[styles.heading, font('medium'), { color: colors.textPrimary }]}>Get Started</Text>
+
+          <Pressable
+            onPress={() => navigation.navigate('Create')}
+            accessibilityRole="button"
+            style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+          >
+            <GlassCard radiusSize={28}>
+              <View style={styles.createCard}>
+                <View style={styles.flex}>
+                  <Text style={[styles.cardTitle, font('regular'), { color: colors.textPrimary }]}>Create{'\n'}Influencer</Text>
+                  <Text style={[styles.cardBody, { color: colors.textSecondary }]}>
+                    Generate a unique influencer from a description or reference photo and choose which features to match
+                  </Text>
+                </View>
+                <View style={[styles.iconBubble, { backgroundColor: colors.glass, borderColor: colors.glassEdge }]}>
+                  <Icon name="sparkle" size={26} color={colors.primary} />
+                </View>
+              </View>
+            </GlassCard>
           </Pressable>
-        </View>
-      ) : null}
 
-      {/* What you already have */}
-      <Pressable
-        onPress={() => navigation.navigate('Influencers')}
-        style={({ pressed }) => [
-          styles.statCard,
-          { backgroundColor: colors.surface, borderColor: colors.borderSubtle, opacity: pressed ? 0.9 : 1 },
-        ]}
-      >
-        <View style={styles.statTop}>
-          <View>
-            {loading && count === 0 ? (
-              <ActivityIndicator size="small" color={colors.brand} style={styles.statLoading} />
-            ) : (
-              <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{count}</Text>
-            )}
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-              {count === 1 ? 'Influencer' : 'Influencers'}
-            </Text>
-          </View>
-          <Text style={[styles.chevron, { color: colors.textTertiary }]}>›</Text>
-        </View>
-
-        {recent.length ? (
-          <View style={styles.avatarRow}>
-            {recent.map(inf => (
-              <Image
-                key={inf.id}
-                source={mediaSource(inf.mainImage)}
-                style={[styles.avatar, { borderColor: colors.surface }]}
-                resizeMode="cover"
-              />
+          <View style={styles.pair}>
+            {FEATURES.map(f => (
+              <Pressable
+                key={f.icon}
+                onPress={() => navigation.navigate(f.tab)}
+                accessibilityRole="button"
+                accessibilityHint={f.hint}
+                style={({ pressed }) => [styles.flex, { opacity: pressed ? 0.85 : 1 }]}
+              >
+                <GlassCard tone="surface" style={styles.featureCard}>
+                  <View style={[styles.smallBubble, { backgroundColor: colors.glass }]}>
+                    <Icon name={f.icon} size={20} color={colors.primary} />
+                  </View>
+                  <Text style={[styles.cardTitle, font('regular'), { color: colors.textPrimary }]}>{f.title}</Text>
+                  <Text style={[styles.cardBody, { color: colors.textSecondary }]}>{f.body}</Text>
+                </GlassCard>
+              </Pressable>
             ))}
           </View>
-        ) : null}
-      </Pressable>
 
-      {/* The three things it does */}
-      <Text style={[styles.sectionHeading, { color: colors.textTertiary }]}>GET STARTED</Text>
-
-      {FEATURES.map(f => (
-        <Pressable
-          key={f.title}
-          onPress={() => navigation.navigate(f.tab)}
-          style={({ pressed }) => [
-            styles.feature,
-            { backgroundColor: colors.surface, borderColor: colors.borderSubtle, opacity: pressed ? 0.9 : 1 },
-          ]}
-        >
-          <View style={[styles.featureIcon, { backgroundColor: colors.brandSoft }]}>
-            <Text style={styles.featureIconText}>{f.icon}</Text>
-          </View>
-          <View style={styles.featureText}>
-            <Text style={[styles.featureTitle, { color: colors.textPrimary }]}>{f.title}</Text>
-            <Text style={[styles.featureBody, { color: colors.textSecondary }]}>{f.body}</Text>
-            {f.hint ? (
-              <Text style={[styles.featureHint, { color: colors.brandDeep }]}>{f.hint}</Text>
-            ) : null}
-          </View>
-        </Pressable>
-      ))}
-
-    </ScrollView>
+          <Pressable
+            onPress={() => navigation.navigate('Influencers')}
+            accessibilityRole="button"
+            accessibilityLabel={`${count} ${count === 1 ? 'influencer' : 'influencers'}. Open the list.`}
+            style={({ pressed }) => [styles.total, { backgroundColor: colors.primary, opacity: pressed ? 0.88 : 1 }]}
+          >
+            <Text style={[styles.totalLabel, font('regular')]}>Total{'\n'}Influencers</Text>
+            {loading && count === 0 ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={[styles.totalNumber, font('medium')]}>{String(count).padStart(2, '0')}</Text>
+            )}
+          </Pressable>
+        </View>
+      </ScrollView>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  content: { padding: space.lg },
+  content: { flexGrow: 1 },
+  body: { paddingHorizontal: layout.gutter, gap: space.lg },
+  flex: { flex: 1 },
 
-  hero: { borderRadius: radius.lg, padding: space.xl, marginBottom: space.lg },
-  heroTitle: { color: '#FFFFFF', fontSize: 26, fontWeight: '800', letterSpacing: -0.5, marginBottom: space.sm },
-  heroSub: { color: 'rgba(255,255,255,0.92)', fontSize: 14, lineHeight: 20 },
+  hero: { borderRadius: 28, paddingVertical: space.xl, paddingHorizontal: space.xl, minHeight: 138, overflow: 'hidden', justifyContent: 'center' },
+  heroText: { maxWidth: '78%', gap: space.sm },
+  heroTitle: { color: '#FFFFFF', fontSize: 28, lineHeight: 32, letterSpacing: -0.6 },
+  heroSub: { color: 'rgba(255,255,255,0.92)', fontSize: 12, lineHeight: 17 },
+  heroSparkle: { position: 'absolute', right: -6, bottom: -4 },
 
-  statCard: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, padding: space.lg, marginBottom: space.xl, gap: space.md },
-  statLoading: { alignSelf: 'flex-start', marginVertical: space.sm },
-  errorBanner: { borderWidth: 1, borderRadius: radius.md, padding: space.md, marginBottom: space.lg, gap: space.sm },
+  errorBanner: { borderWidth: 1, borderRadius: radius.md, padding: space.md, gap: space.sm },
   errorText: { fontSize: 13.5, lineHeight: 19 },
-  retry: { fontSize: 14, fontWeight: '600' },
-  statTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  statNumber: { fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
-  statLabel: { fontSize: 14, marginTop: 2 },
-  chevron: { fontSize: 26, lineHeight: 28 },
-  avatarRow: { flexDirection: 'row' },
-  avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, marginRight: -10 },
+  retry: { fontSize: 14 },
 
-  sectionHeading: { fontSize: 12, fontWeight: '700', letterSpacing: 0.6, marginBottom: space.md, marginLeft: space.xs },
+  heading: { fontSize: 16, marginTop: space.sm, marginLeft: space.sm },
 
-  feature: {
-    flexDirection: 'row', gap: space.md, alignItems: 'flex-start',
-    borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth,
-    padding: space.lg, marginBottom: space.md,
-  },
-  featureIcon: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-  featureIconText: { fontSize: 19 },
-  featureText: { flex: 1, gap: 3 },
-  featureTitle: { fontSize: 16, fontWeight: '700' },
-  featureBody: { fontSize: 13.5, lineHeight: 19 },
-  featureHint: { fontSize: 12.5, fontWeight: '600', marginTop: 2 },
+  createCard: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.xl },
+  iconBubble: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  cardTitle: { fontSize: 24, lineHeight: 28, letterSpacing: -0.4 },
+  cardBody: { fontSize: 11.5, lineHeight: 16, marginTop: space.sm },
 
+  pair: { flexDirection: 'row', gap: space.lg },
+  featureCard: { padding: space.lg + 2, minHeight: 176, borderRadius: 26 },
+  smallBubble: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: space.md },
+
+  total: { borderRadius: 22, paddingHorizontal: space.xl, paddingVertical: space.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 70 },
+  totalLabel: { color: '#FFFFFF', fontSize: 15, lineHeight: 19 },
+  totalNumber: { color: '#FFFFFF', fontSize: 38, letterSpacing: -0.8 },
 })

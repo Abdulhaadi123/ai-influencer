@@ -45,8 +45,10 @@ import { report as reportGeneration } from '@core/data/reports'
 
 import { useBottomInset } from '../hooks/useBottomInset'
 import { isServable, mediaSource } from '../lib/seedMedia'
-import { useTheme, space, radius } from '../theme'
-import { Button } from '../components/ui'
+import { useTheme, space, font, layout } from '../theme'
+import Screen from '../components/Screen'
+import { Button, Chip, EmptyState } from '../components/ui'
+import Icon from '../components/icons'
 import ReportSheet from '../components/ReportSheet'
 
 export default function GalleryTab({ influencer }) {
@@ -176,13 +178,11 @@ export default function GalleryTab({ influencer }) {
   if (all.length === 0) {
     return (
       <View style={[styles.emptyScreen, { paddingBottom: bottomInset }]}>
-        <View style={[styles.emptyIcon, { backgroundColor: colors.brandSoft }]}>
-          <Text style={styles.emptyGlyph}>🎬</Text>
-        </View>
-        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No content yet</Text>
-        <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>
-          Videos and images you generate for {influencer.name} will appear here.
-        </Text>
+        <EmptyState
+          icon="video"
+          title="No content yet"
+          body={`Videos and images you generate for ${influencer.name} will appear here.`}
+        />
       </View>
     )
   }
@@ -194,33 +194,15 @@ export default function GalleryTab({ influencer }) {
         { label: 'Videos', value: 'video' },
         { label: 'Images', value: 'image' },
       ].map(f => {
-        const active = filter === f.value
         const n = counts[f.value]
         return (
-          <Pressable
+          <Chip
             key={f.value}
-            onPress={() => setFilter(f.value)}
+            label={f.value === 'all' ? f.label : `${f.label} ${String(n).padStart(2, '0')}`}
+            active={filter === f.value}
             disabled={n === 0}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active, disabled: n === 0 }}
-            style={[
-              styles.filter,
-              {
-                backgroundColor: active ? colors.brand : colors.surface,
-                borderColor: active ? colors.brand : colors.borderSubtle,
-                opacity: n === 0 ? 0.45 : 1,
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                { color: active ? '#FFFFFF' : colors.textSecondary },
-              ]}
-            >
-              {f.label} {n}
-            </Text>
-          </Pressable>
+            onPress={() => setFilter(f.value)}
+          />
         )
       })}
     </View>
@@ -231,6 +213,7 @@ export default function GalleryTab({ influencer }) {
       <FlatList
         style={{ flex: 1 }}
         contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
+        showsVerticalScrollIndicator={false}
         data={items}
         keyExtractor={entry => String(entry.id)}
         numColumns={2}
@@ -248,7 +231,7 @@ export default function GalleryTab({ influencer }) {
         }
         ListFooterComponent={
           loadingMore
-            ? <ActivityIndicator style={styles.footer} size="small" color={colors.brand} />
+            ? <ActivityIndicator style={styles.footer} size="small" color={colors.primary} />
             : moreToLoad
               ? <Text style={[styles.footerText, { color: colors.textTertiary }]}>
                   {all.length} of {counts.all} loaded
@@ -294,22 +277,22 @@ const Tile = memo(function Tile({ entry, onPress }) {
       accessibilityLabel={(entry.label || (isVideo ? 'Video' : 'Image')) + ', ' + formatDate(entry.date)}
       style={({ pressed }) => [styles.tile, { opacity: pressed ? 0.75 : 1 }]}
     >
-      <View style={[styles.thumbWrap, { borderColor: colors.borderSubtle }]}>
+      <View style={styles.thumbWrap}>
         {isVideo
           ? <TilePreview uri={entry.url} />
           : <Image source={mediaSource(entry.url)} style={styles.thumb} resizeMode="cover" />}
 
         {isVideo ? (
           <View style={styles.playBadge}>
-            <Text style={styles.playGlyph}>▶</Text>
+            <Icon name="play" size={20} color="#FFFFFF" />
           </View>
         ) : null}
       </View>
 
-      <Text style={[styles.tileLabel, { color: colors.textPrimary }]} numberOfLines={1}>
+      <Text style={[styles.tileLabel, font('regular'), { color: colors.textPrimary }]} numberOfLines={1}>
         {entry.label || (isVideo ? 'Video' : 'Image')}
       </Text>
-      <Text style={[styles.tileDate, { color: colors.textTertiary }]} numberOfLines={1}>
+      <Text style={[styles.tileDate, { color: colors.textSecondary }]} numberOfLines={1}>
         {formatDate(entry.date)}
       </Text>
     </Pressable>
@@ -338,18 +321,18 @@ function Lightbox({ entry, influencerName, onClose, onShare, onReport, onDelete 
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={[styles.sheet, { backgroundColor: colors.bg, paddingTop: insets.top }]}>
-        <View style={[styles.sheetBar, { borderBottomColor: colors.borderSubtle }]}>
+      <Screen style={[styles.sheet, { paddingTop: insets.top }]}>
+        <View style={styles.sheetBar}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.sheetTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+            <Text style={[styles.sheetTitle, font('bold'), { color: colors.textPrimary }]} numberOfLines={1}>
               {entry?.label || 'Item'}
             </Text>
-            <Text style={[styles.sheetSub, { color: colors.textTertiary }]} numberOfLines={1}>
+            <Text style={[styles.sheetSub, { color: colors.textSecondary }]} numberOfLines={1}>
               {influencerName} · {formatDate(entry?.date)}
             </Text>
           </View>
           <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
-            <Text style={[styles.close, { color: colors.brandDeep }]}>Done</Text>
+            <Text style={[styles.close, font('semibold'), { color: colors.primary }]}>Done</Text>
           </Pressable>
         </View>
 
@@ -362,18 +345,18 @@ function Lightbox({ entry, influencerName, onClose, onShare, onReport, onDelete 
         </View>
 
         <View style={[styles.sheetActions, { paddingBottom: insets.bottom + space.lg }]}>
-          <Button title="Share" variant="secondary" onPress={onShare} />
+          <Button title="Share" onPress={onShare} />
           <Pressable onPress={() => setReporting(true)} accessibilityRole="button" style={styles.reportRow}>
-            <Text style={[styles.reportText, { color: colors.textSecondary }]}>Report</Text>
+            <Text style={[styles.reportText, font('medium'), { color: colors.textSecondary }]}>Report</Text>
           </Pressable>
           <Pressable onPress={onDelete} accessibilityRole="button" style={styles.deleteRow}>
-            <Text style={[styles.deleteText, { color: colors.danger }]}>Delete</Text>
+            <Text style={[styles.deleteText, font('medium'), { color: colors.danger }]}>Delete</Text>
           </Pressable>
         </View>
 
         {/* Inside this Modal, so it opens above the viewer on both platforms. */}
         <ReportSheet visible={reporting} onClose={() => setReporting(false)} onSubmit={onReport} />
-      </View>
+      </Screen>
     </Modal>
   )
 }
@@ -395,14 +378,9 @@ function formatDate(ts) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: space.lg },
+  content: { paddingHorizontal: layout.pageGutter, paddingTop: space.xs },
 
-  filters: { flexDirection: 'row', gap: space.sm, marginBottom: space.lg },
-  filter: {
-    paddingVertical: 8, paddingHorizontal: 14,
-    borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth,
-  },
-  filterText: { fontSize: 13, fontWeight: '600' },
+  filters: { flexDirection: 'row', gap: space.sm, marginBottom: space.lg + 2, marginLeft: space.xs },
 
   noneForFilter: { fontSize: 14, paddingVertical: space.xxl, textAlign: 'center' },
 
@@ -411,47 +389,33 @@ const styles = StyleSheet.create({
   footer: { paddingVertical: space.lg },
   footerText: { fontSize: 12.5, textAlign: 'center', paddingVertical: space.lg },
   thumbWrap: {
-    width: '100%', aspectRatio: 9 / 16, borderRadius: radius.md,
-    overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#000',
+    width: '100%', aspectRatio: 3 / 4, borderRadius: 22,
+    overflow: 'hidden', backgroundColor: 'rgba(8,3,83,0.25)',
   },
   thumb: { width: '100%', height: '100%' },
-  playBadge: {
-    position: 'absolute', left: 8, bottom: 8,
-    width: 28, height: 28, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  playGlyph: { color: '#FFFFFF', fontSize: 11, marginLeft: 2 },
-  tileLabel: { fontSize: 13, fontWeight: '600', marginTop: space.sm },
-  tileDate: { fontSize: 11.5, marginTop: 1 },
+  playBadge: { position: 'absolute', left: 12, top: 12, opacity: 0.9 },
+  tileLabel: { fontSize: 16, marginTop: space.sm, marginLeft: space.xs + 2 },
+  tileDate: { fontSize: 11, marginTop: 1, marginLeft: space.xs + 2 },
 
   // Empty state
-  emptyScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xxl },
-  emptyIcon: {
-    width: 72, height: 72, borderRadius: 36,
-    alignItems: 'center', justifyContent: 'center', marginBottom: space.lg,
-  },
-  emptyGlyph: { fontSize: 30 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: space.sm },
-  emptyBody: { fontSize: 14, lineHeight: 21, textAlign: 'center' },
+  emptyScreen: { flex: 1 },
 
   // Lightbox
   sheet: { flex: 1 },
   sheetBar: {
     flexDirection: 'row', alignItems: 'center', gap: space.md,
-    paddingHorizontal: space.lg, paddingVertical: space.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: layout.pageGutter, paddingVertical: space.md,
   },
-  sheetTitle: { fontSize: 16, fontWeight: '700' },
+  sheetTitle: { fontSize: 18 },
   sheetSub: { fontSize: 12, marginTop: 2 },
-  close: { fontSize: 15, fontWeight: '600' },
+  close: { fontSize: 15 },
 
   stage: { flex: 1, backgroundColor: '#000' },
   stageMedia: { width: '100%', height: '100%' },
 
-  sheetActions: { paddingHorizontal: space.lg, paddingTop: space.lg, gap: space.sm },
+  sheetActions: { paddingHorizontal: layout.pageGutter, paddingTop: space.lg, gap: space.sm },
   reportRow: { alignItems: 'center', paddingVertical: space.sm },
-  reportText: { fontSize: 14.5, fontWeight: '600' },
+  reportText: { fontSize: 14.5 },
   deleteRow: { alignItems: 'center', paddingVertical: space.md },
-  deleteText: { fontSize: 15, fontWeight: '600' },
+  deleteText: { fontSize: 15 },
 })

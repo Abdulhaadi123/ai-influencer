@@ -102,6 +102,9 @@ export async function pickVideo() {
     name: asset.fileName || uriBasename(asset.uri),
     size,
     contentType: mimeForUri(asset.uri),
+    // Milliseconds, as the library reports it; null when it does not know. Only used to
+    // quote a price — the server measures the file itself and charges for that.
+    seconds: Number(asset.duration) > 0 ? Number(asset.duration) / 1000 : null,
   }
 }
 

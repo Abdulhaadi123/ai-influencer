@@ -48,7 +48,7 @@ export default function ForgotPasswordScreen({ navigation }) {
       <AuthShell
         title="Check your email"
         subtitle="Follow the link in the email to set a new password, then sign in with it."
-        footer={<LinkButton title="Back to sign in" onPress={() => navigation.navigate('SignIn')} />}
+        footer={<LinkButton prefix="Ready to sign in?" title="Back to sign in" onPress={() => navigation.navigate('SignIn')} />}
       >
         <FormNotice>
           If an account exists for {email.trim()}, you will receive a password reset link
@@ -65,7 +65,7 @@ export default function ForgotPasswordScreen({ navigation }) {
     <AuthShell
       title="Reset password"
       subtitle="Enter the email address for your account and we will send you a link to reset your password."
-      footer={<LinkButton title="Back to sign in" onPress={() => navigation.navigate('SignIn')} />}
+      footer={<LinkButton prefix="Remembered it?" title="Back to sign in" onPress={() => navigation.navigate('SignIn')} />}
     >
       <FormError>{error}</FormError>
 

@@ -19,7 +19,7 @@
 import { useCallback, useState } from 'react'
 import {
   View, Text, ScrollView, ActivityIndicator, StyleSheet, Alert,
-  Modal, TextInput, KeyboardAvoidingView, Platform,
+  Modal, KeyboardAvoidingView, Platform,
 } from 'react-native'
 
 import { useAuth } from '@core/auth/AuthContext'
@@ -29,8 +29,10 @@ import { userMessage } from '@core/errors'
 import { useBottomInset } from '../hooks/useBottomInset'
 import { useCredits } from '../hooks/useCredits'
 import { formatCredits } from '@core/billing/packs'
-import { useTheme, space, radius } from '../theme'
-import { Section, Row, Segmented, Button } from '../components/ui'
+import { useTheme, space, radius, font, layout } from '../theme'
+import Screen, { ScreenHeader } from '../components/Screen'
+import { Section, Row, Segmented, Button, PillInput } from '../components/ui'
+import Icon from '../components/icons'
 
 export default function SettingsScreen({ navigation }) {
   const { colors, preference, setPreference } = useTheme()
@@ -49,56 +51,58 @@ export default function SettingsScreen({ navigation }) {
   }, [signOut])
 
   return (
-    <ScrollView
-      style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Section title="Account">
-        <Row label="Name" value={profile?.display_name || '—'} />
-        <Row label="Email" value={user?.email || '—'} last />
-        <View style={styles.padded}>
-          <Button title="Change password" variant="secondary" onPress={() => setPasswordOpen(true)} />
-        </View>
-        <View style={[styles.padded, { paddingTop: 0 }]}>
-          <Button title="Sign out" variant="secondary" onPress={confirmSignOut} />
-        </View>
-      </Section>
-
-      {credits.visible ? (
-        <Section title="Credits">
-          <Row
-            label="Balance"
-            value={credits.balance === null ? '…' : `${formatCredits(credits.balance)} credits`}
-            right={<Text style={{ color: colors.textTertiary, fontSize: 18 }}>›</Text>}
-            onPress={() => navigation.navigate('Credits')}
-            last
-          />
-        </Section>
-      ) : null}
-
-      <Section title="Appearance">
-        <View style={styles.padded}>
-          <Segmented
-            value={preference}
-            onChange={setPreference}
-            options={[
-              { label: 'System', value: 'system' },
-              { label: 'Light', value: 'light' },
-              { label: 'Dark', value: 'dark' },
-            ]}
-          />
-        </View>
-      </Section>
-
-      <Section
-        title="Delete account"
-        footer="Permanently delete your account and all of its data. This action cannot be undone."
+    <Screen>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.padded}>
-          <Button title="Delete account" variant="danger" onPress={() => setDeleteOpen(true)} />
+        <ScreenHeader title="Settings" size={22} />
+
+        <View style={styles.body}>
+          <Section title="Account">
+            <View style={styles.cardPad}>
+              <Row label="Name" value={profile?.display_name || '—'} />
+              <Row label="Email" value={user?.email || '—'} />
+              <View style={styles.buttons}>
+                <Button title="Change Password" size="sm" onPress={() => setPasswordOpen(true)} />
+                <Button title="Sign out" size="sm" variant="secondary" onPress={confirmSignOut} />
+              </View>
+            </View>
+          </Section>
+
+          {credits.visible ? (
+            <Section title="Credits">
+              <Row
+                label="Balance"
+                value={credits.balance === null ? '…' : `${formatCredits(credits.balance)} credits`}
+                right={<Icon name="chevron" size={16} color={colors.textSecondary} />}
+                onPress={() => navigation.navigate('Credits')}
+              />
+            </Section>
+          ) : null}
+
+          <Section title="Appearance">
+            <View style={styles.cardPad}>
+              <Segmented
+                value={preference}
+                onChange={setPreference}
+                options={[
+                  { label: 'Light', value: 'light' },
+                  { label: 'Dark', value: 'dark', fill: '#1C0F44', onFill: '#FFFFFF' },
+                ]}
+              />
+            </View>
+          </Section>
+
+          <View style={styles.danger}>
+            <Button title="Delete Account" variant="danger" onPress={() => setDeleteOpen(true)} />
+            <Text style={[styles.dangerNote, { color: colors.textTertiary }]}>
+              Permanently delete your account and all of its data. This action cannot be undone.
+            </Text>
+          </View>
         </View>
-      </Section>
+      </ScrollView>
 
       <ChangePasswordDialog
         visible={passwordOpen}
@@ -113,7 +117,22 @@ export default function SettingsScreen({ navigation }) {
         onClose={() => setDeleteOpen(false)}
         onDelete={deleteAccount}
       />
-    </ScrollView>
+    </Screen>
+  )
+}
+
+/** The frame both dialogs share: a dimmed page and an opaque rounded sheet. */
+function Dialog({ visible, onClose, title, children }) {
+  const { colors } = useTheme()
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={[styles.dialog, { backgroundColor: colors.sheet, borderColor: colors.glassEdge }]}>
+          <Text style={[styles.dialogTitle, font('bold'), { color: colors.textPrimary }]}>{title}</Text>
+          {children}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   )
 }
 
@@ -155,53 +174,40 @@ function DeleteAccountDialog({ visible, email, onClose, onDelete }) {
   }, [busy, password, email, onDelete])
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <KeyboardAvoidingView
-        style={styles.backdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={[styles.dialog, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-          <Text style={[styles.dialogTitle, { color: colors.textPrimary }]}>Delete account</Text>
-          <Text style={[styles.dialogBody, { color: colors.textSecondary }]}>
-            This will permanently delete your account, including all influencers, images and
-            videos. Any generations in progress will be lost. Enter your password to continue.
-          </Text>
+    <Dialog visible={visible} onClose={close} title="Delete account">
+      <Text style={[styles.dialogBody, { color: colors.textSecondary }]}>
+        This will permanently delete your account, including all influencers, images and
+        videos. Any generations in progress will be lost. Enter your password to continue.
+      </Text>
 
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Password"
-            placeholderTextColor={colors.textTertiary}
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            textContentType="password"
-            autoComplete="current-password"
-            editable={!busy}
-            returnKeyType="go"
-            onSubmitEditing={confirm}
-            style={[styles.input, {
-              color: colors.textPrimary,
-              borderColor: error ? colors.danger : colors.border,
-              backgroundColor: colors.bg,
-            }]}
-          />
-          {error ? <Text style={[styles.dialogError, { color: colors.danger }]}>{error}</Text> : null}
+      <PillInput
+        value={password}
+        onChangeText={setPassword}
+        placeholder="Password"
+        secureTextEntry
+        autoCapitalize="none"
+        autoCorrect={false}
+        textContentType="password"
+        autoComplete="current-password"
+        editable={!busy}
+        returnKeyType="go"
+        onSubmitEditing={confirm}
+        error={!!error}
+      />
+      {error ? <Text style={[styles.dialogError, { color: colors.danger }]}>{error}</Text> : null}
 
-          {busy ? (
-            <View style={styles.busy}>
-              <ActivityIndicator size="small" color={colors.danger} />
-              <Text style={[styles.busyText, { color: colors.textSecondary }]}>Deleting…</Text>
-            </View>
-          ) : (
-            <View style={styles.dialogActions}>
-              <Button title="Delete account" variant="danger" onPress={confirm} disabled={!password} />
-              <Button title="Cancel" variant="secondary" onPress={close} />
-            </View>
-          )}
+      {busy ? (
+        <View style={styles.busy}>
+          <ActivityIndicator size="small" color={colors.danger} />
+          <Text style={[styles.busyText, { color: colors.textSecondary }]}>Deleting…</Text>
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      ) : (
+        <View style={styles.dialogActions}>
+          <Button title="Delete account" variant="danger" onPress={confirm} disabled={!password} />
+          <Button title="Cancel" variant="neutral" onPress={close} />
+        </View>
+      )}
+    </Dialog>
   )
 }
 
@@ -249,89 +255,76 @@ function ChangePasswordDialog({ visible, email, onClose, onChange }) {
     }
   }
 
-  const inputStyle = hasError => [styles.input, {
-    color: colors.textPrimary,
-    borderColor: hasError ? colors.danger : colors.border,
-    backgroundColor: colors.bg,
-  }]
-  const secret = {
-    secureTextEntry: true,
-    autoCapitalize: 'none',
-    autoCorrect: false,
-    editable: !busy,
-    placeholderTextColor: colors.textTertiary,
-  }
+  const secret = { secureTextEntry: true, autoCapitalize: 'none', autoCorrect: false, editable: !busy }
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={[styles.dialog, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-          <Text style={[styles.dialogTitle, { color: colors.textPrimary }]}>Change password</Text>
+    <Dialog visible={visible} onClose={close} title="Change password">
+      <PillInput
+        value={current}
+        onChangeText={setCurrent}
+        placeholder="Current password"
+        textContentType="password"
+        autoComplete="current-password"
+        {...secret}
+      />
+      <PillInput
+        value={next}
+        onChangeText={setNext}
+        placeholder="New password"
+        textContentType="newPassword"
+        autoComplete="new-password"
+        error={!!problem}
+        {...secret}
+      />
+      <Text style={[styles.dialogHint, { color: problem ? colors.danger : colors.textTertiary }]}>
+        {problem || `Must be at least ${MIN_PASSWORD_LENGTH} characters and include a letter and a number.`}
+      </Text>
+      <PillInput
+        value={confirm}
+        onChangeText={setConfirm}
+        placeholder="Confirm new password"
+        textContentType="newPassword"
+        autoComplete="new-password"
+        returnKeyType="go"
+        onSubmitEditing={submit}
+        error={mismatch}
+        {...secret}
+      />
+      {mismatch ? <Text style={[styles.dialogError, { color: colors.danger }]}>Passwords do not match.</Text> : null}
+      {error ? <Text style={[styles.dialogError, { color: colors.danger }]}>{error}</Text> : null}
 
-          <TextInput
-            value={current}
-            onChangeText={setCurrent}
-            placeholder="Current password"
-            textContentType="password"
-            autoComplete="current-password"
-            {...secret}
-            style={inputStyle(false)}
-          />
-          <TextInput
-            value={next}
-            onChangeText={setNext}
-            placeholder="New password"
-            textContentType="newPassword"
-            autoComplete="new-password"
-            {...secret}
-            style={inputStyle(!!problem)}
-          />
-          <Text style={[styles.dialogHint, { color: problem ? colors.danger : colors.textTertiary }]}>
-            {problem || `Must be at least ${MIN_PASSWORD_LENGTH} characters and include a letter and a number.`}
-          </Text>
-          <TextInput
-            value={confirm}
-            onChangeText={setConfirm}
-            placeholder="Confirm new password"
-            textContentType="newPassword"
-            autoComplete="new-password"
-            returnKeyType="go"
-            onSubmitEditing={submit}
-            {...secret}
-            style={inputStyle(mismatch)}
-          />
-          {mismatch ? <Text style={[styles.dialogError, { color: colors.danger }]}>Passwords do not match.</Text> : null}
-          {error ? <Text style={[styles.dialogError, { color: colors.danger }]}>{error}</Text> : null}
-
-          {busy ? (
-            <View style={styles.busy}>
-              <ActivityIndicator size="small" color={colors.brand} />
-              <Text style={[styles.busyText, { color: colors.textSecondary }]}>Updating…</Text>
-            </View>
-          ) : (
-            <View style={styles.dialogActions}>
-              <Button title="Update password" onPress={submit} disabled={!canSubmit} />
-              <Button title="Cancel" variant="secondary" onPress={close} />
-            </View>
-          )}
+      {busy ? (
+        <View style={styles.busy}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={[styles.busyText, { color: colors.textSecondary }]}>Updating…</Text>
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      ) : (
+        <View style={styles.dialogActions}>
+          <Button title="Update password" onPress={submit} disabled={!canSubmit} />
+          <Button title="Cancel" variant="neutral" onPress={close} />
+        </View>
+      )}
+    </Dialog>
   )
 }
 
 const styles = StyleSheet.create({
-  content: { padding: space.lg, paddingTop: space.xl },
-  padded: { padding: space.lg },
-  busy: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  content: { flexGrow: 1 },
+  body: { paddingHorizontal: layout.pageGutter, paddingTop: space.sm },
+  cardPad: { padding: space.lg, gap: space.xs },
+  buttons: { gap: space.sm, marginTop: space.md },
+
+  danger: { gap: space.md, marginTop: space.lg },
+  dangerNote: { fontSize: 12, lineHeight: 17, textAlign: 'center', paddingHorizontal: space.lg },
+
+  busy: { flexDirection: 'row', alignItems: 'center', gap: space.sm, justifyContent: 'center', paddingVertical: space.sm },
   busyText: { fontSize: 14 },
 
-  backdrop: { flex: 1, justifyContent: 'center', padding: space.xl, backgroundColor: 'rgba(0,0,0,0.55)' },
-  dialog: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, padding: space.xl, gap: space.md },
-  dialogTitle: { fontSize: 18, fontWeight: '700' },
+  backdrop: { flex: 1, justifyContent: 'center', padding: space.xl, backgroundColor: 'rgba(8,3,83,0.55)' },
+  dialog: { borderRadius: 28, borderWidth: 1, padding: space.xl, gap: space.md },
+  dialogTitle: { fontSize: 20, letterSpacing: -0.3 },
   dialogBody: { fontSize: 14, lineHeight: 20 },
   dialogError: { fontSize: 13, lineHeight: 18 },
-  dialogHint: { fontSize: 12, lineHeight: 17, marginTop: -space.xs },
-  dialogActions: { gap: space.sm },
-  input: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, paddingHorizontal: space.md, paddingVertical: space.md, fontSize: 15 },
+  dialogHint: { fontSize: 12, lineHeight: 17, marginTop: -space.xs, marginLeft: space.sm },
+  dialogActions: { gap: space.sm, marginTop: space.xs },
 })

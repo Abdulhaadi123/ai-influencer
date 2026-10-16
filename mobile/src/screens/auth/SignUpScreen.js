@@ -77,9 +77,8 @@ export default function SignUpScreen({ navigation }) {
 
   return (
     <AuthShell
-      title="Create account"
-      subtitle="Get started with AI Influencer Studio."
-      footer={<LinkButton title="Already have an account? Sign in" onPress={() => navigation.navigate('SignIn')} />}
+      title="Sign up"
+      footer={<LinkButton prefix="Already have an account?" title="Sign in" onPress={() => navigation.navigate('SignIn')} />}
     >
       <FormError>{error}</FormError>
       <FormNotice>{notice}</FormNotice>
@@ -136,7 +135,7 @@ export default function SignUpScreen({ navigation }) {
       />
 
       <View>
-        <PrimaryButton title="Create account" onPress={submit} loading={busy} disabled={!canSubmit} />
+        <PrimaryButton title="Continue" onPress={submit} loading={busy} disabled={!canSubmit} />
       </View>
 
       {sentTo ? (

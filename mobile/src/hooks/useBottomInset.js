@@ -1,27 +1,26 @@
 /**
- * Bottom padding that clears the tab bar, not just the gesture area.
+ * Bottom padding that clears the floating tab bar, not just the gesture area.
  *
- * Every screen used to pad by `insets.bottom`, which is only the system
- * gesture inset (~24px). The bottom tab bar floats over the content and is
- * roughly 80px tall, so the last stretch of any full-height scroll view was
- * hidden behind it — the "Generate video" button was half-swallowed.
+ * The bar floats over the content (it is an absolutely positioned pill, not a strip that
+ * pushes the screen up), so the last stretch of any full-height scroll view would sit behind
+ * it. Inside the tabs this returns the space the bar covers; elsewhere — a pushed screen, a
+ * Modal, where there is no bar — only the safe-area inset, so those screens do not leave a
+ * gap for a bar that is not there.
  *
- * BottomTabBarHeightContext already carries the real height, INCLUDING the
- * safe-area inset, so it is the right number to pad by. Read through the
- * context rather than useBottomTabBarHeight() because the hook throws outside
- * a tab screen, and these components are also rendered inside a Modal, where
- * the provider may not be reachable. Falling back to the safe-area inset keeps
- * them working anywhere.
+ * Whether we are inside the tabs is read from BottomTabBarHeightContext, which is
+ * `undefined` outside a tab navigator. It is read through the context rather than
+ * useBottomTabBarHeight() because that hook THROWS outside a tab screen, and these
+ * components are also rendered inside a Modal.
  */
 
 import { useContext } from 'react'
 import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { space } from '../theme'
+import { space, tabBarFootprint } from '../theme'
 
-export function useBottomInset(extra = space.xxl) {
+export function useBottomInset(extra = space.xl) {
   const insets = useSafeAreaInsets()
-  const tabBarHeight = useContext(BottomTabBarHeightContext)
-  return (tabBarHeight ?? insets.bottom) + extra
+  const inTabs = useContext(BottomTabBarHeightContext) !== undefined
+  return (inTabs ? tabBarFootprint(insets) : insets.bottom) + extra
 }

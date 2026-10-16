@@ -9,7 +9,8 @@
 import { useState } from 'react'
 import { View, Text, Pressable, StyleSheet, LayoutAnimation } from 'react-native'
 
-import { useTheme, space, radius } from '../theme'
+import { useTheme, space, radius, font, layout } from '../theme'
+import Icon from './icons'
 
 export default function ModelPicker({ models, value, onChange, defaultId }) {
   const { colors } = useTheme()
@@ -31,17 +32,17 @@ export default function ModelPicker({ models, value, onChange, defaultId }) {
         style={({ pressed }) => [
           styles.trigger,
           {
-            borderColor: open ? colors.brand : colors.border,
-            backgroundColor: colors.bg,
+            borderColor: open ? colors.primary : colors.glassEdge,
+            backgroundColor: colors.field,
             opacity: pressed ? 0.9 : 1,
           },
         ]}
       >
         <View style={styles.flex}>
-          <Text style={[styles.currentLabel, { color: colors.textPrimary }]} numberOfLines={1}>
+          <Text style={[styles.currentLabel, font('medium'), { color: colors.textPrimary }]} numberOfLines={1}>
             {current.label}
             {current.id === defaultId ? (
-              <Text style={{ color: colors.textTertiary }}>  · default</Text>
+              <Text style={[font('regular'), { color: colors.textTertiary }]}>  · default</Text>
             ) : null}
           </Text>
           {current.note ? (
@@ -50,39 +51,39 @@ export default function ModelPicker({ models, value, onChange, defaultId }) {
             </Text>
           ) : null}
         </View>
-        <Text style={[styles.caret, { color: colors.textTertiary }]}>{open ? '⌄' : '›'}</Text>
+        <View style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }}>
+          <Icon name="chevron" size={18} color={colors.textSecondary} />
+        </View>
       </Pressable>
 
       {open ? (
-        <View style={[styles.list, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
-          {models.map((m, i) => {
+        <View style={styles.list}>
+          {models.map(m => {
             const active = m.id === current.id
             return (
               <Pressable
                 key={m.id}
                 onPress={() => { onChange(m.id); toggle() }}
-                android_ripple={{ color: colors.borderSubtle }}
-                style={[
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                style={({ pressed }) => [
                   styles.option,
-                  i < models.length - 1 && {
-                    borderBottomWidth: StyleSheet.hairlineWidth,
-                    borderBottomColor: colors.borderSubtle,
-                  },
-                  active && { backgroundColor: colors.brandSoft },
+                  { backgroundColor: active ? colors.accentSoft : colors.surface, borderColor: active ? colors.primary : 'transparent' },
+                  pressed && { opacity: 0.8 },
                 ]}
               >
                 <View style={styles.flex}>
-                  <Text style={[styles.optionLabel, { color: active ? colors.brand : colors.textPrimary }]}>
+                  <Text style={[styles.optionLabel, font('medium'), { color: active ? colors.primary : colors.textPrimary }]}>
                     {m.label}
                     {m.id === defaultId ? (
-                      <Text style={{ color: colors.textTertiary, fontWeight: '400' }}>  · default</Text>
+                      <Text style={[font('regular'), { color: colors.textTertiary }]}>  · default</Text>
                     ) : null}
                   </Text>
                   {m.note ? (
                     <Text style={[styles.optionNote, { color: colors.textSecondary }]}>{m.note}</Text>
                   ) : null}
                 </View>
-                {active ? <Text style={{ color: colors.brand, fontSize: 15 }}>✓</Text> : null}
+                {active ? <Icon name="check" size={18} color={colors.primary} /> : null}
               </Pressable>
             )
           })}
@@ -97,15 +98,17 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   trigger: {
     flexDirection: 'row', alignItems: 'center', gap: space.md,
-    borderWidth: 1.5, borderRadius: radius.md,
-    paddingHorizontal: space.md, paddingVertical: space.md, minHeight: 52,
+    borderWidth: 1, borderRadius: radius.pill,
+    paddingHorizontal: space.xl - 2, paddingVertical: space.sm, minHeight: layout.controlHeight + 4,
   },
-  currentLabel: { fontSize: 15, fontWeight: '600' },
+  currentLabel: { fontSize: 15 },
   currentNote: { fontSize: 12, marginTop: 2 },
-  caret: { fontSize: 18, lineHeight: 20 },
 
-  list: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.md, overflow: 'hidden' },
-  option: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md },
-  optionLabel: { fontSize: 14.5, fontWeight: '600' },
+  list: { gap: space.sm },
+  option: {
+    flexDirection: 'row', alignItems: 'center', gap: space.md,
+    borderWidth: 1, borderRadius: radius.md, paddingHorizontal: space.lg, paddingVertical: space.md,
+  },
+  optionLabel: { fontSize: 14.5 },
   optionNote: { fontSize: 12, marginTop: 2, lineHeight: 16 },
 })

@@ -7,16 +7,15 @@
  * wizards cannot drift apart.
  *
  * The layout is native rather than a transliteration: one step per screen with
- * a progress header, a bottom action bar, and a native image picker offering
- * camera or library.
+ * numbered step badges at the top, and the step's buttons under its fields (the
+ * floating tab bar owns the bottom edge, so there is no fixed action bar).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, TextInput, ScrollView, Image, Pressable, ActivityIndicator,
-  StyleSheet, Alert, KeyboardAvoidingView, Platform,
+  View, Text, ScrollView, Image, Pressable, ActivityIndicator,
+  StyleSheet, KeyboardAvoidingView, Platform,
 } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useInfluencers } from '@core/store'
 import { generateThreeImages, STILL_RUNNING } from '@core/services/generation'
@@ -27,9 +26,12 @@ import { buildNewInfluencer, buildCreationParams } from '@core/newInfluencer'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { userMessage } from '@core/errors'
 
-import { useTheme, space, radius } from '../theme'
+import { useBottomInset } from '../hooks/useBottomInset'
+import { useTheme, space, radius, font, layout } from '../theme'
 import CostNote from '../components/CostNote'
-import { Section, Button } from '../components/ui'
+import Screen, { ScreenHeader } from '../components/Screen'
+import { Button, GlassCard, Block, PillInput, ChoicePill, Notice, ProgressBar } from '../components/ui'
+import Icon from '../components/icons'
 import { pickImageWithPrompt } from '../lib/picker'
 import { showError } from '../lib/alerts'
 import PromptSuggestion from '../components/PromptSuggestion'
@@ -62,8 +64,7 @@ function discardAsset(assetId) {
 }
 
 export default function CreateScreen({ navigation }) {
-  const { colors } = useTheme()
-  const insets = useSafeAreaInsets()
+  const bottomInset = useBottomInset()
   const { addInfluencer } = useInfluencers()
 
   const [step, setStep] = useState(0)
@@ -279,92 +280,104 @@ export default function CreateScreen({ navigation }) {
   }, [data, variations, selectedIdx, addInfluencer, navigation, saving, reset])
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <StepBar step={step} />
-
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 96 }]}
-        keyboardShouldPersistTaps="handled"
+    <Screen>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {step === 0 && <BasicsStep data={data} set={set} />}
-        {step === 1 && (
-          <ReferenceStep
-            data={data}
-            set={set}
-            onAddReference={addReference}
-            onRemoveReference={removeReference}
-            onToggleAttribute={toggleAttribute}
-            uploading={uploadingRef}
-          />
-        )}
-        {step === 2 && (
-          <GenerateStep
-            generating={generating}
-            progress={progress}
-            variations={variations}
-            selectedIdx={selectedIdx}
-            onSelect={setSelectedIdx}
-            onGenerate={generate}
-            error={error}
-            pending={!!pendingTaskId}
-          />
-        )}
-      </ScrollView>
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: bottomInset }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <ScreenHeader title="Create" size={22} />
 
-      <ActionBar
-        step={step}
-        canContinue={canContinue}
-        generating={generating}
-        hasResults={variations.length > 0}
-        saving={saving}
-        onBack={() => setStep(s => Math.max(0, s - 1))}
-        onNext={() => setStep(s => Math.min(STEPS.length - 1, s + 1))}
-        onSave={save}
-      />
-    </KeyboardAvoidingView>
+          <View style={styles.body}>
+            <StepBar step={step} />
+
+            {step === 0 && <BasicsStep data={data} set={set} />}
+            {step === 1 && (
+              <ReferenceStep
+                data={data}
+                set={set}
+                onAddReference={addReference}
+                onRemoveReference={removeReference}
+                onToggleAttribute={toggleAttribute}
+                uploading={uploadingRef}
+              />
+            )}
+            {step === 2 && (
+              <GenerateStep
+                generating={generating}
+                progress={progress}
+                variations={variations}
+                selectedIdx={selectedIdx}
+                onSelect={setSelectedIdx}
+                onGenerate={generate}
+                error={error}
+                pending={!!pendingTaskId}
+              />
+            )}
+
+            <Actions
+              step={step}
+              canContinue={canContinue}
+              generating={generating}
+              hasResults={variations.length > 0}
+              saving={saving}
+              onBack={() => setStep(s => Math.max(0, s - 1))}
+              onNext={() => setStep(s => Math.min(STEPS.length - 1, s + 1))}
+              onSave={save}
+            />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Screen>
   )
 }
 
 /* ── Steps ─────────────────────────────────────────────────────────────── */
 
-function BasicsStep({ data, set }) {
+function Heading({ title, sub }) {
   const { colors } = useTheme()
   return (
+    <View style={styles.headingWrap}>
+      <Text style={[styles.heading, font('regular'), { color: colors.textPrimary }]}>{title}</Text>
+      <Text style={[styles.sub, { color: colors.textSecondary }]}>{sub}</Text>
+    </View>
+  )
+}
+
+function BasicsStep({ data, set }) {
+  return (
     <>
-      <Text style={[styles.heading, { color: colors.textPrimary }]}>Basic details</Text>
-      <Text style={[styles.sub, { color: colors.textSecondary }]}>
-        Enter a name and select a gender.
-      </Text>
+      <Heading title="Basic details" sub="Enter a name and select a gender." />
 
-      <Section title="Name">
-        <View style={styles.padded}>
-          <Field value={data.name} onChangeText={v => set('name', v)} placeholder="Enter a name" autoFocus />
-        </View>
-      </Section>
+      <Block title="Name">
+        <PillInput
+          value={data.name}
+          onChangeText={v => set('name', v)}
+          placeholder="Enter name"
+          autoFocus
+        />
+      </Block>
 
-      <Section title="Gender">
-        <View style={styles.padded}>
-          <View style={styles.choiceRow}>
-            {['Female', 'Male'].map(g => (
-              <Choice key={g} label={g} active={data.gender === g} onPress={() => set('gender', g)} />
-            ))}
-          </View>
+      <Block title="Gender">
+        <View style={styles.choiceRow}>
+          {['Male', 'Female'].map(g => (
+            <ChoicePill key={g} label={g} active={data.gender === g} onPress={() => set('gender', g)} />
+          ))}
         </View>
-      </Section>
+      </Block>
 
-      <Section title="Age" footer="Optional">
-        <View style={styles.padded}>
-          <Field
-            value={data.age}
-            onChangeText={v => set('age', v.replace(/[^0-9]/g, ''))}
-            placeholder="Enter an age"
-            keyboardType="number-pad"
-          />
-        </View>
-      </Section>
+      <Block title="Age" footer="Optional">
+        <PillInput
+          value={data.age}
+          onChangeText={v => set('age', v.replace(/[^0-9]/g, ''))}
+          placeholder="Enter age"
+          keyboardType="number-pad"
+        />
+      </Block>
     </>
   )
 }
@@ -374,68 +387,61 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
   const assist = usePromptSuggestion(data.description, 'appearance')
   return (
     <>
-      <Text style={[styles.heading, { color: colors.textPrimary }]}>Appearance</Text>
-      <Text style={[styles.sub, { color: colors.textSecondary }]}>
-        Describe your influencer, add a reference image, or both.
-      </Text>
+      <Heading title="Appearance" sub="Describe your influencer, add a reference image, or both." />
 
-      <Section
+      <Block
         title="Description"
         footer="Used to generate the image. Optional if you add a reference image."
       >
-        <View style={styles.padded}>
-          <Field
-            value={data.description}
-            onChangeText={v => set('description', v)}
-            placeholder="e.g. Mid-20s, long dark curly hair, warm smile"
-            multiline
-          />
-          <PromptSuggestion
-            suggestion={assist.suggestion}
-            loading={assist.loading}
-            onUse={() => { const next = assist.suggestion; set('description', next); assist.ignore(next) }}
-            onDismiss={assist.dismiss}
-          />
-        </View>
-      </Section>
+        <PillInput
+          value={data.description}
+          onChangeText={v => set('description', v)}
+          placeholder="e.g. Mid-20s, long dark curly hair, warm smile"
+          multiline
+        />
+        <PromptSuggestion
+          suggestion={assist.suggestion}
+          loading={assist.loading}
+          onUse={() => { const next = assist.suggestion; set('description', next); assist.ignore(next) }}
+          onDismiss={assist.dismiss}
+        />
+      </Block>
 
-      <Section title="Reference image" footer="Match the face, outfit or setting from a photo.">
-        <View style={styles.padded}>
-          {data.referenceImage ? (
-            <View style={{ gap: space.md }}>
-              <Image source={{ uri: data.referenceImage }} style={styles.reference} resizeMode="cover" />
-              {uploading ? (
-                <View style={styles.uploadingRow}>
-                  <ActivityIndicator size="small" color={colors.brand} />
-                  <Text style={[styles.uploadingText, { color: colors.textSecondary }]}>Uploading…</Text>
-                </View>
-              ) : null}
-              <View style={styles.choiceRow}>
-                <View style={styles.flex}>
-                  <Button title="Replace" variant="secondary" onPress={onAddReference} />
-                </View>
-                <View style={styles.flex}>
-                  <Button
-                    title="Remove"
-                    variant="danger"
-                    onPress={onRemoveReference}
-                  />
+      <Block title="Reference image" footer="Match the face, outfit or setting from a photo.">
+        <GlassCard>
+          <View style={styles.cardPad}>
+            {data.referenceImage ? (
+              <View style={{ gap: space.md }}>
+                <Image source={{ uri: data.referenceImage }} style={styles.reference} resizeMode="cover" />
+                {uploading ? (
+                  <View style={styles.uploadingRow}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={[styles.uploadingText, { color: colors.textSecondary }]}>Uploading…</Text>
+                  </View>
+                ) : null}
+                <View style={styles.choiceRow}>
+                  <View style={styles.flex}>
+                    <Button title="Replace" size="sm" variant="soft" onPress={onAddReference} />
+                  </View>
+                  <View style={styles.flex}>
+                    <Button title="Remove" size="sm" variant="danger" onPress={onRemoveReference} />
+                  </View>
                 </View>
               </View>
-            </View>
-          ) : (
-            <Button title="Upload reference image" onPress={onAddReference} />
-          )}
-        </View>
-      </Section>
+            ) : (
+              <Button title="Upload reference image" onPress={onAddReference} />
+            )}
+          </View>
+        </GlassCard>
+      </Block>
 
       {/* "What to copy" only matters when there IS a reference to copy from. */}
       {data.referenceImage ? (
-        <Section
+        <Block
           title="Features to match"
           footer="Select the features to take from the reference image. If none are selected, the full appearance is used."
         >
-          <View style={[styles.padded, { gap: space.sm }]}>
+          <View style={{ gap: space.sm }}>
             {COPY_ATTRIBUTES.map(attr => {
               const on = data.copyAttributes.includes(attr.id)
               return (
@@ -447,23 +453,23 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
                   style={[
                     styles.attr,
                     {
-                      borderColor: on ? colors.brand : colors.borderSubtle,
-                      backgroundColor: on ? colors.brandSoft : 'transparent',
+                      borderColor: on ? colors.primary : colors.glassEdge,
+                      backgroundColor: on ? colors.accentSoft : colors.glass,
                     },
                   ]}
                 >
-                  <View style={[styles.checkbox, { borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent' }]}>
-                    {on ? <Text style={styles.checkmark}>✓</Text> : null}
+                  <View style={[styles.checkbox, { borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : 'transparent' }]}>
+                    {on ? <Icon name="check" size={14} color="#FFFFFF" /> : null}
                   </View>
                   <View style={styles.flex}>
-                    <Text style={[styles.attrLabel, { color: colors.textPrimary }]}>{attr.label}</Text>
+                    <Text style={[styles.attrLabel, font('medium'), { color: colors.textPrimary }]}>{attr.label}</Text>
                     <Text style={[styles.attrDesc, { color: colors.textSecondary }]}>{attr.desc}</Text>
                   </View>
                 </Pressable>
               )
             })}
           </View>
-        </Section>
+        </Block>
       ) : null}
     </>
   )
@@ -475,10 +481,12 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
   if (generating) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={colors.brand} />
-        <Text style={[styles.heading, { color: colors.textPrimary }]}>Generating…</Text>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={[styles.heading, font('regular'), { color: colors.textPrimary }]}>Generating…</Text>
         <Text style={[styles.sub, { color: colors.textSecondary }]}>{progress}%</Text>
-
+        <View style={styles.progress}>
+          <ProgressBar value={progress} />
+        </View>
       </View>
     )
   }
@@ -488,8 +496,8 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
   if (pending && !variations.length) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={colors.brand} />
-        <Text style={[styles.heading, { color: colors.textPrimary }]}>Still generating</Text>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={[styles.heading, font('regular'), { color: colors.textPrimary }]}>Still generating</Text>
         <Text style={[styles.sub, { color: colors.textSecondary, textAlign: 'center' }]}>
           This is taking longer than usual. The image will appear here when it is ready,
           and you can leave this screen in the meantime.
@@ -501,71 +509,76 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
   if (!variations.length) {
     return (
       <View style={styles.centered}>
-        <Text style={[styles.heading, { color: colors.textPrimary }]}>Ready to generate</Text>
+        <Text style={[styles.heading, font('regular'), { color: colors.textPrimary }]}>Ready to generate</Text>
         <Text style={[styles.sub, { color: colors.textSecondary, textAlign: 'center' }]}>
           One image will be generated. You can regenerate it if you want a different result.
         </Text>
-        {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
+        {error ? <View style={styles.stretch}><Notice tone="error">{error}</Notice></View> : null}
         <CostNote model={IMAGE_MODEL_ID} />
-        <Button title="Generate image" onPress={onGenerate} />
+        <View style={styles.stretch}>
+          <Button title="Generate image" onPress={onGenerate} />
+        </View>
       </View>
     )
   }
 
   return (
     <>
-      <Text style={[styles.heading, { color: colors.textPrimary }]}>Preview</Text>
-      <Text style={[styles.sub, { color: colors.textSecondary }]}>
-        This will be the main image. Regenerate it if you want a different result.
-      </Text>
+      <Heading title="Preview" sub="This will be the main image. Regenerate it if you want a different result." />
 
-      <View style={styles.grid}>
-        {variations.map((variation, i) => (
-          <Pressable
-            key={variation.assetId}
-            onPress={() => onSelect(i)}
-            style={[
-              styles.variation,
-              { borderColor: i === selectedIdx ? colors.brand : colors.borderSubtle, borderWidth: i === selectedIdx ? 2.5 : StyleSheet.hairlineWidth },
-            ]}
-          >
-            <Image source={{ uri: variation.url }} style={styles.variationImage} resizeMode="cover" />
-          </Pressable>
-        ))}
+      <GlassCard>
+        <View style={styles.cardPad}>
+          {variations.map((variation, i) => (
+            <Pressable
+              key={variation.assetId}
+              onPress={() => onSelect(i)}
+              style={[
+                styles.variation,
+                { borderColor: i === selectedIdx ? colors.primary : 'transparent' },
+              ]}
+            >
+              <Image source={{ uri: variation.url }} style={styles.variationImage} resizeMode="cover" />
+            </Pressable>
+          ))}
+        </View>
+      </GlassCard>
+
+      <View style={styles.afterCard}>
+        {error ? <Notice tone="error">{error}</Notice> : null}
+        {pending ? (
+          <Text style={[styles.sub, { color: colors.textSecondary, textAlign: 'center' }]}>
+            A new image is being generated and will replace this one when it is ready.
+          </Text>
+        ) : (
+          <Button title="Regenerate" variant="soft" onPress={onGenerate} />
+        )}
       </View>
-
-      {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
-      {pending ? (
-        <Text style={[styles.sub, { color: colors.textSecondary, textAlign: 'center' }]}>
-          A new image is being generated and will replace this one when it is ready.
-        </Text>
-      ) : (
-        <Button title="Regenerate" variant="secondary" onPress={onGenerate} />
-      )}
     </>
   )
 }
 
 /* ── Pieces ────────────────────────────────────────────────────────────── */
 
+/** Numbered badges: the step you are on is violet, the ones ahead are black, done ones are ticked. */
 function StepBar({ step }) {
   const { colors } = useTheme()
   return (
-    <View style={[styles.stepBar, { borderBottomColor: colors.borderSubtle, backgroundColor: colors.bg }]}>
+    <View style={styles.stepBar}>
       {STEPS.map((label, i) => {
         const done = i < step
         const active = i === step
         return (
           <View key={label} style={styles.stepItem}>
-            <View style={[styles.stepDot, {
-              backgroundColor: done || active ? colors.brand : 'transparent',
-              borderColor: done || active ? colors.brand : colors.border,
-            }]}>
-              <Text style={[styles.stepDotText, { color: done || active ? '#FFFFFF' : colors.textTertiary }]}>
-                {done ? '✓' : i + 1}
-              </Text>
+            <View style={[styles.stepDot, { backgroundColor: done || active ? colors.primary : colors.ink }]}>
+              {done ? (
+                <Icon name="check" size={11} color="#FFFFFF" />
+              ) : (
+                <Text style={[styles.stepDotText, font('medium'), { color: active ? colors.onPrimary : colors.onInk }]}>
+                  {i + 1}
+                </Text>
+              )}
             </View>
-            <Text style={[styles.stepLabel, { color: active ? colors.textPrimary : colors.textTertiary }]}>
+            <Text style={[styles.stepLabel, font(active ? 'medium' : 'regular'), { color: active ? colors.textPrimary : colors.textSecondary }]}>
               {label}
             </Text>
           </View>
@@ -575,20 +588,14 @@ function StepBar({ step }) {
   )
 }
 
-function ActionBar({ step, canContinue, generating, hasResults, saving, onBack, onNext, onSave }) {
-  const { colors } = useTheme()
-  const insets = useSafeAreaInsets()
+function Actions({ step, canContinue, generating, hasResults, saving, onBack, onNext, onSave }) {
   const isLast = step === STEPS.length - 1
 
   return (
-    <View style={[styles.actionBar, {
-      backgroundColor: colors.bgSecondary,
-      borderTopColor: colors.borderSubtle,
-      paddingBottom: insets.bottom || space.lg,
-    }]}>
+    <View style={styles.actions}>
       {step > 0 ? (
         <View style={styles.flex}>
-          <Button title="Back" variant="secondary" onPress={onBack} disabled={generating} />
+          <Button title="Back" variant="soft" onPress={onBack} disabled={generating} />
         </View>
       ) : null}
       <View style={styles.flex}>
@@ -606,77 +613,39 @@ function ActionBar({ step, canContinue, generating, hasResults, saving, onBack, 
   )
 }
 
-function Field({ multiline, ...props }) {
-  const { colors } = useTheme()
-  return (
-    <TextInput
-      {...props}
-      multiline={multiline}
-      placeholderTextColor={colors.textTertiary}
-      style={[styles.input, multiline && styles.inputMultiline, {
-        color: colors.textPrimary,
-        borderColor: colors.border,
-        backgroundColor: colors.bg,
-      }]}
-    />
-  )
-}
-
-function Choice({ label, active, onPress }) {
-  const { colors } = useTheme()
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-      style={[styles.choice, {
-        borderColor: active ? colors.brand : colors.border,
-        backgroundColor: active ? colors.brandSoft : 'transparent',
-      }]}
-    >
-      <Text style={[styles.choiceLabel, { color: active ? colors.brand : colors.textSecondary }]}>
-        {label}
-      </Text>
-    </Pressable>
-  )
-}
-
 const styles = StyleSheet.create({
-  content: { padding: space.lg },
-  heading: { fontSize: 22, fontWeight: '700', letterSpacing: -0.3, marginBottom: space.xs },
-  sub: { fontSize: 14, lineHeight: 20, marginBottom: space.xl },
-  padded: { padding: space.lg },
   flex: { flex: 1 },
+  body: { paddingHorizontal: layout.pageGutter },
 
-  stepBar: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: space.md, borderBottomWidth: StyleSheet.hairlineWidth },
-  stepItem: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  stepDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  stepDotText: { fontSize: 11, fontWeight: '700' },
-  stepLabel: { fontSize: 13, fontWeight: '600' },
+  headingWrap: { marginTop: space.xl, marginBottom: space.xl },
+  heading: { fontSize: 26, letterSpacing: -0.5 },
+  sub: { fontSize: 12.5, lineHeight: 18, marginTop: 4 },
 
-  input: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, paddingHorizontal: space.md, paddingVertical: space.md, fontSize: 15 },
-  inputMultiline: { minHeight: 96, textAlignVertical: 'top' },
+  stepBar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 2, marginTop: space.xs },
+  stepItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  stepDot: { width: 16, height: 16, borderRadius: 3.5, alignItems: 'center', justifyContent: 'center' },
+  stepDotText: { fontSize: 10.5, lineHeight: 13 },
+  stepLabel: { fontSize: 13 },
 
   choiceRow: { flexDirection: 'row', gap: space.md },
-  choice: { flex: 1, paddingVertical: space.md, borderRadius: radius.md, borderWidth: 1.5, alignItems: 'center' },
-  choiceLabel: { fontSize: 15, fontWeight: '600' },
-
+  cardPad: { padding: space.md + 2 },
   reference: { width: '100%', aspectRatio: 3 / 4, borderRadius: radius.md },
 
-  attr: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.md, borderWidth: 1.5 },
-  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  checkmark: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  attrLabel: { fontSize: 15, fontWeight: '600' },
+  attr: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.md, borderWidth: 1 },
+  checkbox: { width: 22, height: 22, borderRadius: 7, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  attrLabel: { fontSize: 15 },
   attrDesc: { fontSize: 12, marginTop: 1 },
 
-  centered: { alignItems: 'center', gap: space.md, paddingVertical: space.xxl },
+  centered: { alignItems: 'center', gap: space.md, paddingTop: space.xl, paddingBottom: space.md },
+  stretch: { alignSelf: 'stretch' },
+  progress: { alignSelf: 'stretch', paddingHorizontal: space.xl },
   uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   uploadingText: { fontSize: 13 },
-  error: { fontSize: 13, textAlign: 'center' },
 
-  grid: { gap: space.md, marginBottom: space.lg },
-  variation: { borderRadius: radius.lg, overflow: 'hidden' },
+  // Small enough that Regenerate, Back and Save all clear the floating tab bar without scrolling.
+  variation: { borderRadius: radius.lg, overflow: 'hidden', borderWidth: 2.5, alignSelf: 'center', width: '54%' },
   variationImage: { width: '100%', aspectRatio: 9 / 16 },
+  afterCard: { gap: space.md, marginTop: space.lg },
 
-  actionBar: { flexDirection: 'row', gap: space.md, paddingHorizontal: space.lg, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth },
+  actions: { flexDirection: 'row', gap: space.md, marginTop: space.lg },
 })
