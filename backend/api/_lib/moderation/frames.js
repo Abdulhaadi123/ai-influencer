@@ -82,6 +82,20 @@ async function durationOf(file, format, cfg) {
 }
 
 /**
+ * How long a video file on disk plays, in seconds — read by the same hardened ffprobe
+ * call the frame sampling uses. 0 when the file does not say.
+ *
+ * @param {string} file  a local path (the caller downloaded it)
+ * @param {{contentType: string, config: {ffprobePath: string}}} opts
+ * @throws {FramesUnavailableError | UnreadableMediaError}
+ */
+export async function videoSeconds(file, { contentType, config }) {
+  const format = DEMUXERS[contentType]
+  if (!format) throw new UnreadableMediaError(`"${contentType}" is not a video type that can be read.`)
+  return durationOf(file, format, config)
+}
+
+/**
  * Moments to sample: the middle of each of `count` equal slices of the clip, so
  * the first and last instants (often a black frame) are not what is judged.
  *
