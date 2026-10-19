@@ -20,7 +20,7 @@ import {
   badge, button, callout, copyButton, emptyState, errorState, loadInto, notify, pageHeader, pager, selectControl, skeletonRows, tabs,
 } from '../lib/components.js'
 import {
-  actionLabel, categoryLabel, formatDate, formatNumber, relativeTime, sourceLabel, truncate,
+  actionLabel, categoryLabel, formatDate, formatNumber, modelName, relativeTime, sourceLabel, truncate,
 } from '../lib/format.js'
 import { icon } from '../lib/icons.js'
 
@@ -85,7 +85,7 @@ export function renderModeration(ctx) {
   const layout = h('div', { class: 'mod-layout' }, list, detail)
 
   mount(container,
-    pageHeader({ title: 'Moderation', subtitle: 'Items the checker refused, held back, or that someone reported.' }),
+    pageHeader({ title: 'Moderation', subtitle: 'Content the safety checker refused or held back, and what people reported. For each one, decide whether the checker was right.' }),
     tabsBox,
     h('div', { class: 'toolbar toolbar-below-tabs' }, filtersBox),
     layout)
@@ -294,7 +294,7 @@ export function renderModeration(ctx) {
 
       h('dl', { class: 'facts facts-2' },
         h('div', { class: 'fact' }, h('dt', {}, 'Account'), h('dd', {}, h('a', { class: 'link', href: buildRoute('users', { id: e.userId }) }, e.email), e.userStatus === 'suspended' ? badge('Suspended', 'danger') : null)),
-        e.model ? h('div', { class: 'fact' }, h('dt', {}, 'Model'), h('dd', { class: 'mono small' }, e.model)) : null,
+        e.model ? h('div', { class: 'fact' }, h('dt', {}, 'Model'), h('dd', {}, h('span', {}, modelName(e.model)), h('span', { class: 'mono small muted' }, e.model))) : null,
         e.taskId ? h('div', { class: 'fact' }, h('dt', {}, 'Task'), h('dd', { class: 'mono small' }, truncate(e.taskId, 24), copyButton(e.taskId, 'Copy the task id'))) : null),
 
       e.excerpt ? h('section', { class: 'mod-section' }, h('h3', {}, e.source === 'report' ? 'What they said' : 'What was submitted'), h('blockquote', { class: 'quote' }, e.excerpt)) : null,

@@ -101,29 +101,60 @@ test('there is no dark mode, however the browser is set', () => {
   assert.ok(!/prefers-color-scheme/.test(css))
   assert.ok(!/data-theme/.test(css))
   assert.ok(!/color-scheme:\s*dark/.test(css))
-  assert.equal(tokens['bg'], '#f8fafc')
+  assert.equal(tokens['bg'], '#f6f6fb')
   assert.equal(tokens['surface'], '#ffffff')
   assert.ok(luminance(hex('bg')) > 0.9 && luminance(hex('surface')) > 0.99, 'the page and every card are near-white')
   assert.ok(luminance(hex('text')) < 0.05, 'text is near-black')
 })
 
-// ── Roomy, not cramped ──────────────────────────────────────────────────────
+// ── Compact, and readable ───────────────────────────────────────────────────
 
-test('the base type is 15px, controls are 40px tall, and table cells have room', () => {
-  assert.match(css, /body\s*\{[^}]*font:\s*15px\/1\.55/)
-  assert.match(css, /\.control\s*\{[^}]*height:\s*40px/)
-  assert.match(css, /\.btn\s*\{[^}]*height:\s*40px/)
-  assert.match(css, /\.icon-btn\s*\{[^}]*width:\s*40px;\s*height:\s*40px/)
-  assert.match(css, /\.table td\s*\{[^}]*padding:\s*18px 20px/)
-  assert.match(css, /\.nav-link\s*\{[^}]*height:\s*44px/)
-  assert.match(css, /--page-pad:\s*48px/)
+test('the base type is 14px, controls are 36px tall, and a table row fits a laptop without wrapping', () => {
+  assert.match(css, /body\s*\{[^}]*font:\s*14px\/1\.5/)
+  assert.match(css, /\.control\s*\{[^}]*height:\s*36px/)
+  assert.match(css, /\.btn\s*\{[^}]*height:\s*36px/)
+  assert.match(css, /\.table td\s*\{[^}]*padding:\s*11px 14px/)
+  assert.match(css, /\.nav-link\s*\{[^}]*height:\s*38px/)
+  assert.match(css, /--page-pad:\s*32px/)
+  assert.match(css, /--sidebar-w:\s*236px/)
+})
+
+test('column titles are in sentence case: small capitals are harder to read', () => {
+  const header = /\.table th\s*\{([^}]*)\}/.exec(css)[1]
+  assert.ok(!/text-transform:\s*uppercase/.test(header), 'a table heading is not shouted')
+  assert.match(header, /font-size:\s*12\.5px/)
+})
+
+// ── One typeface, served with the panel ─────────────────────────────────────
+
+test("the typeface is Inter, loaded from the panel's own folder — and the file, with its licence, is there", () => {
+  assert.match(css, /@font-face\s*\{[^}]*font-family:\s*'Inter Variable'[^}]*url\('fonts\/inter-latin\.woff2'\)\s*format\('woff2'\)/)
+  assert.match(css, /font-weight:\s*100 900/, 'a variable font: every weight from the one file')
+  assert.match(css, /--font:\s*'Inter Variable'/)
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '../fonts')
+  const woff2 = readFileSync(join(dir, 'inter-latin.woff2'))
+  assert.equal(woff2.subarray(0, 4).toString('latin1'), 'wOF2', 'a real WOFF2 file')
+  assert.ok(woff2.length > 20_000 && woff2.length < 200_000, 'the latin subset, not the whole family')
+  assert.match(readFileSync(join(dir, 'OFL.txt'), 'utf8'), /SIL OPEN FONT LICENSE/, 'the licence travels with the font')
+})
+
+// ── The frame: the app's navy, readable ─────────────────────────────────────
+
+test("the sidebar is the app's navy, and what sits on it is readable", () => {
+  assert.equal(tokens['navy'], '#080353')
+  assert.ok(contrast('on-navy', 'navy') >= 7, 'white on the navy')
+  for (const surface of ['navy', 'navy-hover', 'navy-active']) {
+    assert.ok(contrast('on-navy-muted', surface) >= 4.5, `the quieter sidebar text on --${surface} is ${contrast('on-navy-muted', surface).toFixed(2)}:1`)
+    assert.ok(contrast('on-navy', surface) >= 4.5)
+  }
+  assert.equal(tokens['accent'], '#5b49b2', "the violet of the app's buttons")
 })
 
 test('no text anywhere is set smaller than 11px, and small print is at least 12px', () => {
   const sizes = [...css.matchAll(/font-size:\s*([\d.]+)px/g)].map(m => Number(m[1]))
   assert.ok(Math.min(...sizes) >= 11, `smallest is ${Math.min(...sizes)}px`)
   const small = [...css.matchAll(/([^{}]+)\{[^}]*font-size:\s*(1[01](?:\.\d+)?)px/g)].map(m => m[1].trim())
-  assert.ok(small.every(s => /nav-label|brand-tag/.test(s)), `only labels in capitals are under 12px: ${small.join(' | ')}`)
+  assert.deepEqual(small, [], `nothing is under 12px: ${small.join(' | ')}`)
 })
 
 test('the interface moves with the person: a visible focus ring, and no animation when asked for none', () => {
@@ -132,17 +163,21 @@ test('the interface moves with the person: a visible focus ring, and no animatio
   assert.ok(contrast('accent', 'surface') >= 3, 'the focus ring (accent) shows against white')
 })
 
-test('on a phone: the menu slides in, the sidebar casts no shadow while shut, and nothing is wider than the screen', () => {
-  const phone = /@media \(max-width: 900px\) \{([\s\S]*?)\n\}\n/.exec(css)[1]
-  assert.match(phone, /\.sidebar\s*\{[^}]*position:\s*fixed[^}]*translateX\(-104%\)/)
-  assert.ok(!/^\s*\.sidebar\s*\{[^}]*box-shadow:/m.test(phone), 'the shut sidebar has no shadow to bleed onto the page')
-  assert.match(phone, /\.nav-open \.sidebar\s*\{[^}]*box-shadow/)
+test('on a small laptop or a phone: the menu slides in, the sidebar casts no shadow while shut, and nothing is wider than the screen', () => {
+  const small = /@media \(max-width: 1024px\) \{([\s\S]*?)\n\}\n/.exec(css)[1]
+  assert.match(small, /\.sidebar\s*\{[^}]*position:\s*fixed[^}]*translateX\(-104%\)/)
+  assert.ok(!/^\s*\.sidebar\s*\{[^}]*box-shadow:/m.test(small), 'the shut sidebar has no shadow to bleed onto the page')
+  assert.match(small, /\.nav-open \.sidebar\s*\{[^}]*box-shadow/)
   assert.match(css, /\.table-wrap\s*\{[^}]*overflow-x:\s*auto/)
 })
 
-test('the five figures on the overview never leave a lone card on a row', () => {
-  assert.match(css, /\.grid-kpi\s*\{[^}]*repeat\(6, minmax\(0, 1fr\)\)/)
-  assert.match(css, /\.grid-kpi > :nth-child\(n \+ 4\)\s*\{\s*grid-column:\s*span 3/, 'three across, then two wider')
-  assert.match(css, /min-width: 1760px[\s\S]*repeat\(5, minmax\(0, 1fr\)\)/, 'all five on a very wide screen')
-  assert.match(css, /\.grid-kpi > :last-child:nth-child\(odd\)\s*\{\s*grid-column:\s*1 \/ -1/, 'on a phone the odd one out spans the row')
+test('the figures sit four across, then two, then one — never a lone card on a row', () => {
+  assert.match(css, /\.grid-kpi\s*\{[^}]*repeat\(4, minmax\(0, 1fr\)\)/)
+  assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.grid-kpi\s*\{[^}]*repeat\(2, minmax\(0, 1fr\)\)/)
+  assert.match(css, /@media \(max-width: 460px\)[\s\S]*\.grid-kpi\s*\{[^}]*grid-template-columns:\s*1fr/)
+})
+
+test('something marked hidden stays hidden, however a later rule styles it (the moderation extras are shown only on Confirm)', () => {
+  assert.match(css, /\.hidden\s*\{[^}]*display:\s*none\s*!important/)
+  assert.match(css, /\[hidden\]\s*\{[^}]*display:\s*none\s*!important/)
 })

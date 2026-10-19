@@ -34,7 +34,11 @@ export const list = adminRoute(async (req, res) => {
 
   const rows = await many(
     `select j.id, j.user_id, u.email, j.kie_task_id, j.kind, j.label, j.model, j.state, j.fail_msg,
-            j.kie_credits, j.created_at, j.completed_at
+            j.kie_credits, j.created_at, j.completed_at,
+            -- What the person was charged for this job, net of any refund. NULL when nothing was
+            -- ever charged (billing was only watching), which is different from a charge of 0.
+            (select -sum(l.delta) from credit_ledger l
+              where l.user_id = j.user_id and l.kie_task_id = j.kie_task_id and l.kind in ('spend', 'refund')) as charged
        from generation_jobs j
        join users u on u.id = j.user_id
       where ${filter}
@@ -60,6 +64,7 @@ export const list = adminRoute(async (req, res) => {
       state: r.state,
       failMessage: r.fail_msg,
       kieCredits: r.kie_credits === null ? null : Number(r.kie_credits),
+      charged: r.charged === null ? null : Math.round(Number(r.charged) * 1000) / 1000,
       createdAt: r.created_at,
       completedAt: r.completed_at,
     })),

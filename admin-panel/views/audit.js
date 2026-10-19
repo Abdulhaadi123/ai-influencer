@@ -8,7 +8,7 @@ import { intParam, oneOf, withQuery } from '../lib/router.js'
 import {
   badge, copyButton, dataTable, debounce, emptyState, loadInto, pageHeader, pager, searchBox, selectControl, skeletonRows,
 } from '../lib/components.js'
-import { auditLabel, formatDate, formatNumber, relativeTime, truncate } from '../lib/format.js'
+import { auditLabel, formatDate, formatNumber, relativeTime, signedNumber, truncate } from '../lib/format.js'
 
 const FAMILIES = [
   { value: '', label: 'All actions' },
@@ -60,6 +60,9 @@ export function describeDetails(action, details) {
       return pairs
     case 'price.delete':
       return pairs
+    case 'billing.grant':
+      add('Account', d.email); add('Credits', d.credits === undefined ? null : `${signedNumber(d.credits)} (${d.kind === 'adjust' ? 'taken back' : 'given'})`); add('Reason', d.note)
+      return pairs
     default:
       for (const [key, value] of Object.entries(d)) add(key, value !== null && typeof value === 'object' ? JSON.stringify(value) : value)
       return pairs
@@ -86,7 +89,7 @@ export function renderAudit(ctx) {
   const search = searchBox({ value: params().admin, placeholder: 'Filter by admin email', label: 'Filter by admin', onInput: debounce(v => go({ admin: v.trim(), page: null }), 300) })
 
   mount(container,
-    pageHeader({ title: 'Audit log', subtitle: 'Every administrative action, newest first. It cannot be edited.' }),
+    pageHeader({ title: 'Audit log', subtitle: 'Who did what in this panel, newest first: suspensions, role changes, prices, credits and moderation decisions. Entries cannot be edited or removed.' }),
     h('div', { class: 'toolbar' }, search, family),
     results)
 
@@ -111,13 +114,13 @@ export function renderAudit(ctx) {
           dataTable({
             label: 'Audit log', rows: data.entries,
             columns: [
-              { key: 'when', label: 'When', render: e => h('div', {}, h('div', {}, formatDate(e.at)), h('div', { class: 'muted small' }, relativeTime(e.at))) },
+              { key: 'when', label: 'When', render: e => h('div', { class: 'nowrap' }, h('div', {}, formatDate(e.at)), h('div', { class: 'muted small' }, relativeTime(e.at))) },
               { key: 'admin', label: 'Admin', hideBelow: 'sm', render: e => e.admin },
               { key: 'action', label: 'Action', render: e => h('div', {}, h('div', {}, auditLabel(e.action)), h('div', { class: 'mono small muted' }, e.action)) },
-              { key: 'target', label: 'Target', hideBelow: 'md', render: e => (e.targetId
+              { key: 'target', label: 'Target', hideBelow: 'lg', render: e => (e.targetId
                 ? h('div', { class: 'small' }, badge(e.targetType || 'item'), h('span', { class: 'mono muted' }, ` ${truncate(e.targetId, 14)}`), copyButton(e.targetId, 'Copy the id'))
                 : h('span', { class: 'muted' }, '—')) },
-              { key: 'details', label: 'Details', render: e => {
+              { key: 'details', label: 'Details', className: 'col-details', render: e => {
                 const pairs = describeDetails(e.action, e.details)
                 return pairs.length
                   ? h('dl', { class: 'detail-pairs' }, pairs.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { title: v }, truncate(v, 90)))))

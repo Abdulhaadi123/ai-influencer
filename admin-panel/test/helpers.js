@@ -168,6 +168,7 @@ export const stats = (over = {}) => ({
   jobs: { running: 1, started24h: 7, failed24h: 1, credits24h: 203, credits7d: 300, credits30d: 400, chargeUnknown30d: 0 },
   moderation: { open: 3, openBlocked: 2, events24h: 5 },
   unpricedModels: 0,
+  billingProblems30d: 0,
   ...over,
 })
 
@@ -180,4 +181,11 @@ export const config = (over = {}) => ({
   },
   kie: { callbacksConfigured: true, nsfwChecker: true, ...over.kie },
   billing: { enforced: false, webhookConfigured: true, acceptSandbox: true, ...over.billing },
+})
+
+export const creditsSummary = (over = {}) => ({
+  days: 30, enforced: false, providerCost: 650, series: [], packs: [],
+  ...over,
+  window: { purchased: 2000, purchases: 3, purchasers: 2, spent: 700, refunded: 20, granted: 0, adjusted: 0, clawedBack: 0, ...over.window },
+  holding: { held: 1300, holders: 2, owed: 0, owing: 0, ...over.holding },
 })

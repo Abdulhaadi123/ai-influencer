@@ -106,11 +106,37 @@ test('validatePriceForm reports every mistake at once, and never throws on missi
 
 // ── The list ─────────────────────────────────────────────────────────────────
 
-test('the page says plainly that a price waits for billing but the switch is live', async () => {
+test('the page says whether prices are being charged: on, off, or (if that cannot be read) once charging is switched on — and that the switch is live', async () => {
+  const on = open({ routes: { 'GET /api/admin/config': { billing: { enforced: true } } } })
+  await settle()
+  assert.match(text(on.root.querySelector('.callout')), /Charging is on — these prices are charged now/)
+  assert.ok(on.root.querySelector('.callout-success'))
+  assert.match(text(on.root.querySelector('.callout')), /live/)
+
+  reset()
+  const off = open({ routes: { 'GET /api/admin/config': { billing: { enforced: false } } } })
+  await settle()
+  assert.match(text(off.root.querySelector('.callout')), /Charging is off — prices are recorded, nobody is charged yet/)
+  assert.match(text(off.root.querySelector('.callout')), /BILLING_ENFORCED=true/)
+  assert.match(text(off.root.querySelector('.callout')), /live/)
+
+  reset()
+  const unknown = open({ routes: { 'GET /api/admin/config': () => { throw apiError('nope', 500, 'X') } } })
+  await settle()
+  assert.match(text(unknown.root.querySelector('.callout')), /Prices apply once charging is switched on/)
+  assert.equal(unknown.root.querySelector('.empty-error'), null, 'the page still works without it')
+  assert.ok(rowFor(unknown.root, 'kling-3.0/video'))
+})
+
+test('the page says a model with no price is free, and models are named before their ids', async () => {
   const { root } = open()
   await settle()
-  assert.match(text(root.querySelector('.callout')), /applied when billing is switched on/)
-  assert.match(text(root.querySelector('.callout')), /live/)
+  assert.match(text(root), /A model that has no price here is free to use/)
+  const kling = rowFor(root, 'kling-3.0/video')
+  assert.equal(text(kling.querySelector('.cell-main')), 'Kling video', 'the name an admin gave it')
+  const nano = rowFor(root, 'nano-banana-pro')
+  assert.equal(text(nano.querySelector('.cell-main')), 'Nano Banana Pro', 'no name given: the id, made readable')
+  assert.equal(text(root.querySelector('thead')).includes('Jobs'), false)
 })
 
 test('each priced model shows its price, unit, switch, note and who changed it', async () => {
@@ -272,7 +298,23 @@ test('the unit list in the form is whatever the server says it supports', async 
   await settle()
   click(byText(root, 'button', 'Add a price'))
   await settle()
-  assert.deepEqual(all(field('Per'), 'option').map(o => o.value), ['per_video', 'per_image'])
+  assert.deepEqual(all(field('Per'), 'option').map(o => o.value), ['', 'per_video', 'per_image'], 'a blank "Choose…" first: nothing is guessed')
+  assert.equal(text(all(field('Per'), 'option')[0]), 'Choose…')
+})
+
+test('a new price starts with no unit chosen, and cannot be saved until one is', async () => {
+  const { root, api } = open()
+  await settle()
+  click(byText(root, 'button', 'Add a price'))
+  await settle()
+  assert.equal(field('Per').value, '')
+  type(field('Model id'), 'some-model'); type(field('Price in credits'), '4')
+  submit(dialog().querySelector('form')); await settle()
+  assert.equal(upserts(api).length, 0)
+  assert.match(text(dialog()), /Choose what the price is per/)
+  change(field('Per'), 'per_second')
+  submit(dialog().querySelector('form')); await settle()
+  assert.equal(upserts(api)[0].input.unit, 'per_second')
 })
 
 test('mistakes are shown beside their fields, nothing is sent, and the form stays open with what was typed', async () => {
@@ -281,6 +323,7 @@ test('mistakes are shown beside their fields, nothing is sent, and the form stay
   click(byText(root, 'button', 'Add a price'))
   await settle()
   type(field('Model id'), 'bad id')
+  change(field('Per'), 'per_video')
   type(field('Price in credits'), '-3')
   submit(dialog().querySelector('form'))
   await settle()
@@ -307,6 +350,7 @@ test('a price of zero is allowed, but an empty price is not', async () => {
   click(byText(root, 'button', 'Add a price'))
   await settle()
   type(field('Model id'), 'free-model')
+  change(field('Per'), 'per_video')
   submit(dialog().querySelector('form')); await settle()
   assert.match(text(dialog()), /Enter a price/)
   type(field('Price in credits'), '0')
@@ -319,7 +363,7 @@ test('a refusal from the server is shown inside the form and nothing typed is lo
   await settle()
   click(byText(root, 'button', 'Add a price'))
   await settle()
-  type(field('Model id'), 'x'); type(field('Price in credits'), '5')
+  type(field('Model id'), 'x'); type(field('Price in credits'), '5'); change(field('Per'), 'per_image')
   submit(dialog().querySelector('form')); await settle()
   assert.match(text(dialog().querySelector('.form-error')), /not accepted/)
   assert.equal(field('Price in credits').value, '5')
@@ -392,9 +436,24 @@ test('"Set a price" on an unpriced model opens the form with that model chosen a
   assert.equal(field('Model id').value, 'veo-3-1')
   assert.equal(field('Model id').readOnly, true)
   assert.equal(field('Allowed').checked, true)
+  assert.equal(field('Per').value, '', 'a video model is priced per video or per second: the admin chooses')
   type(field('Price in credits'), '9')
+  change(field('Per'), 'per_video')
   submit(dialog().querySelector('form')); await settle()
   assert.deepEqual(upserts(api)[0].input, { model: 'veo-3-1', unit: 'per_video', credits: 9, enabled: true })
+})
+
+test('"Set a price" on an unpriced IMAGE model starts on per image', async () => {
+  const { root, api } = open({ payload: data({ unpriced: [{ model: 'nano-banana-pro', jobs: 3, kieCredits: 54, kind: 'image' }, { model: 'veo-3-1', jobs: 12, kieCredits: 345.5, kind: 'video' }] }) })
+  await settle()
+  const card = byText(root, '.card', 'In use, but not priced')
+  click(byText(all(card, 'tbody tr').find(r => r.textContent.includes('nano-banana-pro')), 'button', 'Set a price'))
+  await settle()
+  assert.equal(field('Per').value, 'per_image')
+  assert.equal(all(field('Per'), 'option').some(o => o.value === ''), false, 'nothing to choose: the unit is known')
+  type(field('Price in credits'), '18')
+  submit(dialog().querySelector('form')); await settle()
+  assert.deepEqual(upserts(api)[0].input, { model: 'nano-banana-pro', unit: 'per_image', credits: 18, enabled: true })
 })
 
 // ── Deleting ─────────────────────────────────────────────────────────────────

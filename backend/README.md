@@ -190,9 +190,10 @@ It all goes when the account is deleted.
 
 `https://<your domain>/admin` — **Influenza Admin**, a single-page app served by this
 server (plain ES modules, no build step, no dependencies) that calls `/api/admin/*`.
-It is light only, in the Influenza app's own palette (white and slate, with the app's
-blue); the name is set once in `ui/lib/brand.js`. Pages:
-Overview, Accounts, Jobs, Moderation, Prices, Audit log, Settings. Where you are and
+It is light only, in the Influenza app's own palette (a navy frame, the app's violet for
+what can be pressed, white cards), set in one typeface (Inter, served from `admin-panel/fonts/`);
+the name is set once in `admin-panel/lib/brand.js`. Pages:
+Overview, Accounts, Generations, Moderation, Credits, Pricing, Audit log, Settings. Where you are and
 what you filtered by live in the address (`#/users?q=mia&status=suspended`,
 `#/moderation/<id>`), so a link can be sent to a colleague and Back/Forward work.
 
@@ -204,20 +205,33 @@ what you filtered by live in the address (`#/users?q=mia&status=suspended`,
   `update users set role = 'admin' where lower(email) = 'you@example.com';`
   Removing an address from the list does not demote anyone; do that in the panel.
 - **What.**
-  - *Overview* — what needs attention first (moderation off or without a key, items
-    waiting, a high failure rate, models in use without a price, callbacks off), then
-    accounts, running jobs, credits, and KIE credits per day and per model for the
-    last 7, 30 or 90 whole UTC days.
-  - *Accounts* — search by email or name, filter, sort, page; a side panel per account
-    (strikes against the limit, devices, files, recent jobs and flags); suspend (with
-    a reason), restore, make/remove admin, delete (the account's email must be typed).
-  - *Jobs* — every generation with its state, model and what KIE charged. Read-only.
+  - *Overview* — what needs attention first (store purchases that did not become credits,
+    moderation off or without a key, items waiting, a high failure rate, models in use
+    without a price, callbacks off), then two rows of figures — the platform (accounts,
+    generations running and started, items to review) and the credits (bought, spent, held,
+    what KIE charged) — and KIE cost per day and per model for the last 7, 30 or 90 whole
+    UTC days. Every figure says what it counts.
+  - *Accounts* — search by email or name, filter, sort (by credits too), page; each row shows
+    the credits the account holds; a side panel per account (credits and their history,
+    strikes against the limit, devices, files, recent generations and flags); suspend (with
+    a reason), restore, make/remove admin, give or take back credits, delete (the account's
+    email must be typed).
+  - *Generations* (`#/jobs`) — every generation with its status, model (the name given on the
+    Pricing page, with the id under it), what the person was charged in credits (net of a
+    refund) and what KIE charged us. Read-only.
   - *Moderation* — the queue with live counts; one item at a time with the scores
     against the review/refuse lines; the file stays hidden until *Reveal*, which is
     recorded; dismiss or confirm (optionally delete the file and/or suspend the
     owner); deciding moves to the next item. `j`/`k` move through the list.
-  - *Prices* — credits per model and an on/off switch that is enforced at once;
-    turning a model off asks first. Models used without a price are listed.
+  - *Credits* — what people bought and spent in the last 7, 30 or 90 days, what they hold
+    now, what KIE charged meanwhile, and the packs sold (live or test); below, two lists: every
+    change to every balance, and every message the store (RevenueCat) sent with what became of
+    it. A purchase that should have become credits and did not (an unknown account, a product
+    we do not sell, a test purchase while those are off) is marked in red and counted on the
+    tab, on the sidebar and on the overview.
+  - *Pricing* (`#/prices`) — credits per model and an on/off switch that is enforced at once;
+    turning a model off asks first. Says whether charging is on. Models used without a price
+    are listed (a price kept for one mode of a model, `<model>:<mode>`, prices the model).
   - *Audit log* — filter by family of action and by admin. Append-only.
   - *Settings* — how moderation and KIE are configured. Read-only.
 - **Safety.** Every admin action is written to `admin_audit_log` in the same
@@ -235,6 +249,8 @@ what you filtered by live in the address (`#/users?q=mia&status=suspended`,
   `docker compose restart api` — no image rebuild (files are read once in production).
 - **Adding a file to the panel.** The panel is served from a fixed list
   (`PANEL_FILES` in `api/admin/ui.js`); a test fails if `admin-panel/` and the list disagree.
+  The typeface (`fonts/inter-latin.woff2`, SIL Open Font License, licence beside it) is on that
+  list too, and the page's policy allows fonts from this origin only (`font-src 'self'`).
 - **Not private by itself.** Nothing stops the internet reaching `/admin`; the
   login does. For more, restrict it in the `Caddyfile` (a commented example is there).
 
@@ -541,7 +557,7 @@ edit shows on reload.
 | Files | `POST /api/storage/upload-url` `confirm` `download-url` `ingest` `delete` |
 | Generation | `/api/kie/*` (proxy), `POST /api/prompt-assist` |
 | Reporting | `POST /api/reports` |
-| Admin | `/admin` (the page and its files); `GET /api/admin/stats` `usage?days=` `audit?action=&admin=` `config` `users?q=&status=&sort=&dir=` `users/detail?userId=` `jobs` `moderation?status=&source=&action=&userId=` `moderation/item?eventId=` `moderation/media?eventId=` `prices`; `POST /api/admin/users/suspend` `unsuspend` `set-role` `delete`, `moderation/resolve`, `prices/upsert` `delete` |
+| Admin | `/admin` (the page and its files); `GET /api/admin/stats` `usage?days=` `audit?action=&admin=` `config` `users?q=&status=&sort=&dir=` `users/detail?userId=` `jobs` `moderation?status=&source=&action=&userId=` `moderation/item?eventId=` `moderation/media?eventId=` `prices` `billing/summary?days=` `billing/activity?kind=&q=&userId=` `billing/store-events?outcome=&problems=` `billing/ledger?userId=`; `POST /api/admin/users/suspend` `unsuspend` `set-role` `delete`, `moderation/resolve`, `prices/upsert` `delete`, `billing/grant` |
 | Callbacks | `POST /webhooks/kie` (signed by KIE, no session) |
 
 ---

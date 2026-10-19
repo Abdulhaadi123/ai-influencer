@@ -192,3 +192,86 @@ test('niceMax picks a round ceiling for a chart\'s top line', () => {
   assert.equal(niceMax(10_001), 20_000)
   for (const bad of [0, -5, NaN, null, undefined, 'x', Infinity]) assert.equal(niceMax(bad), 1, String(bad))
 })
+
+// ── Words for credits, the store and models ─────────────────────────────────
+
+import {
+  creditKindLabel, outcomeLabel, environmentLabel, signedNumber, modelName, creditSeries, CREDIT_KIND_LABELS, OUTCOME_LABELS,
+} from '../lib/format.js'
+
+test('every kind of ledger row has words, and an unknown one is shown as it came rather than hidden', () => {
+  for (const kind of ['purchase', 'spend', 'refund', 'grant', 'adjust', 'clawback']) {
+    assert.ok(kind in CREDIT_KIND_LABELS, kind)
+    assert.notEqual(creditKindLabel(kind), kind, `${kind} would reach a screen as a code`)
+  }
+  assert.ok(Object.isFrozen(CREDIT_KIND_LABELS))
+  assert.equal(creditKindLabel('mystery'), 'mystery')
+  assert.equal(creditKindLabel(null), '—')
+})
+
+test('every outcome of a store delivery has words; an ignored purchase that was a problem says what went wrong', () => {
+  for (const outcome of ['credited', 'clawed_back', 'duplicate', 'ignored', 'unmatched', 'sandbox_off', 'test']) {
+    assert.ok(outcome in OUTCOME_LABELS, outcome)
+    assert.notEqual(outcomeLabel(outcome), outcome)
+  }
+  assert.ok(Object.isFrozen(OUTCOME_LABELS))
+  assert.equal(outcomeLabel('ignored'), 'Not ours to act on')
+  assert.equal(outcomeLabel('ignored', true), 'Product not recognised')
+  assert.equal(outcomeLabel('credited', true), 'Credits added', 'only an ignored one changes its words')
+  assert.equal(outcomeLabel('new-outcome'), 'new-outcome')
+})
+
+test("the store's environment: SANDBOX is a test, PRODUCTION is live, anything else is shown tidily", () => {
+  assert.equal(environmentLabel('SANDBOX'), 'Test')
+  assert.equal(environmentLabel('sandbox'), 'Test')
+  assert.equal(environmentLabel('PRODUCTION'), 'Live')
+  assert.equal(environmentLabel('STAGING'), 'Staging')
+  assert.equal(environmentLabel(null), '—')
+  assert.equal(environmentLabel(''), '—')
+})
+
+test('signedNumber: a plus, a real minus that lines up with it, a plain zero, and a dash for no number', () => {
+  assert.equal(signedNumber(500), '+500')
+  assert.equal(signedNumber(-18), '−18')
+  assert.equal(signedNumber(1500), '+1,500')
+  assert.equal(signedNumber(-1234.5), '−1,234.5')
+  assert.equal(signedNumber(0), '0')
+  assert.equal(signedNumber('25'), '+25')
+  for (const bad of [null, undefined, '', 'abc', NaN]) assert.equal(signedNumber(bad), '—', String(bad))
+  assert.equal(signedNumber(-18).charCodeAt(0), 0x2212)
+})
+
+test('modelName: the name an admin gave it, else the id made readable, a mode in brackets, and a dash for nothing', () => {
+  assert.equal(modelName('nano-banana-pro'), 'Nano Banana Pro')
+  assert.equal(modelName('kling-3.0/video'), 'Kling 3.0 · video')
+  assert.equal(modelName('veo-3-1'), 'Veo 3 1')
+  assert.equal(modelName('wan/2-5-image-to-video'), 'Wan · 2 5 image to video')
+  assert.equal(modelName('kling-3.0/motion-control:720p'), 'Kling 3.0 · motion control (720p)')
+  assert.equal(modelName('kling-3.0/video', { 'kling-3.0/video': 'Kling Studio' }), 'Kling Studio')
+  assert.equal(modelName('kling-3.0/motion-control:1080p', { 'kling-3.0/motion-control': 'Motion copy' }), 'Motion copy (1080p)', 'a mode of a named model')
+  assert.equal(modelName('x', { x: '' }), 'X', 'an empty name is no name')
+  assert.equal(modelName('toString', {}), 'ToString', 'a name table cannot be poisoned through the model id')
+  for (const none of [null, undefined, '']) assert.equal(modelName(none), '—')
+  assert.match(modelName('<b>m</b>'), /^<b>m</, 'hostile text is only ever text: it is made no safer or more dangerous by being tidied')
+})
+
+test('creditSeries: a point for each day, zeros where nothing happened, oldest first, today last', () => {
+  const now = Date.parse('2026-10-19T15:00:00Z')
+  const series = creditSeries([{ day: '2026-10-18', purchased: 500, spent: 20 }, { day: '2026-10-19', purchased: '0', spent: '7.5' }, { day: '2026-09-01', purchased: 9, spent: 9 }], 4, now)
+  assert.deepEqual(series, [
+    { day: '2026-10-16', purchased: 0, spent: 0 },
+    { day: '2026-10-17', purchased: 0, spent: 0 },
+    { day: '2026-10-18', purchased: 500, spent: 20 },
+    { day: '2026-10-19', purchased: 0, spent: 7.5 },
+  ])
+  assert.equal(creditSeries([], 30, now).length, 30)
+  assert.equal(creditSeries(null, 7, now).length, 7)
+})
+
+test('a paid subscription event we ignored says so — someone paid for something we do not sell', () => {
+  assert.equal(outcomeLabel('ignored', true, 'INITIAL_PURCHASE'), 'Subscription, not supported')
+  assert.equal(outcomeLabel('ignored', true, 'RENEWAL'), 'Subscription, not supported')
+  assert.equal(outcomeLabel('ignored', true, 'NON_RENEWING_PURCHASE'), 'Product not recognised')
+  assert.equal(outcomeLabel('ignored', true), 'Product not recognised', 'no type known: the general words')
+  assert.equal(outcomeLabel('ignored', false, 'EXPIRATION'), 'Not ours to act on', 'an expiry moves no money')
+})

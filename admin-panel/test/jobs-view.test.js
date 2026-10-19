@@ -1,4 +1,4 @@
-// The jobs page: a read-only list with filters. What it asks for, what it shows,
+// The generations page (the code still calls them jobs): a read-only list with filters. What it asks for, what it shows,
 // and that nothing on it can change a job.
 
 import test, { beforeEach, mock } from 'node:test'
@@ -18,7 +18,7 @@ const recent = seconds => new Date(Date.now() - seconds * 1000).toISOString()
 
 const job = (n, over = {}) => ({
   id: `job-${n}`, userId: ID(n), email: `user${n}@test.example`, taskId: `task-${n}-abcdefghijklmnopqrstuvwxyz`, kind: 'video', model: 'kling-3.0/video',
-  state: 'success', failMessage: null, kieCredits: 27 + n, createdAt: recent(300 * n), ...over,
+  state: 'success', failMessage: null, kieCredits: 27 + n, charged: null, createdAt: recent(300 * n), ...over,
 })
 const page = (jobs, extra = {}) => ({ jobs, total: jobs.length, page: 1, pageSize: 25, ...extra })
 
@@ -37,7 +37,7 @@ function open({ hash = '#/jobs', jobs = [job(1), job(2)], routes = {} } = {}) {
 const lastQuery = api => api.of('GET', '/api/admin/jobs').at(-1).input
 const select = (root, label) => root.querySelector(`select[aria-label="${label}"]`)
 
-test('each job shows when, who, which model, its state and what KIE charged', async () => {
+test('each generation shows when, who, which model, its status, what the person was charged and what KIE charged', async () => {
   const { root } = open({ jobs: [
     job(1),
     job(2, { state: 'fail', failMessage: 'The prompt was flagged by the provider.', kieCredits: null, kind: 'image', model: 'nano-banana-pro' }),
@@ -51,29 +51,70 @@ test('each job shows when, who, which model, its state and what KIE charged', as
   const ok = text(rows[0])
   assert.match(ok, /5 min ago/)
   assert.match(ok, /user1@test\.example/)
-  assert.match(ok, /kling-3\.0\/video/)
+  assert.match(ok, /kling-3\.0\/video/, 'the id is always shown')
+  assert.match(ok, /Kling 3\.0 · video/, 'and a name a person can read next to it')
   assert.match(ok, /Succeeded|Success/)
   assert.match(ok, /28/)
 
   const failed = text(rows[1])
   assert.match(failed, /Failed/)
   assert.match(failed, /The prompt was flagged/)
-  assert.equal(rows[1].querySelector('td .muted[title]').title, 'KIE did not report a charge for this job.')
+  const cell = (row, i) => row.querySelectorAll('td')[i]
+  assert.equal(cell(rows[1], 6).querySelector('.muted').title, 'KIE did not report a charge for this generation.')
 
-  assert.equal(rows[2].querySelector('td .muted[title]').title, 'Not finished yet.', 'a running job has no charge yet, and says so')
+  assert.equal(cell(rows[2], 6).querySelector('.muted').title, 'Not finished yet.', 'a running generation has no charge yet, and says so')
   assert.match(text(rows[3]), /—/, 'no model recorded')
-  assert.equal(text(rows[3].querySelectorAll('td')[5]), '0', 'a charge of zero is a charge, not a gap')
+  assert.equal(text(cell(rows[3], 6)), '0', 'a KIE charge of zero is a charge, not a gap')
   assert.equal(rows[0].querySelector('a.link').getAttribute('href'), `#/users/${ID(1)}`)
 })
 
-test('the summary counts the jobs, in the singular too', async () => {
+test('the credits the person was charged sit beside what KIE charged: a number, a refund, or a dash for "nothing was charged"', async () => {
+  const { root } = open({ jobs: [
+    job(1, { charged: 28 }),
+    job(2, { state: 'fail', kieCredits: 0, charged: 0 }),
+    job(3, { charged: null }),
+  ] })
+  await settle()
+  const rows = all(root, 'tbody tr')
+  const charged = i => rows[i].querySelectorAll('td')[5]
+  assert.equal(text(charged(0)), '28')
+  assert.equal(text(charged(1)), '0')
+  assert.equal(charged(1).querySelector('span').title, 'Charged, then given back because it failed.')
+  assert.equal(text(charged(2)), '—')
+  assert.equal(charged(2).querySelector('.muted').title, 'Nothing was charged.')
+  assert.match(text(root.querySelector('thead')), /Charged to user/)
+  assert.match(text(root.querySelector('thead')), /KIE cost/)
+  assert.ok(root.querySelectorAll('thead .tip').length >= 2, 'each of the two prices says what it is')
+})
+
+test('a model reads as the name an admin gave it on the Pricing page, with its id under it', async () => {
+  const { root } = open({
+    jobs: [job(1, { model: 'kling-3.0/video' })],
+    routes: { 'GET /api/admin/prices': { prices: [{ model: 'kling-3.0/video', label: 'Kling Studio' }], unpriced: [], units: [] } },
+  })
+  await settle()
+  const model = root.querySelectorAll('tbody tr td')[2]
+  assert.equal(text(model.querySelector('.cell-main')), 'Kling Studio')
+  assert.equal(text(model.querySelector('.cell-sub')), 'kling-3.0/video')
+  assert.ok(all(select(root, 'Model'), 'option').some(o => o.textContent === 'Kling Studio'), 'the filter uses the name too')
+})
+
+test('why a generation failed is shown under its status, where it is read', async () => {
+  const { root } = open({ jobs: [job(1, { state: 'fail', failMessage: 'The generator refused this request', kieCredits: 0 })] })
+  await settle()
+  const status = root.querySelectorAll('tbody tr td')[4]
+  assert.match(text(status), /Failed/)
+  assert.match(text(status.querySelector('.error-text')), /The generator refused this request/)
+})
+
+test('the summary counts the generations, in the singular too', async () => {
   const one = open({ jobs: [job(1)] })
   await settle()
-  assert.equal(text(one.root.querySelector('[aria-live=polite]')), '1 job')
+  assert.equal(text(one.root.querySelector('[aria-live=polite]')), '1 generation')
   reset()
   const two = open({ jobs: [job(1), job(2)] })
   await settle()
-  assert.equal(text(two.root.querySelector('[aria-live=polite]')), '2 jobs')
+  assert.equal(text(two.root.querySelector('[aria-live=polite]')), '2 generations')
 })
 
 test('the first request asks for the defaults; nonsense in the address is ignored', async () => {
@@ -127,7 +168,7 @@ test('if the model list cannot be fetched the page still works', async () => {
 test('choosing a state or a model goes to page 1 with that filter; choosing "any" removes it', async () => {
   const { root, navigations } = open({ hash: '#/jobs?page=3&q=a' })
   await settle()
-  change(select(root, 'State'), 'fail')
+  change(select(root, 'Status'), 'fail')
   assert.equal(navigations.at(-1), '#/jobs?q=a&state=fail')
   change(select(root, 'Model'), 'nano-banana-pro')
   assert.equal(navigations.at(-1), '#/jobs?q=a&model=nano-banana-pro')
@@ -135,15 +176,15 @@ test('choosing a state or a model goes to page 1 with that filter; choosing "any
   reset()
   const withState = open({ hash: '#/jobs?state=fail' })
   await settle()
-  assert.equal(select(withState.root, 'State').value, 'fail')
-  change(select(withState.root, 'State'), '')
+  assert.equal(select(withState.root, 'Status').value, 'fail')
+  change(select(withState.root, 'Status'), '')
   assert.equal(withState.navigations.at(-1), '#/jobs')
 })
 
 test('the state filter offers every state KIE can report, in order', async () => {
   const { root } = open()
   await settle()
-  assert.deepEqual(all(select(root, 'State'), 'option').map(o => o.value), ['', 'waiting', 'queuing', 'generating', 'success', 'fail'])
+  assert.deepEqual(all(select(root, 'Status'), 'option').map(o => o.value), ['', 'waiting', 'queuing', 'generating', 'success', 'fail'])
 })
 
 test('searching waits for a pause in typing and then filters from page 1', async () => {
@@ -179,13 +220,13 @@ test('a job list narrowed to one account says so, and the chip removes just that
 test('an empty result says why; a filtered one can be cleared in a click', async () => {
   const plain = open({ jobs: [] })
   await settle()
-  assert.match(text(plain.root), /No jobs yet/)
+  assert.match(text(plain.root), /No generations yet/)
   assert.equal(plain.root.querySelector('.empty button'), null)
 
   reset()
   const filtered = open({ hash: `#/jobs?state=fail&model=x&userId=${ID(1)}&q=zz&page=2`, jobs: [] })
   await settle()
-  assert.match(text(filtered.root), /No jobs match/)
+  assert.match(text(filtered.root), /No generations match/)
   click(filtered.root.querySelector('.empty button'))
   assert.equal(filtered.navigations.at(-1), '#/jobs')
 })

@@ -17,7 +17,7 @@ import { PANEL_NAME } from './lib/brand.js'
 import { h, mount } from './lib/dom.js'
 import { icon } from './lib/icons.js'
 import { buildRoute, parseRoute } from './lib/router.js'
-import { avatar, badge, errorState, notify } from './lib/components.js'
+import { avatar, errorState, notify } from './lib/components.js'
 import { formatNumber } from './lib/format.js'
 
 import { renderLogin } from './views/login.js'
@@ -25,20 +25,28 @@ import { renderOverview } from './views/overview.js'
 import { renderUsers } from './views/users.js'
 import { renderJobs } from './views/jobs.js'
 import { renderModeration } from './views/moderation.js'
+import { renderCredits } from './views/credits.js'
 import { renderPrices } from './views/prices.js'
 import { renderAudit } from './views/audit.js'
 import { renderSettings } from './views/settings.js'
 
-/** The pages, in the order of the sidebar; `group` heads a run of them (the first page has none). */
+/**
+ * The pages, in the order of the sidebar; `group` heads a run of them (the first page has none).
+ * `badge` names the count shown beside a page: what is waiting there.
+ */
 export const VIEW_DEFS = [
   { id: 'overview', label: 'Overview', icon: 'overview', render: renderOverview },
   { id: 'users', label: 'Accounts', icon: 'users', render: renderUsers, group: 'Manage' },
-  { id: 'jobs', label: 'Jobs', icon: 'jobs', render: renderJobs, group: 'Manage' },
-  { id: 'moderation', label: 'Moderation', icon: 'moderation', render: renderModeration, badge: true, group: 'Manage' },
-  { id: 'prices', label: 'Prices', icon: 'prices', render: renderPrices, group: 'Platform' },
-  { id: 'audit', label: 'Audit log', icon: 'audit', render: renderAudit, group: 'Platform' },
-  { id: 'settings', label: 'Settings', icon: 'settings', render: renderSettings, group: 'Platform' },
+  { id: 'jobs', label: 'Generations', icon: 'jobs', render: renderJobs, group: 'Manage' },
+  { id: 'moderation', label: 'Moderation', icon: 'moderation', render: renderModeration, badge: 'moderation', group: 'Manage' },
+  { id: 'credits', label: 'Credits', icon: 'coins', render: renderCredits, badge: 'billing', group: 'Money' },
+  { id: 'prices', label: 'Pricing', icon: 'prices', render: renderPrices, group: 'Money' },
+  { id: 'audit', label: 'Audit log', icon: 'audit', render: renderAudit, group: 'System' },
+  { id: 'settings', label: 'Settings', icon: 'settings', render: renderSettings, group: 'System' },
 ]
+
+/** What each count beside a page means, for a screen reader. */
+const BADGE_WORDS = { moderation: 'items to review', billing: 'store purchases to look into' }
 
 const POLL_MS = 60_000
 
@@ -125,11 +133,18 @@ export function start({ root, api: injected = null, win = window }) {
     shell.crumb.textContent = VIEW_DEFS.find(v => v.id === route.view).label
   }
 
-  function setBadge(count) {
-    if (!shell) return
-    shell.badge.textContent = count > 99 ? '99+' : formatNumber(count)
-    shell.badge.hidden = !count
-    shell.badge.setAttribute('aria-label', `${count} waiting`)
+  function setBadge(kind, count) {
+    const node = shell?.badges[kind]
+    if (!node) return
+    const n = Number(count) || 0
+    node.textContent = n > 99 ? '99+' : formatNumber(n)
+    node.hidden = !n
+    node.setAttribute('aria-label', `${n} ${BADGE_WORDS[kind]}`)
+  }
+
+  function setBadges(stats) {
+    setBadge('moderation', stats?.moderation?.open)
+    setBadge('billing', stats?.billingProblems30d)
   }
 
   /** Re-count what is waiting (moderation), for the sidebar. Never throws. */
@@ -137,7 +152,7 @@ export function start({ root, api: injected = null, win = window }) {
     if (!api.isSignedIn()) return null
     try {
       const stats = await api.get('/api/admin/stats')
-      setBadge(stats.moderation.open)
+      setBadges(stats)
       return stats
     } catch { return null }
   }
@@ -146,14 +161,14 @@ export function start({ root, api: injected = null, win = window }) {
 
   function buildShell(stats) {
     const me = api.user
-    const badgeNode = h('span', { class: 'nav-badge', hidden: true })
+    const badges = Object.fromEntries(VIEW_DEFS.filter(d => d.badge).map(d => [d.badge, h('span', { class: 'nav-badge', hidden: true })]))
     const navItems = []
     let group = null
     for (const def of VIEW_DEFS) {
       if (def.group && def.group !== group) navItems.push(h('div', { class: 'nav-label', 'aria-hidden': 'true' }, def.group))
       group = def.group ?? null
       navItems.push(h('a', { class: 'nav-link', href: buildRoute(def.id), 'data-view': def.id },
-        icon(def.icon, { size: 20 }), h('span', {}, def.label), def.badge ? badgeNode : null))
+        icon(def.icon, { size: 18 }), h('span', {}, def.label), def.badge ? badges[def.badge] : null))
     }
     const nav = h('nav', { class: 'nav', 'aria-label': 'Main' }, navItems)
 
@@ -164,7 +179,7 @@ export function start({ root, api: injected = null, win = window }) {
       h('div', { class: 'brand' }, h('span', { class: 'brand-mark' }, icon('brand', { size: 20 })), h('span', { class: 'brand-name' }, PANEL_NAME), h('span', { class: 'brand-tag' }, 'Admin')),
       nav,
       h('div', { class: 'sidebar-foot' },
-        h('div', { class: 'me' }, avatar(me.email, 40), h('div', { class: 'me-text' }, h('div', { class: 'me-email', title: me.email }, me.email), badge('Administrator', 'accent'))),
+        h('div', { class: 'me' }, avatar(me.email, 32), h('div', { class: 'me-text' }, h('div', { class: 'me-email', title: me.email }, me.email), h('div', { class: 'me-role' }, 'Administrator'))),
         h('button', { class: 'btn btn-secondary btn-block', type: 'button', onclick: async () => { await api.logout(); showLogin() } }, icon('log-out', { size: 16 }), h('span', {}, 'Sign out'))))
 
     const frame = h('div', { class: 'app-shell' },
@@ -178,8 +193,8 @@ export function start({ root, api: injected = null, win = window }) {
     frame.addEventListener('keydown', e => { if (e.key === 'Escape') closeNav() })
 
     mount(root, frame)
-    shell = { frame, content, nav, badge: badgeNode, crumb }
-    if (stats) setBadge(stats.moderation.open)
+    shell = { frame, content, nav, badges, crumb }
+    if (stats) setBadges(stats)
   }
 
   function showShell(stats) {

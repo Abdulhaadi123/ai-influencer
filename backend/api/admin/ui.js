@@ -47,7 +47,11 @@ export const PANEL_FILES = Object.freeze({
   'lib/format.js': JS,
   'lib/icons.js': JS,
   'lib/router.js': JS,
+  // The panel's one typeface (Inter, SIL Open Font License; the licence sits beside it in fonts/OFL.txt).
+  // It is served from here so every computer shows the same letters, instead of whatever the system has.
+  'fonts/inter-latin.woff2': 'font/woff2',
   'views/audit.js': JS,
+  'views/credits.js': JS,
   'views/jobs.js': JS,
   'views/login.js': JS,
   'views/moderation.js': JS,
@@ -89,6 +93,7 @@ export function contentSecurityPolicy(env = process.env) {
     "default-src 'none'",
     "script-src 'self'",
     "style-src 'self'",
+    "font-src 'self'",
     "connect-src 'self'",
     `img-src 'self' data: ${storage.join(' ')}`,
     `media-src ${storage.join(' ')}`,
@@ -117,7 +122,8 @@ export async function serveAdminUi(req, res) {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'no-referrer',
-    'Cache-Control': 'no-store',
+    // The page and its code are never cached (an update shows on the next load); the typeface does not change.
+    'Cache-Control': file.startsWith('fonts/') ? 'public, max-age=86400' : 'no-store',
   })
   res.send(body)
 }

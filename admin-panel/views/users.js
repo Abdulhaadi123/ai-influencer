@@ -17,10 +17,10 @@ import {
   menuButton, meter, notify, openDialog, openDrawer, pageHeader, pager, searchBox, segmented, skeletonRows, field,
 } from '../lib/components.js'
 import {
-  actionLabel, categoryLabel, formatBytes, formatDate, formatNumber, plural, relativeTime, sourceLabel, stateLabel, truncate,
+  actionLabel, categoryLabel, creditKindLabel, formatBytes, formatDate, formatNumber, modelName, plural, relativeTime, signedNumber, sourceLabel, stateLabel, truncate,
 } from '../lib/format.js'
 
-const SORTS = ['created', 'email', 'jobs', 'credits', 'flags', 'storage']
+const SORTS = ['created', 'email', 'jobs', 'credits', 'balance', 'flags', 'storage']
 const PAGE_SIZES = [25, 50, 100]
 const REASON_MAX = 300
 
@@ -33,12 +33,7 @@ const REASON_MAX = 300
 const NOTE_MAX = 300
 
 /** What a ledger row's kind is called on screen. */
-export function creditKind(kind) {
-  return ({
-    purchase: 'Bought a pack', grant: 'Credits given', adjust: 'Correction', spend: 'Used for a generation',
-    refund: 'Given back', clawback: 'Taken back (refunded purchase)',
-  })[kind] ?? kind
-}
+export const creditKind = creditKindLabel
 
 export function userActions(user, me) {
   const self = user.id === me.id
@@ -109,7 +104,7 @@ export function renderUsers(ctx) {
   }
 
   mount(container,
-    pageHeader({ title: 'Accounts', subtitle: 'Everyone who has signed up. Open a row for their activity and actions.' }),
+    pageHeader({ title: 'Accounts', subtitle: 'Everyone who has signed up, with the credits they hold. Click a row for their activity and the actions you can take.' }),
     h('div', { class: 'toolbar' }, search, statusFilter, h('span', { class: 'toolbar-spacer' }), summary),
     results)
 
@@ -146,11 +141,13 @@ export function renderUsers(ctx) {
             columns: [
               { key: 'account', label: 'Account', sortKey: 'email', defaultDir: 'asc', render: u => userCell(u, me) },
               { key: 'status', label: 'Status', render: statusBadges },
-              { key: 'joined', label: 'Joined', sortKey: 'created', hideBelow: 'sm', render: u => h('time', { datetime: u.createdAt, title: formatDate(u.createdAt) }, relativeTime(u.createdAt)) },
-              { key: 'jobs', label: 'Jobs', sortKey: 'jobs', align: 'right', hideBelow: 'sm', render: u => formatNumber(u.jobs) },
-              { key: 'credits', label: 'KIE credits', sortKey: 'credits', align: 'right', hideBelow: 'lg', render: u => formatNumber(u.kieCredits) },
+              { key: 'balance', label: 'Credits', sortKey: 'balance', align: 'right', tip: 'The credits this account can spend now: bought and given, minus used.',
+                render: u => (u.balance === 0 ? h('span', { class: 'muted' }, '0') : h('span', { class: u.balance < 0 ? 'delta delta-owed' : 'delta', title: u.balance < 0 ? 'Owes credits: a purchase was refunded after they spent it.' : null }, formatNumber(u.balance))) },
+              { key: 'jobs', label: 'Generations', sortKey: 'jobs', align: 'right', hideBelow: 'md', tip: 'How many generations this account has asked for, in total.', render: u => formatNumber(u.jobs) },
+              { key: 'credits', label: 'KIE cost', sortKey: 'credits', align: 'right', hideBelow: 'lg', tip: 'What KIE has charged us for this account’s generations, in KIE credits.', render: u => formatNumber(u.kieCredits) },
+              { key: 'joined', label: 'Joined', sortKey: 'created', hideBelow: 'lg', render: u => h('time', { class: 'nowrap', datetime: u.createdAt, title: formatDate(u.createdAt) }, relativeTime(u.createdAt)) },
               { key: 'storage', label: 'Storage', sortKey: 'storage', align: 'right', hideBelow: 'lg', render: u => formatBytes(u.storageBytes) },
-              { key: 'flags', label: 'Flags', sortKey: 'flags', align: 'right', render: u => (u.openEvents ? badge(String(u.openEvents), 'warning', { title: 'Open moderation items' }) : h('span', { class: 'muted' }, '—')) },
+              { key: 'flags', label: 'To review', sortKey: 'flags', align: 'right', tip: 'Moderation items about this account that nobody has decided on yet.', render: u => (u.openEvents ? badge(String(u.openEvents), 'warning', { title: 'Open moderation items' }) : h('span', { class: 'muted' }, '—')) },
               { key: 'actions', label: '', align: 'right', className: 'col-actions', render: u => rowMenu(u) },
             ],
           }),
@@ -324,19 +321,21 @@ export function renderUsers(ctx) {
           fact('Last active', detail.devices.lastUsedAt ? relativeTime(detail.devices.lastUsedAt) : 'Never'),
           fact('Signed in on', plural(detail.devices.active, 'device')),
           fact('Influencers', formatNumber(detail.influencers)),
-          fact('Jobs', formatNumber(user.jobs)),
-          fact('KIE credits', formatNumber(user.kieCredits)),
+          fact('Generations', formatNumber(user.jobs)),
+          fact('KIE cost', `${formatNumber(user.kieCredits)} KIE credits`),
           fact('Storage', formatBytes(user.storageBytes)),
           fact('Email', user.emailConfirmed ? 'Verified' : 'Not verified')),
 
         h('section', { class: 'drawer-section' },
           h('div', { class: 'section-head' }, h('h3', {}, 'Credits'),
-            badge(`${formatNumber(detail.credits.balance)} credits`, detail.credits.balance < 0 ? 'danger' : detail.credits.balance > 0 ? 'success' : 'neutral')),
+            h('div', { class: 'badges' },
+              badge(`${formatNumber(detail.credits.balance)} credits`, detail.credits.balance < 0 ? 'danger' : detail.credits.balance > 0 ? 'success' : 'neutral'),
+              h('a', { class: 'link small', href: buildRoute('credits', { query: { userId: user.id } }) }, 'All activity'))),
           detail.credits.enforced ? null : h('p', { class: 'muted small' }, 'Credits are not being charged yet: nobody is stopped for lacking them.'),
           detail.credits.recent.length
             ? h('ul', { class: 'mini-list' }, detail.credits.recent.map(c => h('li', { class: 'mini-row mini-row-flat' },
               h('div', { class: 'mini-main' }, h('span', { class: 'small' }, creditKind(c.kind)), h('span', { class: 'muted small' }, relativeTime(c.createdAt))),
-              h('div', { class: 'badges' }, badge(`${c.delta > 0 ? '+' : ''}${formatNumber(c.delta)}`, c.delta > 0 ? 'success' : 'neutral')),
+              h('div', { class: 'badges' }, badge(signedNumber(c.delta), c.delta > 0 ? 'success' : 'neutral')),
               c.note ? h('div', { class: 'muted small' }, truncate(c.note, 90), c.by ? ` · ${c.by}` : '') : null)))
             : h('p', { class: 'muted small' }, 'No credit activity yet.'),
           button({ label: 'Add or remove credits…', iconName: 'coins', onClick: () => changeCredits(user, detail.credits.balance) })),
@@ -360,15 +359,15 @@ export function renderUsers(ctx) {
             : h('p', { class: 'muted small' }, 'Nothing has been flagged for this account.')),
 
         h('section', { class: 'drawer-section' },
-          h('div', { class: 'section-head' }, h('h3', {}, 'Recent jobs'),
+          h('div', { class: 'section-head' }, h('h3', {}, 'Recent generations'),
             h('a', { class: 'link small', href: buildRoute('jobs', { query: { userId: user.id } }) }, 'View all')),
           detail.recentJobs.length
             ? h('ul', { class: 'mini-list' }, detail.recentJobs.map(j => h('li', { class: 'mini-row mini-row-flat' },
-              h('div', { class: 'mini-main' }, h('span', { class: 'mono small' }, j.model || '—'), h('span', { class: 'muted small' }, relativeTime(j.createdAt))),
+              h('div', { class: 'mini-main' }, h('span', { class: 'small', title: j.model || '' }, modelName(j.model)), h('span', { class: 'muted small' }, relativeTime(j.createdAt))),
               h('div', { class: 'badges' }, badge(stateLabel(j.state), j.state === 'success' ? 'success' : j.state === 'fail' ? 'danger' : 'info'),
-                h('span', { class: 'muted small', title: j.kieCredits === null ? 'KIE did not report a charge' : '' }, j.kieCredits === null ? '— credits' : `${formatNumber(j.kieCredits)} credits`)),
+                h('span', { class: 'muted small', title: j.kieCredits === null ? 'KIE did not report a charge' : 'What KIE charged us' }, j.kieCredits === null ? 'KIE cost —' : `KIE cost ${formatNumber(j.kieCredits)}`)),
               j.failMessage ? h('div', { class: 'small error-text' }, truncate(j.failMessage, 110)) : null)))
-            : h('p', { class: 'muted small' }, 'No jobs yet.')),
+            : h('p', { class: 'muted small' }, 'No generations yet.')),
 
         h('section', { class: 'drawer-section drawer-actions' },
           h('h3', {}, 'Actions'),
@@ -405,7 +404,7 @@ export function renderUsers(ctx) {
 
 function userCell(user, me) {
   return h('div', { class: 'user-cell' },
-    avatar(user.email, 42),
+    avatar(user.email, 34),
     h('div', { class: 'user-cell-text' },
       h('div', { class: 'user-cell-main' }, user.email, user.id === me.id ? badge('You', 'neutral') : null),
       h('div', { class: 'muted small' }, user.displayName || '—')))

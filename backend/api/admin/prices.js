@@ -49,7 +49,9 @@ export const list = adminRoute(async (_req, res) => {
       order by p.model`,
   )
   const unpriced = await many(
-    `select j.model, count(*)::int as jobs, coalesce(sum(j.kie_credits), 0) as kie_credits
+    `select j.model, count(*)::int as jobs, coalesce(sum(j.kie_credits), 0) as kie_credits,
+            -- what kind of thing it made last (image or video), so the price form can start on the right unit
+            (array_agg(j.kind order by j.created_at desc))[1] as kind
        from generation_jobs j
       where j.model is not null and j.model <> ''
         and not exists (
@@ -63,7 +65,7 @@ export const list = adminRoute(async (_req, res) => {
   noStore(res)
   res.json({
     prices: prices.map(shape),
-    unpriced: unpriced.map(r => ({ model: r.model, jobs: r.jobs, kieCredits: Number(r.kie_credits) || 0 })),
+    unpriced: unpriced.map(r => ({ model: r.model, jobs: r.jobs, kieCredits: Number(r.kie_credits) || 0, kind: r.kind ?? null })),
     units: UNITS,
   })
 }, { tag: '[admin/prices]', message: 'Unable to load prices.' })

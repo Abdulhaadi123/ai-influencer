@@ -14,6 +14,7 @@ import { moderationConfig } from '../_lib/moderation/config.js'
 import { nsfwCheckerEnabled } from '../_lib/moderation/kieFilters.js'
 import { webhooksConfigured } from '../kie-callback.js'
 import { billingEnforced } from '../_lib/billing.js'
+import { STORE_PROBLEM } from './billing.js'
 import { revenueCatConfigured } from '../revenuecat-webhook.js'
 
 const n = value => Number(value) || 0
@@ -42,12 +43,23 @@ export const stats = adminRoute(async (_req, res) => {
             count(*) filter (where created_at > now() - interval '24 hours')::int as events_24h
        from moderation_events`,
   )
-  // Models real jobs have used that nobody has priced: something to look at.
+  // Models real jobs have used that nobody has priced: something to look at. A row for one MODE of a model
+  // (`kling-3.0/motion-control:720p`) prices that model, exactly as it does on the Prices page.
   const { unpriced } = await one(
     `select count(distinct j.model)::int as unpriced
        from generation_jobs j
       where j.model is not null and j.model <> ''
-        and not exists (select 1 from model_prices p where p.model = j.model)`,
+        and not exists (
+              select 1 from model_prices p
+               where p.model = j.model
+                  or left(p.model, length(j.model) + 1) = j.model || ':'
+            )`,
+  )
+  // Store deliveries that did NOT turn into credits and should have: a purchase from nobody we know, a
+  // product we do not sell, or a test purchase while those are switched off. Someone paid; look into it.
+  const { problems } = await one(
+    `select count(*)::int as problems from billing_events e
+      where e.received_at > now() - interval '30 days' and ${STORE_PROBLEM}`,
   )
 
   noStore(res)
@@ -65,6 +77,7 @@ export const stats = adminRoute(async (_req, res) => {
     },
     moderation: { open: moderation.open, openBlocked: moderation.open_blocked, events24h: moderation.events_24h },
     unpricedModels: unpriced,
+    billingProblems30d: problems,
   })
 }, { tag: '[admin/stats]', message: 'Unable to load the overview.' })
 

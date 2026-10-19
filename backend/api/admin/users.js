@@ -46,6 +46,7 @@ const SORTS = {
   email: 'lower(u.email)',
   jobs: 'jobs',
   credits: 'kie_credits',
+  balance: 'balance',
   flags: 'open_events',
   storage: 'storage_bytes',
 }
@@ -57,6 +58,7 @@ const USER_COLUMNS = `
   u.email_confirmed_at, u.created_at,
   (select count(*) from generation_jobs j where j.user_id = u.id) as jobs,
   (select coalesce(sum(j.kie_credits), 0) from generation_jobs j where j.user_id = u.id) as kie_credits,
+  (select coalesce(sum(l.delta), 0) from credit_ledger l where l.user_id = u.id) as balance,
   (select count(*) from moderation_events e where e.user_id = u.id and e.status = 'open') as open_events,
   (select coalesce(sum(a.byte_size), 0) from assets a where a.user_id = u.id) as storage_bytes`
 
@@ -73,6 +75,8 @@ function shape(row) {
     createdAt: row.created_at,
     jobs: numberOf(row.jobs),
     kieCredits: numberOf(row.kie_credits),
+    // What the account can spend (the sum of its ledger), as a number the list can sort on.
+    balance: Math.round(numberOf(row.balance) * 1000) / 1000,
     openEvents: numberOf(row.open_events),
     storageBytes: numberOf(row.storage_bytes),
   }

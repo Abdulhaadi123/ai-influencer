@@ -6,7 +6,7 @@ import test, { beforeEach, afterEach, mock } from 'node:test'
 import assert from './assert.js'
 
 import {
-  installDom, reset, click, type, submit, press, settle, text, all, byText, dom, stats, config, user, event, ID,
+  installDom, reset, click, type, submit, press, settle, text, all, byText, dom, stats, creditsSummary, config, user, event, ID,
 } from './helpers.js'
 
 installDom()
@@ -39,6 +39,9 @@ function scriptServer(over = {}) {
     'GET /api/admin/users': () => ({ users: [user(1), user(2)], total: 2, page: 1, pageSize: 25, sort: 'created', dir: 'desc' }),
     'GET /api/admin/jobs': () => ({ jobs: [], total: 0, page: 1, pageSize: 25 }),
     'GET /api/admin/prices': () => ({ prices: [], unpriced: [], units: ['per_video'] }),
+    'GET /api/admin/billing/summary': () => creditsSummary(),
+    'GET /api/admin/billing/activity': () => ({ entries: [], total: 0, page: 1, pageSize: 25 }),
+    'GET /api/admin/billing/store-events': () => ({ events: [], total: 0, page: 1, pageSize: 25 }),
     'GET /api/admin/moderation': () => ({ events: [event(1)], total: 1, page: 1, pageSize: 25, counts: { open: 1, dismissed: 0, confirmed: 0 } }),
     ...over,
   }
@@ -232,8 +235,8 @@ test('signing in again as someone else starts clean', async () => {
 test('the sidebar lists every page in order, links to each, and names who is signed in', async () => {
   await bootSignedIn()
   const links = all(document, 'a.nav-link')
-  assert.deepEqual(links.map(l => text(l).replace(/\d+\+?$/, '')), ['Overview', 'Accounts', 'Jobs', 'Moderation', 'Prices', 'Audit log', 'Settings'])
-  assert.deepEqual(links.map(l => l.getAttribute('href')), ['#/overview', '#/users', '#/jobs', '#/moderation', '#/prices', '#/audit', '#/settings'])
+  assert.deepEqual(links.map(l => text(l).replace(/\d+\+?$/, '')), ['Overview', 'Accounts', 'Generations', 'Moderation', 'Credits', 'Pricing', 'Audit log', 'Settings'])
+  assert.deepEqual(links.map(l => l.getAttribute('href')), ['#/overview', '#/users', '#/jobs', '#/moderation', '#/credits', '#/prices', '#/audit', '#/settings'])
   assert.deepEqual(VIEW_DEFS.map(v => v.id), links.map(l => l.dataset.view))
   assert.equal(text(document.querySelector('.me-email')), ME.email)
   assert.match(text(document.querySelector('.me')), /Administrator/)
@@ -265,7 +268,7 @@ test('the sidebar badge shows how many moderation items are waiting, and hides a
   await bootSignedIn('', { 'GET /api/admin/stats': () => stats({ moderation: { open: 3, openBlocked: 1, events24h: 3 } }) })
   assert.equal(text(badgeNode()), '3')
   assert.equal(badgeNode().hidden, false)
-  assert.equal(badgeNode().getAttribute('aria-label'), '3 waiting')
+  assert.equal(badgeNode().getAttribute('aria-label'), '3 items to review')
 
   click(byText(document, '.sidebar-foot button', 'Sign out')); await settle(6)
   reset()
@@ -327,8 +330,8 @@ test('changing the address changes the page: new view, new title, the right link
   assert.equal(current(), 'settings')
   await goTo('#/prices')
   assert.equal(current(), 'prices')
-  assert.equal(document.title, 'Prices · Influenza Admin')
-  assert.equal(text(document.querySelector('.crumb')), 'Prices')
+  assert.equal(document.title, 'Pricing · Influenza Admin')
+  assert.equal(text(document.querySelector('.crumb')), 'Pricing')
   assert.equal(document.querySelectorAll('.view').length, 1, 'the old page is gone')
   assert.match(text(document.querySelector('#content')), /Add a price/)
   assert.equal(document.activeElement, document.querySelector('#content'))
@@ -338,7 +341,7 @@ test('changing the address changes the page: new view, new title, the right link
 test('every page can be reached and draws something', async () => {
   await bootSignedIn('')
   for (const [hash, expected] of [
-    ['#/users', /Accounts/], ['#/jobs', /Jobs/], ['#/moderation', /Moderation/], ['#/prices', /Prices/],
+    ['#/users', /Accounts/], ['#/jobs', /Generations/], ['#/moderation', /Moderation/], ['#/credits', /Credits/], ['#/prices', /Pricing/],
     ['#/audit', /Audit log/], ['#/settings', /Settings/], ['#/overview', /Overview/],
   ]) {
     await goTo(hash)
@@ -365,7 +368,7 @@ test('leaving a page cancels what it still had on its way', async () => {
   assert.equal(pending.signal.aborted, true)
   release?.()
   await settle(4)
-  assert.doesNotMatch(text(document.querySelector('#content')), /No jobs yet/)
+  assert.doesNotMatch(text(document.querySelector('#content')), /No generations yet/)
 })
 
 test('menus, dialogs and panels open on one page do not follow you to the next', async () => {
@@ -478,7 +481,7 @@ test('losing the network does not sign anyone out: the page shows the problem an
   down = false
   click(byText(document.querySelector('#content'), 'button', 'Try again'))
   await settle(8)
-  assert.match(text(document.querySelector('#content')), /No jobs yet/)
+  assert.match(text(document.querySelector('#content')), /No generations yet/)
 })
 
 // ── Small screens ────────────────────────────────────────────────
@@ -651,4 +654,24 @@ test('opened by itself on a page that has an #app element, it starts at the sign
     assert.equal(document.title, 'Sign in · Influenza Admin')
     assert.equal(log.length, 0, 'and nothing was asked of the server')
   } finally { globalThis.__ADMIN_TEST__ = hadFlag }
+})
+
+test('the Credits page has its own count: store purchases that did not become credits, hidden at zero', async () => {
+  await bootSignedIn('', { 'GET /api/admin/stats': () => stats({ billingProblems30d: 2, moderation: { open: 3, openBlocked: 1, events24h: 3 } }) })
+  assert.equal(all(document, '.nav-badge').length, 2, 'one beside Moderation, one beside Credits')
+  const credits = navLink('credits').querySelector('.nav-badge')
+  assert.equal(text(credits), '2')
+  assert.equal(credits.hidden, false)
+  assert.equal(credits.getAttribute('aria-label'), '2 store purchases to look into')
+  assert.equal(text(navLink('moderation').querySelector('.nav-badge')), '3', 'the other count is untouched')
+
+  click(byText(document, '.sidebar-foot button', 'Sign out')); await settle(6)
+  reset()
+  await bootSignedIn('', { 'GET /api/admin/stats': () => stats({ billingProblems30d: 0 }) })
+  assert.equal(navLink('credits').querySelector('.nav-badge').hidden, true)
+})
+
+test('the sidebar groups the pages by what they are for: manage, money, system', async () => {
+  await bootSignedIn('')
+  assert.deepEqual(all(document, '.nav-label').map(l => text(l)), ['Manage', 'Money', 'System'])
 })

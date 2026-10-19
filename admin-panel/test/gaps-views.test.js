@@ -134,7 +134,7 @@ test('a record with fields missing says so in words, never "undefined" or a blan
   assert.match(facts, /EmailNot verified/)
   assert.match(facts, /Signed in on0 devices/)
   assert.match(facts, /Nothing has been flagged for this account\./)
-  assert.match(facts, /No jobs yet\./)
+  assert.match(facts, /No generations yet\./)
   assert.doesNotMatch(facts, /undefined|null|NaN/)
 })
 
@@ -166,10 +166,10 @@ test('flags and jobs in the panel: decided ones show their outcome, empty fields
 
   const jobs = all(panel, '.mini-row-flat')
   assert.match(text(jobs[0]), /—/)
-  assert.match(text(jobs[0]), /— credits/)
+  assert.match(text(jobs[0]), /KIE cost —/)
   assert.ok(jobs[0].querySelector('.badge-info'), 'a running job is blue')
   assert.ok(jobs[1].querySelector('.badge-danger'))
-  assert.match(text(jobs[1]), /0 credits/)
+  assert.match(text(jobs[1]), /KIE cost 0/)
   assert.match(text(jobs[1]), /It failed\./)
 })
 

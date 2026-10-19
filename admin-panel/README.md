@@ -1,7 +1,7 @@
 # Admin panel
 
-The staff page of AI Influencer Studio: accounts, jobs, the moderation queue, model prices,
-credits, and the audit log. Plain HTML, CSS and JavaScript — **no build step, no framework** —
+The staff page of AI Influencer Studio: accounts, generations, the moderation queue, credits
+(what people buy and spend, and what the store reported), model pricing, and the audit log. Plain HTML, CSS and JavaScript — **no build step, no framework** —
 in its own folder, with its own tests.
 
 It is served by the backend at `https://<your-domain>/admin` and talks to the backend's
@@ -11,8 +11,9 @@ keeps nothing in the browser: the sign-in lives in memory only.
 ```
 admin-panel/
   index.html  app.css  main.js     the page, its styles, the shell (routing, sign-in gate)
+  fonts/                           the typeface (Inter) and its licence
   lib/                             api client, DOM helpers, components, formatting, icons, router
-  views/                           one file per screen: overview, users, jobs, moderation, prices, settings, audit, login
+  views/                           one file per screen: overview, users, jobs (Generations), moderation, credits, prices (Pricing), settings, audit, login
   test/                            the panel's tests (node:test + happy-dom)
 ```
 
@@ -43,6 +44,11 @@ git pull && cd backend && docker compose restart api
 If the change also needs a new `/api/admin/*` endpoint, deploy the backend first
 (`docker compose up -d --build`), then the panel.
 
+**A new file in the panel (a new page, a font) always needs the rebuild.** The list of files the
+server hands out (`PANEL_FILES` in `backend/api/admin/ui.js`) lives in the API image, so with only a
+restart the new page would answer 404 and the panel, which imports it, would not start. When
+`ui.js` or an endpoint changed in the same pull: `git pull && cd backend && docker compose up -d --build`.
+
 On a sparse checkout, include both folders: `git sparse-checkout set backend admin-panel`.
 
 ## Rules the panel keeps (and tests enforce)
@@ -52,7 +58,10 @@ On a sparse checkout, include both folders: `git sparse-checkout set backend adm
 - Only `lib/api.js` talks to the network; nothing is kept in `localStorage`/`sessionStorage`/cookies.
 - The server hands out a fixed list of files (`PANEL_FILES` in `backend/api/admin/ui.js`). **A new
   file in this folder must be added to that list**; a backend test fails if the folder and the list disagree.
-- Light theme only; the product's name is `Influenza`.
+- Light theme only; the product's name is `Influenza`. One typeface, served from `fonts/`
+  (the page's policy allows fonts from this origin only).
+- Every figure and column that is not obvious carries its meaning (a small "i" with the words as
+  its tooltip and accessible name), and every code the server sends has words (`lib/format.js`).
 
 ## Tests
 

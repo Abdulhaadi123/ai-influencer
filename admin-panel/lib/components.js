@@ -107,11 +107,24 @@ export function card({ title = null, subtitle = null, actions = null, body, flus
     h('div', { class: 'card-body' }, body))
 }
 
-/** A figure with its label. `href` makes the whole tile a link. */
-export function kpi({ label, value, hint = null, tone = null, iconName = null, href = null, title = null }) {
+/**
+ * A small "i" that explains a word: what a figure counts, what a column means. The words are the
+ * tooltip and the accessible name, so they are read by everyone and never only by hovering.
+ */
+export function infoTip(text) {
+  return h('span', { class: 'tip', title: text, role: 'img', 'aria-label': text, tabindex: 0 }, icon('info', { size: 14 }))
+}
+
+/**
+ * A figure with its label. `href` makes the whole tile a link. `tip` says what the figure counts;
+ * `unit` is the small word after the number ("credits").
+ */
+export function kpi({ label, value, hint = null, tone = null, iconName = null, href = null, title = null, tip = null, unit = null }) {
   const body = [
-    h('div', { class: 'kpi-top' }, h('span', { class: 'kpi-label' }, label), iconName ? h('span', { class: ['kpi-icon', tone && `kpi-icon-${tone}`] }, icon(iconName, { size: 20 })) : null),
-    h('div', { class: 'kpi-value' }, value),
+    h('div', { class: 'kpi-top' },
+      h('span', { class: 'kpi-label' }, label, tip ? infoTip(tip) : null),
+      iconName ? h('span', { class: ['kpi-icon', tone && `kpi-icon-${tone}`] }, icon(iconName, { size: 16 })) : null),
+    h('div', { class: 'kpi-value' }, value, unit ? [' ', h('span', { class: 'kpi-unit' }, unit)] : null),
     hint ? h('div', { class: 'kpi-hint' }, hint) : null,
   ]
   return href
@@ -197,7 +210,7 @@ export function tabs({ items, value, onChange, label }) {
     items.map(item => h('button', {
       class: ['tab', item.id === value && 'tab-on'], type: 'button', role: 'tab', 'aria-selected': String(item.id === value),
       onclick: () => { if (item.id !== value) onChange(item.id) },
-    }, item.label, item.count !== undefined ? h('span', { class: 'tab-count' }, formatNumber(item.count)) : null)))
+    }, item.label, item.count !== undefined ? h('span', { class: ['tab-count', item.alert && 'tab-count-alert'] }, formatNumber(item.count)) : null)))
 }
 
 export function selectControl({ options, value, onChange, label, className = '' }) {
@@ -215,7 +228,7 @@ export function searchBox({ value = '', placeholder = 'Search', onInput, label =
 
 /**
  * @param {object} opts
- * @param {Array<{key: string, label: string, render: (row) => any, sortKey?: string, defaultDir?: 'asc'|'desc', align?: 'right', hideBelow?: 'sm'|'md', className?: string}>} opts.columns
+ * @param {Array<{key: string, label: string, render: (row) => any, sortKey?: string, defaultDir?: 'asc'|'desc', align?: 'right', hideBelow?: 'sm'|'md'|'lg', className?: string, tip?: string}>} opts.columns
  * @param {object[]} opts.rows
  * @param {(row) => string} [opts.rowKey]
  * @param {(row) => void} [opts.onRowClick]  makes rows focusable and clickable
@@ -229,12 +242,13 @@ export function dataTable({ columns, rows, rowKey = r => r.id, onRowClick = null
     const sortable = Boolean(col.sortKey && onSort)
     const active = sortable && sort?.key === col.sortKey
     const classes = [col.align === 'right' && 'num', col.hideBelow && `hide-${col.hideBelow}`, col.className]
-    if (!sortable) return h('th', { scope: 'col', class: classes }, col.label)
+    const tip = col.tip ? infoTip(col.tip) : null   // what the column means, for a word that is not obvious
+    if (!sortable) return h('th', { scope: 'col', class: classes }, col.label, tip)
     return h('th', { scope: 'col', class: classes, 'aria-sort': active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none' },
       h('button', {
         class: ['th-sort', active && 'th-sort-on'], type: 'button',
         onclick: () => onSort(col.sortKey, active ? (sort.dir === 'desc' ? 'asc' : 'desc') : (col.defaultDir || 'desc')),
-      }, col.label, active ? icon(sort.dir === 'asc' ? 'arrow-up' : 'arrow-down', { size: 12 }) : null))
+      }, col.label, active ? icon(sort.dir === 'asc' ? 'arrow-up' : 'arrow-down', { size: 12 }) : null), tip)
   }))
 
   const body = rows.map(row => {
@@ -514,7 +528,9 @@ export function menuButton({ label = 'Actions', items }) {
  * @param {(n: number) => string} [opts.format]
  */
 export function barChart({ data, label, format = formatNumber, height = 200 }) {
-  const max = niceMax(Math.max(0, ...data.map(d => Number(d.value) || 0)))
+  // A datum may carry a `value2` as well: two bars side by side per day (bought and spent).
+  const paired = data.some(d => d.value2 !== undefined)
+  const max = niceMax(Math.max(0, ...data.map(d => Number(d.value) || 0), ...data.map(d => Number(d.value2) || 0)))
   const slot = 10
   const width = Math.max(1, data.length) * slot
   const NS = 'http://www.w3.org/2000/svg'
@@ -533,13 +549,27 @@ export function barChart({ data, label, format = formatNumber, height = 200 }) {
     const title = el('title', {})
     title.textContent = d.title
     group.append(title, el('rect', { x: i * slot, y: 0, width: slot, height: 100, class: 'chart-hit' }))
-    if (barHeight) group.append(el('rect', { x: i * slot + 1.2, y: 100 - barHeight, width: slot - 2.4, height: barHeight, rx: 1, class: 'chart-bar' }))
+    if (paired) {
+      const barWidth = (slot - 2.4) / 2
+      if (barHeight) group.append(el('rect', { x: i * slot + 1.2, y: 100 - barHeight, width: barWidth, height: barHeight, rx: 0.8, class: 'chart-bar' }))
+      const value2 = Math.max(0, Number(d.value2) || 0)
+      const height2 = value2 > 0 ? Math.max(1.5, (value2 / max) * 100) : 0
+      if (height2) group.append(el('rect', { x: i * slot + 1.2 + barWidth, y: 100 - height2, width: barWidth, height: height2, rx: 0.8, class: 'chart-bar-2' }))
+    } else if (barHeight) {
+      group.append(el('rect', { x: i * slot + 1.2, y: 100 - barHeight, width: slot - 2.4, height: barHeight, rx: 1, class: 'chart-bar' }))
+    }
     chart.append(group)
   })
 
   return h('div', { class: 'chart', style: { '--chart-height': `${height}px` } },
     h('div', { class: 'chart-axis', 'aria-hidden': 'true' }, h('span', {}, format(max)), h('span', {}, format(max / 2)), h('span', {}, '0')),
     h('div', { class: 'chart-plot' }, chart, h('div', { class: 'chart-x muted', 'aria-hidden': 'true' }, h('span', {}, data[0]?.key ?? ''), h('span', {}, data[data.length - 1]?.key ?? ''))))
+}
+
+/** What the colours of a chart mean: `[{label, second?}]`, the second series drawn in the frame's navy. */
+export function chartLegend(items) {
+  return h('div', { class: 'chart-legend' }, items.map(item => h('span', { class: 'legend-item' },
+    h('span', { class: ['legend-swatch', item.second && 'legend-swatch-2'], 'aria-hidden': 'true' }), item.label)))
 }
 
 /** Horizontal bars, one per item, scaled to the biggest. */

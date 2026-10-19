@@ -61,12 +61,12 @@ test('attention: waiting moderation items — a warning when some were refused, 
   assert.match(one[0].body, /1 of them was refused/)
 })
 
-test('attention: a failure rate is only worth saying with enough jobs behind it', () => {
+test('attention: a failure rate is only worth saying with enough generations behind it', () => {
   const base = (started, failed) => attentionItems(stats({ jobs: { running: 0, started24h: started, failed24h: failed, credits24h: 0, credits7d: 0, credits30d: 0, chargeUnknown30d: 0 }, moderation: { open: 0, openBlocked: 0, events24h: 0 } }), config())
-  assert.equal(base(10, 3).find(i => i.id === 'failures').title, '30% of today\'s jobs failed')
+  assert.equal(base(10, 3).find(i => i.id === 'failures').title, '30% of today\'s generations failed')
   assert.equal(base(10, 2).find(i => i.id === 'failures'), undefined, '20% is not alarming')
-  assert.equal(base(9, 9).find(i => i.id === 'failures'), undefined, 'nine jobs is too few to call a rate')
-  assert.equal(base(100, 100).find(i => i.id === 'failures').title, '100% of today\'s jobs failed')
+  assert.equal(base(9, 9).find(i => i.id === 'failures'), undefined, 'nine generations is too few to call a rate')
+  assert.equal(base(100, 100).find(i => i.id === 'failures').title, '100% of today\'s generations failed')
   assert.equal(base(0, 0).find(i => i.id === 'failures'), undefined)
   assert.equal(base(10, 3).find(i => i.id === 'failures').href, '#/jobs?state=fail')
 })

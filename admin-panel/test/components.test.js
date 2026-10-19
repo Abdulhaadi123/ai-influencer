@@ -484,3 +484,80 @@ test('barList: a label that is data is text', () => {
 })
 
 void tick
+
+// ── Explanations, paired charts, alert counts ───────────────────────────────
+
+test('infoTip: the words are the tooltip and the accessible name, and it can be reached by keyboard', () => {
+  const tip = C.infoTip('What this counts.')
+  assert.equal(tip.getAttribute('title'), 'What this counts.')
+  assert.equal(tip.getAttribute('aria-label'), 'What this counts.')
+  assert.equal(tip.getAttribute('role'), 'img')
+  assert.equal(tip.getAttribute('tabindex'), '0')
+  assert.ok(tip.querySelector('svg'))
+})
+
+test('kpi: an optional explanation beside the label and a unit after the number, with a space between', () => {
+  const plain = C.kpi({ label: 'Accounts', value: '5' })
+  assert.equal(plain.querySelector('.tip'), null)
+  assert.equal(plain.querySelector('.kpi-unit'), null)
+
+  const full = C.kpi({ label: 'Credits bought', value: '5,500', unit: 'credits', tip: 'What was bought.' })
+  assert.equal(text(full.querySelector('.kpi-label')), 'Credits bought')
+  assert.equal(full.querySelector('.kpi-label .tip').getAttribute('title'), 'What was bought.')
+  assert.equal(text(full.querySelector('.kpi-value')), '5,500 credits')
+  assert.equal(text(full.querySelector('.kpi-unit')), 'credits')
+})
+
+test('dataTable: a column can carry an explanation in its heading, sortable or not', () => {
+  const table = C.dataTable({
+    label: 'T', rows: [{ id: 'a' }], onSort: () => {}, sort: { key: 'x', dir: 'desc' },
+    columns: [
+      { key: 'x', label: 'Credits', sortKey: 'x', tip: 'What it is.', render: () => '1' },
+      { key: 'y', label: 'Plain', render: () => '2' },
+      { key: 'z', label: 'Cost', tip: 'KIE charged.', render: () => '3' },
+    ],
+  })
+  const heads = all(table, 'th')
+  assert.equal(heads[0].querySelector('.tip').getAttribute('title'), 'What it is.')
+  assert.ok(heads[0].querySelector('button'), 'still sortable')
+  assert.equal(heads[1].querySelector('.tip'), null)
+  assert.equal(heads[2].querySelector('.tip').getAttribute('title'), 'KIE charged.')
+})
+
+test('barChart with a second series draws a pair of bars per day, in two colours, and scales to the larger of the two', () => {
+  const chart = C.barChart({ label: 'Bought and spent', data: [
+    { key: '10-01', value: 100, value2: 400, title: 'd1' },
+    { key: '10-02', value: 0, value2: 0, title: 'd2' },
+    { key: '10-03', value: 50, value2: 0, title: 'd3' },
+  ] })
+  assert.equal(chart.querySelectorAll('g.chart-col').length, 3)
+  assert.equal(chart.querySelectorAll('rect.chart-bar').length, 2)
+  assert.equal(chart.querySelectorAll('rect.chart-bar-2').length, 1)
+  assert.equal(text(chart.querySelector('.chart-axis span')), '500', 'the axis tops out above the larger series')
+  const first = chart.querySelector('rect.chart-bar')
+  const second = chart.querySelector('rect.chart-bar-2')
+  assert.ok(Number(second.getAttribute('x')) > Number(first.getAttribute('x')), 'side by side, not on top of each other')
+  assert.ok(Number(first.getAttribute('width')) < 5, 'each is half a column')
+})
+
+test('barChart without a second series is unchanged: one full-width bar per day', () => {
+  const chart = C.barChart({ label: 'One', data: [{ key: 'a', value: 5, title: 't' }] })
+  assert.equal(chart.querySelectorAll('rect.chart-bar-2').length, 0)
+  assert.ok(Number(chart.querySelector('rect.chart-bar').getAttribute('width')) > 7)
+})
+
+test('chartLegend names each colour; the second series gets the second swatch', () => {
+  const legend = C.chartLegend([{ label: 'Bought' }, { label: 'Spent', second: true }])
+  const items = all(legend, '.legend-item')
+  assert.equal(items.length, 2)
+  assert.equal(text(items[0]), 'Bought')
+  assert.ok(!items[0].querySelector('.legend-swatch-2'))
+  assert.ok(items[1].querySelector('.legend-swatch-2'))
+})
+
+test('tabs: a count can be flagged as an alert', () => {
+  const t = C.tabs({ label: 'x', value: 'a', onChange: () => {}, items: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B', count: 3, alert: true }, { id: 'c', label: 'C', count: 0 }] })
+  assert.ok(t.querySelectorAll('.tab-count-alert').length === 1)
+  assert.equal(text(t.querySelectorAll('.tab-count')[0]), '3')
+  assert.ok(!t.querySelectorAll('.tab-count')[1].classList.contains('tab-count-alert'))
+})

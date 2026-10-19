@@ -217,3 +217,14 @@ test('hostile text in any field is text', async () => {
   await settle()
   assert.equal(root.querySelectorAll('tbody img, tbody script').length, 0)
 })
+
+test('a change of credits is described in words: who, how many (with a sign), whether given or taken back, and why', async () => {
+  const { describeDetails } = await import('../views/audit.js')
+  assert.deepEqual(describeDetails('billing.grant', { email: 'mia@test.example', credits: 50, kind: 'grant', note: 'support goodwill' }), [
+    ['Account', 'mia@test.example'], ['Credits', '+50 (given)'], ['Reason', 'support goodwill'],
+  ])
+  assert.deepEqual(describeDetails('billing.grant', { email: 'mia@test.example', credits: -120, kind: 'adjust', note: 'refund fix' }), [
+    ['Account', 'mia@test.example'], ['Credits', '−120 (taken back)'], ['Reason', 'refund fix'],
+  ])
+  assert.deepEqual(describeDetails('billing.grant', {}), [], 'nothing known, nothing invented')
+})

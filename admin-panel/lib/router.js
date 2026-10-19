@@ -13,7 +13,7 @@
  * Pure functions, no DOM: the browser's own `location.hash` is passed in.
  */
 
-export const VIEWS = Object.freeze(['overview', 'users', 'jobs', 'moderation', 'prices', 'audit', 'settings'])
+export const VIEWS = Object.freeze(['overview', 'users', 'jobs', 'moderation', 'credits', 'prices', 'audit', 'settings'])
 
 /** Views whose second segment names a record. */
 const WITH_ID = new Set(['users', 'moderation'])

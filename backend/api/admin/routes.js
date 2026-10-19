@@ -41,6 +41,9 @@ export function registerAdminRoutes(app) {
   app.post('/api/admin/prices/upsert', prices.upsert)
   app.post('/api/admin/prices/delete', prices.remove)
 
+  app.get('/api/admin/billing/summary', billing.summary)
+  app.get('/api/admin/billing/activity', billing.activity)
+  app.get('/api/admin/billing/store-events', billing.storeEvents)
   app.get('/api/admin/billing/ledger', billing.ledger)
   app.post('/api/admin/billing/grant', billing.grant)
 }

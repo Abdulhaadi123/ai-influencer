@@ -482,7 +482,7 @@ test('the price list names models in use that have no price', async () => {
   await post('/api/admin/prices/upsert', { model: 'veo-3-1', unit: 'per_video', credits: 70, enabled: true })
 
   const { unpriced } = (await get('/api/admin/prices')).body
-  assert.deepEqual(unpriced, [{ model: 'kling-3.0/video', jobs: 2, kieCredits: 50 }])
+  assert.deepEqual(unpriced, [{ model: 'kling-3.0/video', jobs: 2, kieCredits: 50, kind: 'video' }])
 })
 
 // ── Overview ─────────────────────────────────────────────────────────────────
@@ -599,6 +599,7 @@ panelTest('the admin page is served with a policy that forbids inline script and
   assert.match(csp, /default-src 'none'/)
   assert.match(csp, /script-src 'self'(;|$)/)
   assert.match(csp, /style-src 'self'(;|$)/)
+  assert.match(csp, /font-src 'self'(;|$)/, "the panel's own typeface, and nobody else's")
   assert.match(csp, /connect-src 'self'/)
   assert.match(csp, /frame-ancestors 'none'/)
   assert.ok(!csp.includes('unsafe-inline') && !csp.includes('unsafe-eval'))
@@ -613,7 +614,7 @@ panelTest('the admin page is served with a policy that forbids inline script and
 
 panelTest('every panel file is served with the right type and the security headers — and the list is exactly what is on disk', async () => {
   // The folder also holds what is never served: the panel's own tests, README and package files.
-  const NOT_SERVED = ['test/', 'README.md', 'package.json', 'package-lock.json', '.gitignore']
+  const NOT_SERVED = ['test/', 'README.md', 'package.json', 'package-lock.json', '.gitignore', 'fonts/OFL.txt']
   const onDisk = walk(UI_DIR).filter(f => !NOT_SERVED.some(n => f === n || f.startsWith(n))).sort()
   assert.deepEqual(Object.keys(PANEL_FILES).sort(), onDisk, 'a file added to admin-panel/ must be added to PANEL_FILES, and the reverse')
 
@@ -628,7 +629,8 @@ panelTest('every panel file is served with the right type and the security heade
     assert.equal(res.status, 200, url)
     assert.equal(res.headers.get('content-type'), type, url)
     assert.equal(res.headers.get('x-content-type-options'), 'nosniff', url)
-    assert.equal(res.headers.get('cache-control'), 'no-store', url)
+    // The page and its code are never cached; the typeface, which does not change, may be.
+    assert.equal(res.headers.get('cache-control'), file.startsWith('fonts/') ? 'public, max-age=86400' : 'no-store', url)
     assert.equal(res.headers.get('x-frame-options'), 'DENY', url)
     assert.match(res.headers.get('content-security-policy'), /default-src 'none'/, url)
     assert.deepEqual(Buffer.from(await res.arrayBuffer()), readFileSync(join(UI_DIR, file)), `${url} is the file on disk`)

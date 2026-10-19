@@ -153,11 +153,76 @@ export const STATE_LABELS = Object.freeze({
 
 export const UNIT_LABELS = Object.freeze({ per_second: 'second', per_video: 'video', per_image: 'image' })
 
+/** What a row of the credit ledger is called on screen. */
+export const CREDIT_KIND_LABELS = Object.freeze({
+  purchase: 'Bought a pack',
+  spend: 'Used for a generation',
+  refund: 'Given back (generation failed)',
+  grant: 'Given by an admin',
+  adjust: 'Corrected by an admin',
+  clawback: 'Taken back (purchase refunded)',
+})
+
+/** The kind of a store delivery's outcome, in words — see api/revenuecat-webhook.js. */
+export const OUTCOME_LABELS = Object.freeze({
+  credited: 'Credits added',
+  clawed_back: 'Credits taken back',
+  duplicate: 'Duplicate, ignored',
+  ignored: 'Not ours to act on',
+  unmatched: 'No matching account',
+  sandbox_off: 'Test purchase refused',
+  test: 'Test event',
+})
+
 const label = (table, key) => (Object.hasOwn(table, key) ? table[key] : String(key ?? '—'))
 export const sourceLabel = key => label(SOURCE_LABELS, key)
 export const actionLabel = key => label(ACTION_LABELS, key)
 export const categoryLabel = key => label(CATEGORY_LABELS, key)
 export const stateLabel = key => label(STATE_LABELS, key)
+export const creditKindLabel = key => label(CREDIT_KIND_LABELS, key)
+
+/** Store events that mean a subscription was paid for (we sell none). */
+const SUBSCRIPTION_EVENTS = new Set(['INITIAL_PURCHASE', 'RENEWAL'])
+
+/**
+ * A store delivery's outcome. An `ignored` purchase is a problem, not a shrug, so it says what went wrong:
+ * a product we do not sell, or a subscription (we sell none), which was paid for and delivered nothing.
+ */
+export function outcomeLabel(outcome, problem = false, type = null) {
+  if (outcome === 'ignored' && problem) return SUBSCRIPTION_EVENTS.has(type) ? 'Subscription, not supported' : 'Product not recognised'
+  return label(OUTCOME_LABELS, outcome)
+}
+
+/** RevenueCat's environment: SANDBOX is a test purchase, PRODUCTION is real money. */
+export function environmentLabel(environment) {
+  const e = String(environment ?? '').toUpperCase()
+  return e === 'SANDBOX' ? 'Test' : e === 'PRODUCTION' ? 'Live' : (e ? e.charAt(0) + e.slice(1).toLowerCase() : '—')
+}
+
+/** +500 / −18 / 0 for a change of credits; the minus is a real minus sign, which lines up with the plus. */
+export function signedNumber(value) {
+  const n = numeric(value)
+  if (!Number.isFinite(n)) return '—'
+  if (n === 0) return '0'
+  return `${n > 0 ? '+' : '−'}${number.format(Math.abs(n))}`
+}
+
+/**
+ * A model as a person reads it: the name an admin gave it on the Pricing page, or else its id made
+ * tidier ("nano-banana-pro" → "Nano Banana Pro", "kling-3.0/video" → "Kling 3.0 · video").
+ * The id itself is always kept next to it, so nothing is hidden.
+ */
+export function modelName(id, labels = null) {
+  const key = String(id ?? '')
+  if (!key) return '—'
+  if (labels && Object.hasOwn(labels, key) && labels[key]) return labels[key]
+  // A price kept per mode is named "<model>:<mode>"; it reads as the model with its mode in brackets.
+  const colon = key.indexOf(':')
+  if (colon > 0) return `${modelName(key.slice(0, colon), labels)} (${key.slice(colon + 1)})`
+  const [model, ...rest] = key.split('/')
+  const words = value => value.split(/[-_]/).filter(Boolean).map(w => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ')
+  return rest.length ? `${words(model)} · ${rest.join('/').replace(/[-_]/g, ' ')}` : words(model)
+}
 
 /** The admin audit log's action codes, in words: "user.set-role" → "Changed a role". */
 const AUDIT_LABELS = {
@@ -204,6 +269,23 @@ export function dailySeries(rows, days, now = Date.now()) {
     series.push({ day, ...(byDay.get(day) || { credits: 0, succeeded: 0, failed: 0 }) })
   }
   return series
+}
+
+/**
+ * The credits-per-day rows as one dense series, like dailySeries: a point for each of the last `days`
+ * days ending today (UTC), zeros where nothing was bought or spent.
+ *
+ * @param {Array<{day: string, purchased: number, spent: number}>} rows
+ * @returns {Array<{day: string, purchased: number, spent: number}>} oldest first
+ */
+export function creditSeries(rows, days, now = Date.now()) {
+  const byDay = new Map((rows || []).map(r => [String(r.day).slice(0, 10), r]))
+  const today = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate())
+  return Array.from({ length: days }, (_, k) => {
+    const day = new Date(today - (days - 1 - k) * 86_400_000).toISOString().slice(0, 10)
+    const row = byDay.get(day)
+    return { day, purchased: Number(row?.purchased) || 0, spent: Number(row?.spent) || 0 }
+  })
 }
 
 /** The usage rows folded to one entry per model, biggest spend first. */

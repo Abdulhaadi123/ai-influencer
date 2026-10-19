@@ -1,9 +1,9 @@
 /*
- * Prices: what each model costs a user, and whether it may be used at all.
+ * Pricing: what each model costs a person, and whether it may be used at all.
  *
- * The price is recorded now and applied when billing is switched on — the page
- * says so. The switch is different: turning a model off is live, at once, for every
- * new request, so turning it off asks first.
+ * Whether the price is charged yet depends on billing being switched on — the page
+ * says which it is. The switch is different: turning a model off is live, at once, for
+ * every new request, so turning it off asks first.
  *
  * A model that real jobs have used but that nobody priced is listed separately,
  * with a button to price it, so nothing is served for free by being forgotten.
@@ -13,7 +13,7 @@ import { h, mount } from '../lib/dom.js'
 import {
   badge, button, callout, card, confirmDialog, copyButton, dataTable, emptyState, field, loadInto, notify, openDialog, pageHeader, skeletonRows, switchControl,
 } from '../lib/components.js'
-import { UNIT_LABELS, formatDate, formatNumber, plural, relativeTime } from '../lib/format.js'
+import { UNIT_LABELS, formatDate, formatNumber, modelName, plural, relativeTime } from '../lib/format.js'
 
 export const UNITS = ['per_second', 'per_video', 'per_image']
 const MODEL_ID = /^[A-Za-z0-9][\w.\-/:]{0,199}$/
@@ -61,7 +61,7 @@ export function renderPrices(ctx) {
 
   mount(container,
     pageHeader({
-      title: 'Prices', subtitle: 'What each model costs a user, in credits — and whether it may be used.',
+      title: 'Pricing', subtitle: 'What each model costs a person, in credits — and whether it may be used at all. A model that has no price here is free to use.',
       actions: [button({ label: 'Add a price', iconName: 'plus', tone: 'primary', onClick: () => edit({}) })],
     }),
     body)
@@ -72,21 +72,35 @@ export function renderPrices(ctx) {
     return loadInto(body, {
       signal,
       skeleton: () => skeletonRows(5, 4),
-      load: () => api.get('/api/admin/prices', null, { signal }),
-      render: data => {
+      load: () => Promise.all([
+        api.get('/api/admin/prices', null, { signal }),
+        // Whether these prices are being charged is the first thing to know about them; if it cannot be read, say less.
+        api.get('/api/admin/config', null, { signal }).then(c => c.billing?.enforced ?? null).catch(e => { if (e?.name === 'AbortError') throw e; return null }),
+      ]),
+      render: ([data, enforced]) => {
         units = data.units
         mount(body,
-          callout({
-            tone: 'info', title: 'Prices are recorded now and applied when billing is switched on',
-            body: 'The on/off switch is different: it is live. A model switched off is refused straight away for every new generation.',
-          }),
+          enforced === true
+            ? callout({
+              tone: 'success', title: 'Charging is on — these prices are charged now',
+              body: 'Every generation takes its price in credits. The Allowed switch is live as well: a model switched off is refused straight away.',
+            })
+            : enforced === false
+              ? callout({
+                tone: 'info', title: 'Charging is off — prices are recorded, nobody is charged yet',
+                body: 'Set them while charging is off, then turn it on with BILLING_ENFORCED=true. The Allowed switch is different: it is live, and a model switched off is refused straight away.',
+              })
+              : callout({
+                tone: 'info', title: 'Prices apply once charging is switched on',
+                body: 'The Allowed switch is different: it is live. A model switched off is refused straight away for every new generation.',
+              }),
           card({
-            flush: true, title: 'Priced models', subtitle: plural(data.prices.length, 'model'),
+            flush: true, title: 'Models and prices', subtitle: plural(data.prices.length, 'model'),
             body: data.prices.length
               ? dataTable({
                 label: 'Model prices', rows: data.prices, rowKey: p => p.model,
                 columns: [
-                  { key: 'model', label: 'Model', render: p => h('div', {}, h('div', { class: 'mono small' }, p.model, copyButton(p.model, 'Copy the model id')), p.label ? h('div', { class: 'muted small' }, p.label) : null) },
+                  { key: 'model', label: 'Model', render: p => h('div', {}, h('div', { class: 'cell-main' }, p.label || modelName(p.model)), h('div', { class: 'cell-sub mono' }, p.model, copyButton(p.model, 'Copy the model id'))) },
                   { key: 'price', label: 'Price', align: 'right', render: p => h('span', {}, h('strong', {}, formatNumber(p.credits)), h('span', { class: 'muted' }, ` credits / ${UNIT_LABELS[p.unit] || p.unit}`)) },
                   { key: 'enabled', label: 'Allowed', render: p => h('div', { class: 'switch-cell' },
                     switchControl({ checked: p.enabled, label: `${p.enabled ? 'Disable' : 'Enable'} ${p.model}`, onChange: next => toggle(p, next) }),
@@ -102,14 +116,14 @@ export function renderPrices(ctx) {
           }),
           data.unpriced.length
             ? card({
-              title: 'In use, but not priced', subtitle: 'Real jobs have run on these models and no price is set.', flush: true,
+              title: 'In use, but not priced', subtitle: 'People have generated with these models and no price is set, so they cost nothing.', flush: true,
               body: dataTable({
                 label: 'Unpriced models', rows: data.unpriced, rowKey: m => m.model,
                 columns: [
-                  { key: 'model', label: 'Model', render: m => h('span', { class: 'mono small' }, m.model) },
-                  { key: 'jobs', label: 'Jobs', align: 'right', render: m => formatNumber(m.jobs) },
-                  { key: 'credits', label: 'KIE credits so far', align: 'right', render: m => formatNumber(m.kieCredits) },
-                  { key: 'actions', label: '', align: 'right', render: m => button({ label: 'Set a price', small: true, tone: 'primary', onClick: () => edit({ model: m.model, enabled: true }) }) },
+                  { key: 'model', label: 'Model', render: m => h('div', {}, h('div', { class: 'cell-main' }, modelName(m.model)), h('div', { class: 'cell-sub mono' }, m.model)) },
+                  { key: 'jobs', label: 'Generations', align: 'right', render: m => formatNumber(m.jobs) },
+                  { key: 'credits', label: 'KIE cost so far', align: 'right', render: m => formatNumber(m.kieCredits) },
+                  { key: 'actions', label: '', align: 'right', render: m => button({ label: 'Set a price', small: true, tone: 'primary', onClick: () => edit({ model: m.model, enabled: true, kind: m.kind }) }) },
                 ],
               }),
             })
@@ -141,7 +155,12 @@ export function renderPrices(ctx) {
     const isNew = !price.updatedAt
     const model = h('input', { class: 'control mono', type: 'text', value: price.model || '', readonly: Boolean(price.model), spellcheck: 'false', autocomplete: 'off', placeholder: 'kling-3.0/video' })
     const label = h('input', { class: 'control', type: 'text', value: price.label || '', placeholder: 'A name people recognise' })
-    const unit = h('select', { class: 'control', value: price.unit || 'per_video' }, units.map(u => h('option', { value: u, selected: u === (price.unit || 'per_video') }, `per ${UNIT_LABELS[u] || u}`)))
+    // The unit starts where it can be known: the one already saved, or per image for a model that makes images. A video
+    // model can be priced per video or per second, which is the admin's call — so it starts on "Choose…", not on a guess.
+    const startUnit = price.unit || (price.kind === 'image' ? 'per_image' : '')
+    const unit = h('select', { class: 'control', value: startUnit },
+      startUnit ? null : h('option', { value: '', selected: true }, 'Choose…'),
+      units.map(u => h('option', { value: u, selected: u === startUnit }, `per ${UNIT_LABELS[u] || u}`)))
     const credits = h('input', { class: 'control', type: 'number', min: 0, step: '0.001', inputmode: 'decimal', value: price.credits ?? '', placeholder: 'e.g. 20' })
     const enabled = h('input', { type: 'checkbox', checked: price.enabled !== false })
     const note = h('input', { class: 'control', type: 'text', value: price.note || '', placeholder: 'Why this price' })
