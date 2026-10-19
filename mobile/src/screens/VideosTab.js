@@ -34,6 +34,7 @@ import {
 import { selectVideoReferences, describeDroppedReferences } from '@core/videoRefs'
 import { hasActiveJobs } from '@core/data/jobs'
 import { userMessage } from '@core/errors'
+import { isOutOfCredits } from '@core/billing/outOfCredits'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { useInfluencers } from '@core/store'
 
@@ -251,7 +252,7 @@ export default function VideosTab({ influencer }) {
       // A slow job is not a failed one. The task is still alive on KIE and the
       // queue is holding its taskId, so say that instead of showing an error.
       if (e?.message === STILL_RUNNING) setHandedOff(true)
-      else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'Unable to generate the video. Please try again.'))
+      else if (e?.message !== 'CANCELLED' && !isOutOfCredits(e)) setError(userMessage(e, 'Unable to generate the video. Please try again.'))
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }

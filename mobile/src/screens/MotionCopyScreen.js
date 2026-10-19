@@ -25,6 +25,7 @@ import { uploadLocal, resolveUrl } from '@core/data/assets'
 import { MOTION_MODELS, DEFAULT_MOTION_MODEL, getMotionModel, motionResolution } from '@core/config/videoModels'
 import { billedSeconds } from '@core/billing/packs'
 import { userMessage } from '@core/errors'
+import { isOutOfCredits } from '@core/billing/outOfCredits'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { useInfluencers } from '@core/store'
 
@@ -155,7 +156,7 @@ export default function MotionCopyScreen({ influencer }) {
       }
     } catch (e) {
       if (e?.message === STILL_RUNNING) setHandedOff(true)
-      else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'Unable to generate the motion copy. Please try again.'))
+      else if (e?.message !== 'CANCELLED' && !isOutOfCredits(e)) setError(userMessage(e, 'Unable to generate the motion copy. Please try again.'))
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }

@@ -25,6 +25,7 @@ import { COPY_ATTRIBUTES, buildImagePrompts } from '@core/prompts/influencerProm
 import { buildNewInfluencer, buildCreationParams } from '@core/newInfluencer'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { userMessage } from '@core/errors'
+import { isOutOfCredits } from '@core/billing/outOfCredits'
 
 import { useBottomInset } from '../hooks/useBottomInset'
 import { useTheme, space, radius, font, layout } from '../theme'
@@ -206,7 +207,7 @@ export default function CreateScreen({ navigation }) {
         setPendingTaskId(taskId)
       } else if (e?.message === STILL_RUNNING) {
         setError('Generation is taking longer than usual. You can save the image from the Queue tab when it is ready.')
-      } else if (e?.message !== 'CANCELLED') setError(userMessage(e, 'Unable to generate the image. Please try again.'))
+      } else if (e?.message !== 'CANCELLED' && !isOutOfCredits(e)) setError(userMessage(e, 'Unable to generate the image. Please try again.'))
     } finally {
       setGenerating(false)
     }
