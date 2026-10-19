@@ -14,9 +14,8 @@
     "android": {
       "package": "com.aiinfluencer.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
@@ -24,7 +23,8 @@
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
-      ]
+      ],
+      "backgroundColor": "#FFFFFF"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -40,6 +40,19 @@
           "photosPermission": "$(PRODUCT_NAME) needs access to your photos so you can use them as reference images and motion videos.",
           "cameraPermission": "$(PRODUCT_NAME) needs the camera so you can take a reference photo.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 288,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#FFFFFF"
+          }
         }
       ]
     ],

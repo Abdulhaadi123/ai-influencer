@@ -1,5 +1,6 @@
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
+import * as SplashScreen from 'expo-splash-screen'
 
 import { AuthProvider } from '@core/auth/AuthContext'
 import { StoreProvider } from '@core/store'
@@ -7,6 +8,11 @@ import { StoreProvider } from '@core/store'
 import { ThemeProvider, useTheme } from './src/theme'
 import RootNavigator from './src/navigation'
 import ErrorBoundary from './src/components/ErrorBoundary'
+
+// The phone's own launch screen (the mark on white, set in app.json) stays up until the splash overlay has
+// drawn its first frame and hands over (components/SplashOverlay.js). Without this it would go as soon as
+// the first React frame is ready, a beat before the splash, and the white would flash.
+SplashScreen.preventAutoHideAsync().catch(() => {})
 
 /**
  * Provider order is load-bearing.

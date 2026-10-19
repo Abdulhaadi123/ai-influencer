@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { normalizeProductId, joinPacks, formatCredits, costOf, describePrice, costLine, creditsVisible, billedSeconds, priceRow } from './packs.js'
+import { normalizeProductId, joinPacks, formatCredits, costOf, describePrice, costLine, creditsVisible, billedSeconds, priceRow, purchaseNotice } from './packs.js'
 
 const store = [
   { id: 'credits_5000', productId: 'credits_5000', price: '$19.99', native: { n: 5000 } },
@@ -132,4 +132,14 @@ test('credits are brought up only when they matter: charging is on, the account 
   assert.equal(creditsVisible({ enforced: false, balance: 0 }, 'yes'), false, 'only the real true')
   assert.equal(creditsVisible(undefined), false)
   assert.equal(creditsVisible({ balance: 'abc' }), false)
+})
+
+test('a bought pack says credits were added only once they have, and only offers a refresh where there is one', () => {
+  assert.deepEqual(purchaseNotice({ credits: 1500 }, true), { title: 'Credits added', body: '1,500 credits were added to your account.' })
+  const late = purchaseNotice({ credits: 1500 }, false)
+  assert.equal(late.title, 'Purchase complete')
+  assert.ok(!/added to your account/.test(late.body), 'nothing is claimed that has not arrived')
+  assert.equal(late.body, 'Your purchase went through. The credits can take a minute to appear.')
+  assert.equal(purchaseNotice({ credits: 500 }, false, { canRefresh: true }).body, 'Your purchase went through. The credits can take a minute to appear — pull down to refresh.')
+  assert.equal(purchaseNotice(undefined, true).body, '0 credits were added to your account.', 'a missing pack does not throw')
 })

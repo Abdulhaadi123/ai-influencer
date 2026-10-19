@@ -11,84 +11,37 @@
  * comes from the store, in your own currency. See core/billing/packs.js.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { View, Text, ScrollView, Pressable, RefreshControl, ActivityIndicator, Alert, StyleSheet } from 'react-native'
+import { useCallback, useState } from 'react'
+import { View, Text, ScrollView, Pressable, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native'
 
-import { useAuth } from '@core/auth/AuthContext'
-import { userMessage } from '@core/errors'
-import { refreshCredits, waitForCredits } from '@core/data/billing'
-import { buyPackage, loadStorePackages, purchasesAvailable, startPurchases, syncPurchases } from '@core/platform/purchases'
-import { joinPacks, formatCredits, describePrice } from '@core/billing/packs'
+import { formatCredits, describePrice } from '@core/billing/packs'
 
 import { useBottomInset } from '../hooks/useBottomInset'
-import { useCredits } from '../hooks/useCredits'
+import { usePackStore } from '../hooks/usePackStore'
 import { useTheme, space, font, layout } from '../theme'
 import Screen, { ScreenHeader } from '../components/Screen'
 import { Section, Button } from '../components/ui'
-import { showError } from '../lib/alerts'
+import { announcePurchase } from '../lib/purchaseAlert'
 
 export default function CreditsScreen({ navigation }) {
   const { colors } = useTheme()
   const bottomInset = useBottomInset()
-  const { userId } = useAuth()
-  const credits = useCredits()
-
-  /** What the store offers: loading, ready, unavailable (no key in this build) or failed. */
-  const [store, setStore] = useState({ status: purchasesAvailable() ? 'loading' : 'unavailable', packages: [], message: null })
-  const [buying, setBuying] = useState(null)         // the pack being bought
-  const [waiting, setWaiting] = useState(false)      // bought; the credits have not arrived yet
+  // The store, the packs and buying one are shared with the "Get credits" offer: see usePackStore.
+  const { store, packs, credits, buying, waiting, busy, buy, reload, refresh } = usePackStore()
   const [refreshing, setRefreshing] = useState(false)
 
-  const loadStore = useCallback(async () => {
-    if (!purchasesAvailable()) { setStore({ status: 'unavailable', packages: [], message: null }); return }
-    try {
-      await startPurchases(userId)
-      setStore({ status: 'ready', packages: await loadStorePackages(), message: null })
-    } catch (e) {
-      setStore({ status: 'failed', packages: [], message: userMessage(e, 'The credit packs could not be loaded. Please try again.') })
-    }
-  }, [userId])
-
-  useEffect(() => {
-    loadStore()
-    refreshCredits()
-  }, [loadStore])
-
-  const packs = useMemo(() => joinPacks(store.packages, credits.packs), [store.packages, credits.packs])
   const balance = credits.balance
-  const busy = buying !== null || waiting
 
-  const buy = useCallback(async pack => {
-    if (busy) return
-    const before = balance ?? 0
-    setBuying(pack.id)
-    try {
-      const { cancelled } = await buyPackage(pack.native)
-      if (cancelled) return
-      setBuying(null)
-      setWaiting(true)
-      const arrived = await waitForCredits(before)
-      Alert.alert(
-        arrived ? 'Credits added' : 'Purchase complete',
-        arrived
-          ? `${formatCredits(pack.credits)} credits were added to your account.`
-          : 'Your purchase went through. The credits can take a minute to appear — pull down to refresh.',
-      )
-    } catch (e) {
-      showError('Purchase failed', e, 'The purchase could not be completed. Please try again.')
-    } finally {
-      setBuying(null)
-      setWaiting(false)
-    }
-  }, [busy, balance])
+  const onBuy = useCallback(async pack => {
+    const { bought, arrived } = await buy(pack)
+    if (bought) announcePurchase(pack, arrived, { canRefresh: true })
+  }, [buy])
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
-    // A purchase made while the app was closed is re-sent to RevenueCat first, then the balance is read.
-    await syncPurchases()
-    await Promise.all([refreshCredits(), loadStore()])
+    await refresh()
     setRefreshing(false)
-  }, [loadStore])
+  }, [refresh])
 
   const owes = balance !== null && balance < 0
 
@@ -131,13 +84,13 @@ export default function CreditsScreen({ navigation }) {
         ) : store.status === 'failed' ? (
           <View style={styles.padded}>
             <Text style={[styles.message, { color: colors.danger }]}>{store.message}</Text>
-            <Pressable onPress={loadStore} accessibilityRole="button"><Text style={[styles.link, font('semibold'), { color: colors.link }]}>Try again</Text></Pressable>
+            <Pressable onPress={reload} accessibilityRole="button"><Text style={[styles.link, font('semibold'), { color: colors.link }]}>Try again</Text></Pressable>
           </View>
         ) : packs.length === 0 ? (
           <Text style={[styles.message, { color: colors.textSecondary }]}>No credit packs are available right now.</Text>
         ) : (
           packs.map((pack, i) => (
-            <PackRow key={pack.id} pack={pack} last={i === packs.length - 1} disabled={busy} busy={buying === pack.id} onBuy={() => buy(pack)} />
+            <PackRow key={pack.id} pack={pack} last={i === packs.length - 1} disabled={busy} busy={buying === pack.id} onBuy={() => onBuy(pack)} />
           ))
         )}
       </Section>

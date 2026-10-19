@@ -58,7 +58,7 @@ export default function WelcomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
-  hero: { ...StyleSheet.absoluteFillObject, bottom: '34%', width: '100%', height: undefined },
+  hero: { ...StyleSheet.absoluteFill, bottom: '34%', width: '100%', height: undefined },
   heroFallback: { alignItems: 'center' },
   sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0,

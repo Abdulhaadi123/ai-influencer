@@ -402,7 +402,7 @@ const styles = StyleSheet.create({
 
   hero: { width: '100%', aspectRatio: 4 / 5, borderRadius: radius.md },
   heroOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(8,3,83,0.55)', borderRadius: radius.md, gap: space.sm,
   },

@@ -16,12 +16,18 @@
  * On a cold start the session has to come out of the Keychain (native) or an
  * httpOnly cookie (web), which takes a moment. Rendering the sign-in screen
  * during that moment would flash it at every returning user on every launch, so
- * `initialising` gets its own state — and shows the logo, which is what the design's
- * splash screens are.
+ * `initialising` gets its own state: nothing is drawn under the splash until the
+ * session is known.
+ *
+ * The splash itself (components/SplashOverlay.js) is the design's two splash frames, the
+ * mark and then the mark with "influenza AI", played over whatever is underneath and
+ * faded away when it has had its time AND the app is ready. It carries on from the phone's
+ * own launch screen (app.json), which shows the same mark in the same place.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, Animated, Easing, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet } from 'react-native'
+import * as SplashScreen from 'expo-splash-screen'
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
@@ -36,6 +42,8 @@ import CreateScreen from '../screens/CreateScreen'
 import QueueScreen from '../screens/QueueScreen'
 import SettingsScreen from '../screens/SettingsScreen'
 import CreditsScreen from '../screens/CreditsScreen'
+import GetCreditsScreen from '../screens/GetCreditsScreen'
+import ChoosePackScreen from '../screens/ChoosePackScreen'
 
 import WelcomeScreen from '../screens/auth/WelcomeScreen'
 import SignInScreen from '../screens/auth/SignInScreen'
@@ -46,9 +54,10 @@ import { useQueueSync } from '../hooks/useQueueSync'
 import { useCollectedResults, usePollingWhileForeground } from '../hooks/useCollectedResults'
 import { useAssetUrlRefresh } from '../hooks/useAssetUrlRefresh'
 import { useBilling } from '../hooks/useBilling'
+import { useOfferPacks } from '../hooks/useOfferPacks'
 import FloatingTabBar from './FloatingTabBar'
 import Screen from '../components/Screen'
-import { Logo, LogoMark } from '../components/brand'
+import SplashOverlay from '../components/SplashOverlay'
 import { navigationRef } from './ref'
 import { useTheme, space, font } from '../theme'
 
@@ -105,6 +114,8 @@ function MainTabs() {
   useAssetUrlRefresh()
   // Who is signed in to the store, the balance, and the "not enough credits" alert.
   useBilling()
+  // Opens the "Get credits" offer once, to someone who has none.
+  useOfferPacks()
 
   const activeJobs = useActiveJobCount(userId)
 
@@ -128,7 +139,9 @@ function MainTabs() {
 
 /**
  * Signed in: the tabs, and the screens that open over them. Credits is reached from the
- * header chip, from Settings, and from the "not enough credits" alert.
+ * header chip, from Settings, and from the "not enough credits" alert. GetCredits and
+ * ChoosePack are the design's two payment screens, for packs: opened once by useOfferPacks
+ * for someone with no credits, and always skippable.
  */
 function SignedIn() {
   const { colors } = useTheme()
@@ -136,6 +149,8 @@ function SignedIn() {
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
       <Stack.Screen name="Main" component={MainTabs} />
       <Stack.Screen name="Credits" component={CreditsScreen} />
+      <Stack.Screen name="GetCredits" component={GetCreditsScreen} options={{ animation: 'fade' }} />
+      <Stack.Screen name="ChoosePack" component={ChoosePackScreen} />
     </Stack.Navigator>
   )
 }
@@ -156,41 +171,6 @@ function AuthFlow() {
       <AuthStack.Screen name="SignUp" component={SignUpScreen} />
       <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
     </AuthStack.Navigator>
-  )
-}
-
-/** The design's splash: the mark on white, which then settles into the full logo. */
-function Splash({ message }) {
-  const { colors } = useTheme()
-  const appear = useRef(new Animated.Value(0)).current
-  const settle = useRef(new Animated.Value(0)).current
-
-  useEffect(() => {
-    Animated.sequence([
-      Animated.timing(appear, { toValue: 1, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.delay(250),
-      Animated.timing(settle, { toValue: 1, duration: 420, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
-    ]).start()
-  }, [appear, settle])
-
-  return (
-    <Screen>
-      <View style={styles.splash}>
-        <Animated.View style={{ opacity: appear, transform: [{ scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }] }}>
-          <View>
-            <Animated.View style={{ opacity: settle.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }), position: 'absolute', alignSelf: 'center' }}>
-              <LogoMark height={104} />
-            </Animated.View>
-            <Animated.View style={{ opacity: settle }}>
-              <Logo height={64} />
-            </Animated.View>
-          </View>
-        </Animated.View>
-        {message ? (
-          <Text style={[styles.splashText, font('regular'), { color: colors.textSecondary }]}>{message}</Text>
-        ) : null}
-      </View>
-    </Screen>
   )
 }
 
@@ -224,17 +204,29 @@ export default function RootNavigator() {
     },
   }
 
+  const [splashGone, setSplashGone] = useState(false)
+  const endSplash = useCallback(() => setSplashGone(true), [])
+
+  // A build that is not configured has nothing to show a splash for: say so at once.
+  useEffect(() => {
+    if (configError) SplashScreen.hideAsync().catch(() => {})
+  }, [configError])
   if (configError) return <ConfigError message={configError} />
-  if (initialising) return <Splash />
 
   return (
-    <NavigationContainer ref={navigationRef} theme={navTheme}>
-      {isSignedIn ? <SignedIn /> : <AuthFlow />}
-    </NavigationContainer>
+    <View style={styles.root}>
+      {initialising ? null : (
+        <NavigationContainer ref={navigationRef} theme={navTheme}>
+          {isSignedIn ? <SignedIn /> : <AuthFlow />}
+        </NavigationContainer>
+      )}
+      {splashGone ? null : <SplashOverlay ready={!initialising} onGone={endSplash} />}
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   splash: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.lg },
   splashText: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
   configTitle: { fontSize: 20 },

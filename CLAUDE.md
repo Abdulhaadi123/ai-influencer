@@ -109,7 +109,8 @@ Rules with history behind them — detail in `mobile/CLAUDE.md`:
   `mobile/core/` outside `core/platform/`. Platform code goes in sibling files —
   Metro picks `foo.native.js` over `foo.js`.
 - **No user data or credential in device storage.** `core/platform/storage.*`
-  holds the theme preference only; the session is in the Keychain / Keystore.
+  holds device preferences only (the theme, and whether the Get credits offer was
+  shown); the session is in the Keychain / Keystore.
 - **Every backend query on user data filters by the session's user id.** An
   endpoint that trusted an id from the request would expose everyone's data.
 - **Offline is not signed out.** Only the server rejecting a refresh token ends

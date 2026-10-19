@@ -122,6 +122,24 @@ export function costLine(cost) {
 }
 
 /**
+ * What a bought pack tells the buyer, in every place that sells packs. The store confirms a purchase
+ * at once, but the credits are added when the server hears from RevenueCat — so the words depend on
+ * whether the balance has risen yet, and never claim credits that have not arrived.
+ *
+ * @param {{credits: number}} pack
+ * @param {boolean} arrived  the balance rose while we waited
+ * @param {{canRefresh?: boolean}} [where]  the screen can be pulled down to refresh (the Credits screen)
+ * @returns {{title: string, body: string}}
+ */
+export function purchaseNotice(pack, arrived, { canRefresh = false } = {}) {
+  if (arrived) return { title: 'Credits added', body: `${formatCredits(pack?.credits)} credits were added to your account.` }
+  return {
+    title: 'Purchase complete',
+    body: `Your purchase went through. The credits can take a minute to appear${canRefresh ? ' — pull down to refresh.' : '.'}`,
+  }
+}
+
+/**
  * Whether the app should bring credits up at all.
  *
  * While the server is only watching (BILLING_ENFORCED off) nobody is charged, so a

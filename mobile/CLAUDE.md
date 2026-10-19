@@ -33,7 +33,8 @@ of `.js` automatically — never import one variant directly.
 | upload to S3 | `uploader.js` (Blob PUT) | `uploader.native.js` (streamed via FileSystem) |
 | media | `media.js` (canvas) | `media.native.js` (expo-image-manipulator / expo-sharing) |
 
-**`storage.*` is only for device preferences** — the theme. No user data and no
+**`storage.*` is only for device preferences** — the theme, and `pack_offer_seen`
+(the Get credits offer has been shown on this install). No user data and no
 credential may go through it.
 
 ## The backend
@@ -197,6 +198,8 @@ purchases.
 | What is shown, in what order, what a generation costs | `core/billing/packs.js` — plain logic with tests: `npm test` |
 | "Not enough credits" (402 `INSUFFICIENT_CREDITS`) | announced once from `providers/kie.js` → `core/billing/outOfCredits.js` → one alert with a way to the Credits screen (`useBilling`) |
 | The screen, the header chip, the cost line before Generate | `CreditsScreen`, `CreditsChip` (navigation), `CostNote` |
+| The packs the store offers, and buying one (shared by every screen that sells) | `src/hooks/usePackStore.js` |
+| The first-time offer: when it opens, what a pack is said to give | `core/billing/offer.js` (tests), `useOfferPacks`, `GetCreditsScreen`, `ChoosePackScreen` |
 
 - **The app never grants credits.** The store tells RevenueCat, RevenueCat tells the server, the
   server adds them. After a purchase the Credits screen *waits for the balance to rise*
@@ -208,7 +211,29 @@ purchases.
   crashes a release build that holds it, and `__DEV__` keeps it out of one. Both are public values.
 - **Credits are shown only when they matter** (`creditsVisible`): charging is on, the account holds
   or owes some, or it is a dev build. While the server is only watching, nobody sees "0 credits".
+- **The offer is an offer, not a gate.** The design's two payment screens sell a subscription plan; this
+  app sells packs (one payment, credits never expire), so they are re-skinned: `GetCreditsScreen` (the
+  smallest pack, Continue, "See all packs") and `ChoosePackScreen` (a chip per pack, what the pack gives,
+  Continue). `useOfferPacks` opens the first ONCE per install, to an account with no credits, where credits
+  are visible and the build can sell (`shouldOfferPacks`); Skip and Back leave it. Do not add Monthly /
+  Yearly or "Save 20%" — there is nothing to repeat and no discount the numbers back.
 - Adding the SDK needed a native rebuild (`npx expo run:android`); JS reload alone is not enough.
+
+## The splash, the icon and the brand marks
+
+The design (Figma, right-hand light flow) opens with two splash frames: the mark alone, then the mark
+with "influenza AI". They are played in two halves that hand over to each other:
+
+- **The phone's own launch screen** — the mark on white, set in `app.json` by the `expo-splash-screen`
+  plugin (`assets/splash-icon.png`). It needs a native build (`expo prebuild` / `eas build`) to change.
+- **`src/components/SplashOverlay.js`** — drawn over the app by `navigation/index.js`: the mark in the same
+  place, then the wordmark, held long enough to be seen and faded away once the session is known. It calls
+  `SplashScreen.hideAsync()` on its first frame; `App.js` keeps the system's one up until then.
+
+The launcher icon (`assets/icon.png`, the adaptive foreground/monochrome) is the same mark. They were
+Expo's template images before. The mark's geometry lives in `src/components/brand.js`
+(and as `assets/brand/logo-mark.svg`); the PNGs are renders of it. Replace them with the designer's own export
+when it exists. The Play listing's 512 px icon is `dist/play-store/icon-512.png` (not committed).
 
 ## Errors
 

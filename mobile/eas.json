@@ -30,7 +30,8 @@
       "environment": "production",
       "env": {
         "EXPO_PUBLIC_API_BASE": "https://ai-influencer.backed.dexterztechnologies.com"
-      }
+      },
+      "autoIncrement": true
     }
   },
   "submit": {

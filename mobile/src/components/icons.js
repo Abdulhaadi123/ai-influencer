@@ -81,6 +81,35 @@ const SHAPES = {
       <Path d="m10.8 20 2-5.2-2.6-2.4 1-4.4 3.4 1.6 2.4 2.2M8.2 11.4l2-2.4M13 14.8l3 1.4 1 3.8" />
     </G>
   ),
+  // A framed picture with a sun and a hill: images.
+  image: ({ color }) => (
+    <G fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round">
+      <Rect x="3.5" y="4.5" width="17" height="15" rx="3.2" />
+      <Circle cx="9" cy="10" r="1.6" />
+      <Path d="m4.5 17.2 4.7-4.5 3.3 3.1 2.7-2.5 4.3 3.5" />
+    </G>
+  ),
+  // A clock face: something that lasts.
+  clock: ({ color }) => (
+    <G fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round">
+      <Circle cx="12" cy="12" r="8.5" />
+      <Path d="M12 7.6V12l3 2" />
+    </G>
+  ),
+  // An arrow turning back on itself: given back.
+  refresh: ({ color }) => (
+    <G fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M19.5 12a7.5 7.5 0 1 1-2.3-5.4" />
+      <Path d="M19.8 4.6v4.2h-4.2" />
+    </G>
+  ),
+  // A bank card: one payment.
+  card: ({ color }) => (
+    <G fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round">
+      <Rect x="3" y="5.5" width="18" height="13" rx="3" />
+      <Path d="M3 10h18M7 15h3.2" />
+    </G>
+  ),
   plus: ({ color }) => <Path d="M12 5v14M5 12h14" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />,
   share: ({ color }) => (
     <Path d="M12 15V3.8M7.6 8 12 3.6 16.4 8M5 12.5v6.2c0 .9.7 1.6 1.6 1.6h10.8c.9 0 1.6-.7 1.6-1.6v-6.2" fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round" />
