@@ -18,8 +18,18 @@
  *                           account, once per store transaction.
  *   CANCELLATION            a purchase was refunded: the same credits come back off.
  *   TEST                    RevenueCat's "send test event": recorded, nothing else.
- *   anything else           recorded and ignored. (Subscription events are not used:
- *                           there are no subscriptions.)
+ *   anything else           recorded and ignored. There are no subscription products, so
+ *                           nothing acts on a subscription event — but a paid one
+ *                           (INITIAL_PURCHASE, RENEWAL) means someone paid for something we do
+ *                           not deliver, so the admin panel lists it under "Needs a look"
+ *                           (api/admin/billing.js, STORE_PROBLEM) instead of leaving it unseen.
+ *
+ * ── The product id ───────────────────────────────────────────────────────────
+ *
+ * Google Play can report a product as `credits_500` or, for a product with purchase options
+ * or a base plan, as `credits_500:<option-id>`. Both are the same pack, so the id is cut at
+ * the first colon before it is looked up (the app does the same: core/billing/packs.js).
+ * The id exactly as the store sent it is what is recorded, so nothing about it is hidden.
  *
  * Deliveries are at-least-once and unordered, so: the event id is the first thing
  * written (a second delivery of it stops there), and credits are keyed on the STORE
@@ -70,6 +80,9 @@ function sameSecret(expected, received) {
 
 const text = (value, max = 200) => (typeof value === 'string' && value ? value.slice(0, max) : null)
 
+/** "credits_500", whether the store reports it as that or as "credits_500:base-plan". */
+export const packIdOf = productId => (typeof productId === 'string' ? productId.split(':')[0] : '')
+
 /** The account a purchase belongs to: the first id RevenueCat knows it by that is one of ours. */
 async function accountFor(event, client) {
   const candidates = [event.app_user_id, event.original_app_user_id, ...(Array.isArray(event.aliases) ? event.aliases : [])]
@@ -94,7 +107,7 @@ async function apply(event, client) {
   if (type === 'NON_RENEWING_PURCHASE') {
     if (String(event.environment).toUpperCase() === 'SANDBOX' && !acceptSandbox()) return { outcome: 'sandbox_off', userId }
 
-    const { rows } = await client.query('select credits from credit_packs where product_id = $1 and enabled', [text(event.product_id)])
+    const { rows } = await client.query('select credits from credit_packs where product_id = $1 and enabled', [packIdOf(text(event.product_id))])
     if (!rows.length) return { outcome: 'ignored', userId }
     const credits = Number(rows[0].credits)
 

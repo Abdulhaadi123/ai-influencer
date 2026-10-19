@@ -252,3 +252,57 @@ test('deliveries arriving at the same moment credit once', async () => {
   assert.equal(answers.filter(a => a.body.outcome === 'credited').length, 1)
   assert.equal(await balance(u), 500)
 })
+
+// ── The product id as Google Play reports it ────────────────────────────────
+
+test('a product reported with a purchase option (credits_500:base-plan) is the same pack, credited once, and recorded as the store sent it', async () => {
+  const u = await stack.createUser()
+  const res = await deliver(purchase(u, { product_id: 'credits_500:base-plan', transaction_id: 'GPA.suffix-1' }))
+  assert.equal(res.body.outcome, 'credited')
+  assert.equal(await balance(u), 500)
+  const [event] = await recorded()
+  assert.equal(event.outcome, 'credited')
+  const [row] = await ledger(u.id)
+  assert.match(row.note, /credits_500:base-plan/, 'the id exactly as it came is what the history says')
+
+  // The same store transaction reported again, this time without the suffix, still credits once.
+  assert.equal((await deliver(purchase(u, { product_id: 'credits_500', transaction_id: 'GPA.suffix-1' }))).body.outcome, 'duplicate')
+  assert.equal(await balance(u), 500)
+})
+
+test('only the part before the first colon names the pack — a look-alike is not one', async () => {
+  const u = await stack.createUser()
+  assert.equal((await deliver(purchase(u, { product_id: 'credits_5000:x:y', transaction_id: 'GPA.s-2' }))).body.outcome, 'credited')
+  assert.equal(await balance(u), 5000, 'credits_5000, not credits_500')
+  for (const [i, product_id] of ['credits_500x', 'credits_50', ':credits_500', 'consumable:credits_500', 'CREDITS_500'].entries()) {
+    assert.equal((await deliver(purchase(u, { product_id, transaction_id: `GPA.s-bad-${i}` }))).body.outcome, 'ignored', product_id)
+  }
+  assert.equal(await balance(u), 5000)
+})
+
+test('a suffixed product that has been switched off is still ignored', async () => {
+  const u = await stack.createUser()
+  await stack.sql(`update credit_packs set enabled = false where product_id = 'credits_1500'`)
+  assert.equal((await deliver(purchase(u, { product_id: 'credits_1500:base-plan' }))).body.outcome, 'ignored')
+  assert.equal(await balance(u), 0)
+  await stack.sql(`update credit_packs set enabled = true where product_id = 'credits_1500'`)
+})
+
+test('a refund of a purchase that arrived with a suffix takes the same credits back', async () => {
+  const u = await stack.createUser()
+  await deliver(purchase(u, { product_id: 'credits_1500:base-plan', transaction_id: 'GPA.s-3' }))
+  const res = await deliver(purchase(u, { type: 'CANCELLATION', product_id: 'credits_1500:base-plan', transaction_id: 'GPA.s-3' }))
+  assert.equal(res.body.outcome, 'clawed_back')
+  assert.equal(await balance(u), 0)
+})
+
+test('a subscription event is recorded and credits nothing — there are no subscriptions here', async () => {
+  const u = await stack.createUser()
+  for (const type of ['INITIAL_PURCHASE', 'RENEWAL', 'EXPIRATION', 'BILLING_ISSUE', 'UNCANCELLATION']) {
+    const res = await deliver(purchase(u, { type, product_id: 'basic_monthly:p1m', transaction_id: `GPA.sub-${type}` }))
+    assert.equal(res.status, 200, type)
+    assert.equal(res.body.outcome, 'ignored', type)
+  }
+  assert.equal(await balance(u), 0)
+  assert.equal((await recorded()).length, 5, 'each is on record, so the panel can show it')
+})
