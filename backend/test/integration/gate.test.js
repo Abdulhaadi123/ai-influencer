@@ -520,13 +520,83 @@ test('suggestions: clean text is rewritten as before', async () => {
 test('suggestions: refused text is not rewritten, and is never a strike', async () => {
   const u = await stack.createUser()
   for (let i = 0; i < 8; i++) {
-    const res = await assist(u.token, `XXX-EXPLICIT draft number ${i}`)
+    // (Different beginnings: texts that begin the same way are one draft — see below.)
+    const res = await assist(u.token, `${i} XXX-EXPLICIT draft number ${i}`)
     assert.equal(res.status, 400)
     assert.equal(res.body.code, 'CONTENT_BLOCKED')
   }
   assert.equal(stack.openai.chat.length, 0, 'the rewriter was never asked')
   assert.equal((await events(u.id)).length, 8, 'every refusal is recorded')
   assert.equal((await stack.one('select status from users where id = $1', [u.id])).status, 'active', 'but typing a draft is not an offence')
+})
+
+test('suggestions: a sentence typed in bursts is ONE queue item that follows the latest text, not one per burst', async () => {
+  const u = await stack.createUser()
+  const other = await stack.createUser()
+
+  // Held for review: the same draft growing.
+  for (const text of ['XXX-BORDER mid 20 girl that', 'XXX-BORDER mid 20 girl that do things n', 'XXX-BORDER mid 20 girl that do things nide']) {
+    assert.equal((await assist(u.token, text)).status, 200)
+  }
+  let rows = await events(u.id)
+  assert.equal(rows.length, 1, 'three requests, one entry')
+  assert.equal(rows[0].excerpt, 'XXX-BORDER mid 20 girl that do things nide', 'it shows what was typed last')
+  assert.equal(rows[0].action, 'review')
+
+  // The same words from someone else are their own entry.
+  await assist(other.token, 'XXX-BORDER mid 20 girl that do things')
+  assert.equal((await events(other.id)).length, 1)
+
+  // A draft that begins differently is another item, and so is a refusal (a different decision).
+  await assist(u.token, 'XXX-BORDER a completely different start')
+  await assist(u.token, 'XXX-EXPLICIT now it is refused')
+  await assist(u.token, 'XXX-EXPLICIT now it is refused outright')
+  rows = await events(u.id)
+  assert.deepEqual(rows.map(r => [r.action, r.excerpt]), [
+    ['review', 'XXX-BORDER mid 20 girl that do things nide'],
+    ['review', 'XXX-BORDER a completely different start'],
+    ['blocked', 'XXX-EXPLICIT now it is refused outright'],
+  ])
+
+  // Once a person has decided the item, the next draft is news again.
+  await stack.sql(`update moderation_events set status = 'dismissed' where user_id = $1`, [u.id])
+  await assist(u.token, 'XXX-BORDER mid 20 girl that do things again')
+  assert.equal((await events(u.id)).length, 4)
+
+  // And a draft from long ago is not the same draft.
+  await stack.sql(`update moderation_events set created_at = now() - interval '2 hours' where user_id = $1 and status = 'open'`, [u.id])
+  await assist(u.token, 'XXX-BORDER mid 20 girl that do things once more')
+  assert.equal((await events(u.id)).length, 5)
+})
+
+test('suggestions: text close to the line still gets its suggestion, and a word about the text; clean text gets no word', async () => {
+  const u = await stack.createUser()
+  const clean = await assist(u.token, 'I love this product')
+  assert.equal(clean.body.notice, undefined)
+
+  const close = await assist(u.token, 'XXX-BORDER she says hello to everyone')
+  assert.equal(close.status, 200)
+  assert.equal(close.body.suggestion, 'improved: XXX-BORDER she says hello to everyone')
+  assert.equal(close.body.notice.code, 'REVIEW')
+  assert.match(close.body.notice.message, /content guidelines/)
+})
+
+test('suggestions: when the rewriter will not help, the person is told so — and its refusal is never offered as their new text', async () => {
+  const u = await stack.createUser()
+  for (const said of ["I'm sorry, but I can't assist with that.", 'Sorry, I cannot help with this request.', 'I cannot rewrite that.', 'As an AI, I am not able to do this.']) {
+    stack.openai.chatMode.content = said
+    const res = await assist(u.token, `a perfectly fine script ${said.length}`)
+    assert.equal(res.status, 200)
+    assert.equal(res.body.suggestion, null, said)
+    assert.equal(res.body.notice.code, 'DECLINED', said)
+  }
+  // Nothing at all back: nothing to say.
+  stack.openai.chatMode.content = '   '
+  const empty = await assist(u.token, 'a perfectly fine script, again')
+  assert.deepEqual(empty.body, { suggestion: null })
+  // A rewrite that merely begins with "I can see" or "Sorry-not-sorry" is a rewrite.
+  stack.openai.chatMode.content = 'I can see her smiling warmly at the camera in golden light'
+  assert.equal((await assist(u.token, 'a perfectly fine script, thrice')).body.suggestion, 'I can see her smiling warmly at the camera in golden light')
 })
 
 test('suggestions: the checker being down refuses (closed) rather than rewriting unchecked text', async () => {

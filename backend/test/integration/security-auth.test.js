@@ -398,6 +398,24 @@ test('a reset link works once, only for reset, only while fresh — and opening 
   assert.equal((await login(u.email, 'attacker-chosen-pw-9')).status, 401)
 })
 
+test('the pages that say "done" show a tick that draws itself — and still load nothing from anywhere', async () => {
+  const u = await stack.createUser({ password: PASSWORD })
+  const verified = await form('/auth/confirm-email', { token: await plantToken(u.id, 'confirm_email') })
+  const updated = await form('/auth/reset-password', { token: await plantToken(u.id, 'reset_password'), password: 'brand-new-password-3', confirm: 'brand-new-password-3' })
+
+  for (const [page, heading] of [[verified, 'Email verified'], [updated, 'Password updated']]) {
+    assert.equal(page.status, 200)
+    assert.match(page.text, new RegExp(`<h1>${heading}</h1>`))
+    assert.match(page.text, /<svg class="tick"[^>]*role="img"/, `${heading}: the tick is there`)
+    assert.match(page.text, /stroke-dashoffset/, 'and it is drawn by the page\'s own CSS')
+    assert.match(page.text, /prefers-reduced-motion/, 'and stands still for anyone who asked for less motion')
+    assert.match(page.text, /class="button"/, 'the way back into the app is still there')
+    // The policy is what it was: no script, no outside resource, no frame.
+    assert.match(page.headers['content-security-policy'], /default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'/)
+    assert.ok(!/<script|<img|<link|src=|@import|url\(/i.test(page.text), 'nothing is loaded')
+  }
+})
+
 test('an expired or unknown link is the same gentle 410 page; none of them says whether an account exists', async () => {
   const u = await stack.createUser()
   const expired = await plantToken(u.id, 'reset_password', { expired: true })

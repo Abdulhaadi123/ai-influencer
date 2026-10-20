@@ -22,6 +22,15 @@
  *   • inside the window (MODERATION_STRIKE_WINDOW_DAYS);
  *   • one per MINUTE. A single tap on "generate" sends three prompts at once,
  *     and a refusal of all three is one mistake, not three.
+ *
+ * ── One draft is one entry ───────────────────────────────────────────────────
+ *
+ * The app asks for a suggestion on its own each time someone stops typing, so a single sentence
+ * typed in three bursts is three requests — and, for a sentence the checker holds or refuses, three
+ * queue items for a person to open and decide, one per half-written draft. A suggestion event
+ * (`prompt_assist`) therefore updates the open one of the same kind from the same person that
+ * begins the same way, if it is recent, instead of adding another: the queue shows the latest text
+ * once, newest at the top.
  */
 
 import { one, query } from '../db.js'
@@ -32,6 +41,10 @@ export const STRIKE_SOURCES = Object.freeze(['prompt', 'image', 'video'])
 
 /** A reviewer needs to see what was refused, not a whole essay. */
 export const EXCERPT_CHARS = 400
+
+/** How recent an open suggestion event must be for the next one to be the same draft, and how much of the start must agree. */
+const SAME_DRAFT_MINUTES = 15
+const SAME_DRAFT_PREFIX = 12
 
 /**
  * @param {object} event
@@ -55,6 +68,26 @@ export async function recordEvent(
   // A NUL in what a user typed would make PostgreSQL refuse the row, and the
   // refusal of a request must not turn into a server error because of it.
   const clean = value => (value === null || value === undefined ? null : String(value).replace(/\u0000/g, ''))
+
+  if (source === 'prompt_assist' && excerpt) {
+    const text = clean(excerpt).slice(0, EXCERPT_CHARS)
+    const { rows: same } = await run(
+      `update moderation_events
+          set categories = $4::text[], scores = $5::jsonb, excerpt = $6, model = $7, created_at = now()
+        where id = (
+          select id from moderation_events
+           where user_id = $1 and source = 'prompt_assist' and action = $2 and status = 'open'
+             and created_at > now() - $3::int * interval '1 minute'
+             and left(excerpt, ${SAME_DRAFT_PREFIX}) = left($6::text, ${SAME_DRAFT_PREFIX})
+           order by created_at desc
+           limit 1
+             for update skip locked)
+        returning id`,
+      [userId, action, SAME_DRAFT_MINUTES, categories, JSON.stringify(scores), text, model ? clean(model).slice(0, 200) : null],
+    )
+    if (same[0]) return same[0]
+  }
+
   const { rows } = await run(
     `insert into moderation_events (user_id, source, action, categories, scores, excerpt, asset_id, kie_task_id, model)
      values ($1, $2, $3, $4::text[], $5::jsonb, $6, $7, $8, $9)

@@ -14,12 +14,18 @@
  * optional — with no key configured the endpoint reports that plainly and the
  * suggestion UI never appears.
  *
- * Body: { text, kind } → { suggestion: string|null }
+ * Body: { text, kind } → { suggestion: string|null, notice?: { code, message } }
+ *
+ * `notice` is something to tell the person about THEIR text, shown beside the suggestion (or alone,
+ * when there is none): code REVIEW — the checker lets it through but it is close to the line — and
+ * DECLINED — the rewriter would not touch it. A text the checker refuses is not a notice but a 400
+ * CONTENT_BLOCKED, and the app says so too: a person who typed something unacceptable and saw nothing
+ * at all concluded the feature was broken.
  */
 
 import { requireUser, applyCors } from './_lib/auth.js'
 import { sendServerError } from './_lib/errors.js'
-import { screenText, ModerationRefusal } from './_lib/moderation/service.js'
+import { screenText, ModerationRefusal, MESSAGES } from './_lib/moderation/service.js'
 import { rateLimit } from '../lib/rateLimit.js'
 
 const OPENAI_KEY = process.env.OPENAI_API_KEY || ''
@@ -98,6 +104,14 @@ export function keepsTimings(input, output) {
   return [...wanted].every(s => got.has(s))
 }
 
+/**
+ * Whether what the model sent back is its refusal to help, not a rewrite. "I'm sorry, but I can't
+ * assist with that." is a perfectly fluent answer, and offering it as the person's new description —
+ * with a "Use suggestion" button — would put those words into their prompt.
+ */
+const REFUSAL = /^\s*(?:i['’]?m sorry|i am sorry|sorry[,.! ]|i can['’]?t\b|i cannot\b|i won['’]?t\b|i['’]?m unable|i am unable|unfortunately[, ]+i\b|as an ai\b)/i
+export const looksLikeRefusal = out => out.length < 400 && REFUSAL.test(out)
+
 export default async function handler(req, res) {
   if (applyCors(req, res)) return
 
@@ -129,10 +143,11 @@ export default async function handler(req, res) {
     return res.status(413).json({ error: 'This text is too long to improve.', code: 'TOO_LONG' })
   }
 
+  let verdict
   try {
     // Refused text is not rewritten. (Not a strike either — this endpoint fires
     // while the user is still typing; see moderation/events.js.)
-    await screenText({ user, text: input, source: 'prompt_assist' })
+    verdict = await screenText({ user, text: input, source: 'prompt_assist' })
   } catch (e) {
     if (e instanceof ModerationRefusal) return res.status(e.status).json({ error: e.message, code: e.code })
     return sendServerError(res, e, { tag: '[prompt-assist] moderation:', message: 'The prompt assistant is unavailable right now.' })
@@ -164,8 +179,18 @@ export default async function handler(req, res) {
     }
 
     const json = await upstream.json()
-    const out = json?.choices?.[0]?.message?.content?.trim()
-    if (!out) return res.status(200).json({ suggestion: null })
+    // Text that is allowed but close to the line is still answered, with a word of warning beside it.
+    const review = verdict === 'review' ? { code: 'REVIEW', message: MESSAGES.suggestionReview } : undefined
+    const declined = { code: 'DECLINED', message: MESSAGES.suggestionDeclined }
+
+    const message = json?.choices?.[0]?.message
+    const out = message?.content?.trim()
+    res.setHeader('Cache-Control', 'private, no-store')
+    // Nothing back, or the model's own refusal: there is no suggestion. Say why, when it is not the
+    // person's plain text (that case is the warning above).
+    if (!out || message?.refusal || looksLikeRefusal(out)) {
+      return res.status(200).json({ suggestion: null, notice: review ?? (out || message?.refusal ? declined : undefined) })
+    }
 
     // Models sometimes wrap the answer in quotes despite being told not to.
     const cleaned = out.replace(/^["'`]+|["'`]+$/g, '').trim()
@@ -180,8 +205,7 @@ export default async function handler(req, res) {
       suggestion = null
     }
 
-    res.setHeader('Cache-Control', 'private, no-store')
-    return res.status(200).json({ suggestion })
+    return res.status(200).json({ suggestion, notice: review })
   } catch (e) {
     return sendServerError(res, e, { tag: '[prompt-assist]', message: 'The prompt assistant is unavailable right now.' })
   }

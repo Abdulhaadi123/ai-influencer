@@ -98,7 +98,12 @@ what goes in and what comes out is checked. All of it lives in
 | A file sent through the proxy to KIE (`/api/file-base64-upload`) | before it is forwarded | `400 CONTENT_BLOCKED` / `MEDIA_UNVERIFIABLE` |
 | An uploaded file | in the background after `/api/storage/confirm`, and again on first use | blocked for good |
 | A generated result | when it is stored (webhook, worker, ingest) | quarantined: hidden from its owner, kept for an admin |
-| Suggestion text (`/api/prompt-assist`) | before it is rewritten | `400 CONTENT_BLOCKED`, not a strike |
+| Suggestion text (`/api/prompt-assist`) | before it is rewritten | `400 CONTENT_BLOCKED`, not a strike. Text held for review still gets its suggestion, with `notice: { code: 'REVIEW', message }` beside it; a rewriter that refuses ("I'm sorry, I can't…") gives `suggestion: null` and `notice: DECLINED`, never its refusal as the person's new text. The app draws the notice (or the 400's message) under the field — silence read as "nothing happened". |
+
+The app asks for a suggestion on its own each time typing pauses, so one sentence typed in bursts is several
+requests. A `prompt_assist` event **updates** the open one of the same kind from the same person that begins the same
+way (first 12 characters, within 15 minutes) instead of adding another, so the queue — and the Moderation badge —
+shows one item per draft, with the latest text (`recordEvent`, `moderation/events.js`).
 | A task KIE's own filter refuses ("flagged as sensitive") | when the failed job settles (callback, sync, worker) | the job fails with KIE's words and nothing is charged; a `provider` item appears in the queue (`providerRefusals.js`, migration 003) — **not a strike**, since KIE does not say whether the prompt, the reference or its own output was the trouble |
 
 The classifier is OpenAI's `omni-moderation-latest` (free; reuses `OPENAI_API_KEY`).

@@ -28,6 +28,16 @@ const STYLE = `
   input{width:100%;font-size:16px;padding:12px;border:1px solid #c7c7cc;border-radius:8px;margin:0 0 16px}
   button,.button{display:block;width:100%;text-align:center;font-size:16px;font-weight:600;padding:13px;border:0;
     border-radius:8px;background:#6d4aff;color:#fff;text-decoration:none;cursor:pointer}
+  .done{text-align:center}
+  .tick{display:block;margin:0 auto 20px;width:96px;height:96px;overflow:visible}
+  .tick .halo,.tick .disc{transform-box:fill-box;transform-origin:center}
+  .tick .halo{fill:#5b49b2;opacity:.14;animation:halo .7s ease-out both}
+  .tick .disc{fill:#5b49b2;animation:pop .5s cubic-bezier(.2,1.4,.4,1) both}
+  .tick .mark{fill:none;stroke:#fff;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:80;stroke-dashoffset:80;animation:draw .45s .38s ease-out forwards}
+  @keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}
+  @keyframes halo{from{transform:scale(.3);opacity:0}to{transform:scale(1);opacity:.14}}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  @media (prefers-reduced-motion: reduce){.tick .halo,.tick .disc,.tick .mark{animation:none}.tick .mark{stroke-dashoffset:0}}
   .error{background:#fdecec;color:#b3261e;border-radius:8px;padding:12px;margin:0 0 16px}
   .hint{font-size:13px;color:#6e6e73;margin:-8px 0 16px}
   .muted{font-size:13px;color:#6e6e73;margin-top:16px}
@@ -64,6 +74,17 @@ export function sendPage(res, { status = 200, title, body }) {
 </head>
 <body><main>${body}</main></body>
 </html>`)
+}
+
+/**
+ * A page that says something has been done: a violet disc, and a tick that draws itself. Inline SVG and a few lines
+ * of the page's own CSS — nothing is loaded from anywhere, so the policy above still allows it — and it stands still
+ * for anyone who has asked their device for less motion. `html` is what goes under it, already escaped.
+ */
+export function successBlock(html) {
+  return `<div class="done"><svg class="tick" viewBox="0 0 120 120" role="img" aria-label="Done">` +
+    `<circle class="halo" cx="60" cy="60" r="58"/><circle class="disc" cx="60" cy="60" r="44"/>` +
+    `<path class="mark" d="M37 62 L54 79 L85 43"/></svg>${html}</div>`
 }
 
 /** Opens the app on a phone that has it installed. */

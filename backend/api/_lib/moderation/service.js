@@ -77,6 +77,9 @@ export const MESSAGES = Object.freeze({
   blockedFile: 'One of the files you selected cannot be used because it goes against our content guidelines.',
   unavailable: 'We could not check your content right now. Please try again in a moment.',
   unverifiable: 'One of the files you selected could not be checked, so it cannot be used. Please choose a different file.',
+  // Said beside a suggestion, to someone still typing: text that is allowed but close to the line.
+  suggestionReview: 'This description may go against our content guidelines. Please reword it, or the request could be refused.',
+  suggestionDeclined: 'We could not suggest an improvement for this text. Try describing it a little differently.',
   notAllowed: 'One of the files you selected cannot be used. Please choose a file from your library.',
   notFound: 'One of the files you selected could not be found.',
   tooMany: 'Too many files were attached to this request.',

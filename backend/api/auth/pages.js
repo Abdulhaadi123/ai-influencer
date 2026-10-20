@@ -20,7 +20,7 @@
 
 import { one, transaction } from '../_lib/db.js'
 import { clientIp } from '../_lib/auth.js'
-import { sendPage, escapeHtml, openAppLink } from '../_lib/pages.js'
+import { sendPage, escapeHtml, openAppLink, successBlock } from '../_lib/pages.js'
 import { passwordProblem, hashPassword, MIN_PASSWORD_LENGTH } from '../_lib/passwords.js'
 import { hashToken, revokeAllSessions } from '../_lib/sessions.js'
 import { createRateLimiter } from '../../lib/rateLimit.js'
@@ -120,9 +120,8 @@ export const confirmEmailSubmit = pageRoute('[pages/confirm POST]', async (req, 
 
   sendPage(res, {
     title: 'Email verified',
-    body: `<h1>Email verified</h1>
-<p>Your account is now active. Return to the app and sign in.</p>
-${openAppLink()}`,
+    body: successBlock(`<h1>Email verified</h1>
+<p>Your account is now active. Return to the app and sign in.</p>`) + openAppLink(),
   })
 })
 
@@ -194,8 +193,7 @@ export const resetPasswordSubmit = pageRoute('[pages/reset POST]', async (req, r
 
   sendPage(res, {
     title: 'Password updated',
-    body: `<h1>Password updated</h1>
-<p>Your password has been changed and you have been signed out on all devices. Sign in with your new password.</p>
-${openAppLink()}`,
+    body: successBlock(`<h1>Password updated</h1>
+<p>Your password has been changed and you have been signed out on all devices. Sign in with your new password.</p>`) + openAppLink(),
   })
 })
