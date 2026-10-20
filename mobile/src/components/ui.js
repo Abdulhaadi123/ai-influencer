@@ -297,15 +297,20 @@ export function ProgressBar({ value }) {
  * The design's text field: a tinted, fully rounded bar (a taller, softer box when it holds
  * more than a line). `tone="auth"` is the plain grey one the sign-in screens use.
  */
-export const PillInput = forwardRef(function PillInput({ multiline, error, tone, style, ...props }, ref) {
+export const PillInput = forwardRef(function PillInput({ multiline, error, tone, style, secureTextEntry, ...props }, ref) {
   const { colors } = useTheme()
   const auth = tone === 'auth'
-  return (
+  // A password field has an eye at its end to show what was typed. (Every field takes the same
+  // props as before; only one that asks for `secureTextEntry` is wrapped.)
+  const [shown, setShown] = useState(false)
+
+  const input = (
     <TextInput
       ref={ref}
       multiline={multiline}
       placeholderTextColor={auth ? colors.textTertiary : colors.placeholder}
       {...props}
+      secureTextEntry={secureTextEntry ? !shown : undefined}
       style={[
         styles.input,
         multiline && styles.inputMultiline,
@@ -315,8 +320,29 @@ export const PillInput = forwardRef(function PillInput({ multiline, error, tone,
           borderColor: error ? colors.danger : auth ? 'transparent' : colors.glassEdge,
         },
         style,
+        // An email address or a password is typed left to right, from the left, whatever the phone's
+        // language. (The sign-in screens used to centre the text, so typing began in the middle.) Other
+        // fields — a description in someone's own language — keep the platform's own direction.
+        (auth || secureTextEntry) && styles.inputLeft,
+        secureTextEntry && styles.inputWithEye,
       ]}
     />
+  )
+  if (!secureTextEntry) return input
+
+  return (
+    <View>
+      {input}
+      <Pressable
+        onPress={() => setShown(s => !s)}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={shown ? 'Hide password' : 'Show password'}
+        style={styles.eye}
+      >
+        <Icon name={shown ? 'eyeOff' : 'eye'} size={21} color={colors.textTertiary} />
+      </Pressable>
+    </View>
   )
 })
 
@@ -446,6 +472,9 @@ const styles = StyleSheet.create({
     fontSize: 15, minHeight: layout.controlHeight,
   },
   inputMultiline: { borderRadius: radius.lg, minHeight: 110, paddingTop: space.md + 2, paddingBottom: space.md, textAlignVertical: 'top' },
+  inputLeft: { textAlign: 'left', writingDirection: 'ltr' },
+  inputWithEye: { paddingRight: 54 },
+  eye: { position: 'absolute', right: 8, top: 0, bottom: 0, width: 42, alignItems: 'center', justifyContent: 'center' },
 
   button: { minHeight: layout.controlHeight, borderRadius: radius.pill, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xl },
   buttonSmall: { minHeight: 40, paddingHorizontal: space.lg },

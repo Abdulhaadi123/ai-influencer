@@ -8,7 +8,7 @@
  *
  * Whether a confirmation email is required is a server setting (REQUIRE_EMAIL_CONFIRMATION), not
  * something this screen decides — so it handles both outcomes rather than
- * assuming one.
+ * assuming one. When one is required the whole page changes to "Email sent" (VerifyEmailScreen).
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react'
@@ -19,23 +19,19 @@ import { validatePassword, MIN_PASSWORD_LENGTH } from '@core/auth'
 import { userMessage } from '@core/errors'
 
 import {
-  AuthShell, Field, PrimaryButton, LinkButton, FormError, FormNotice,
+  AuthShell, Field, PrimaryButton, LinkButton, FormError,
   emailProps, passwordProps,
 } from './parts'
 
 export default function SignUpScreen({ navigation }) {
-  const { signUp, resendConfirmation } = useAuth()
+  const { signUp } = useAuth()
 
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState(null)
-  const [notice, setNotice] = useState(null)
   const [busy, setBusy] = useState(false)
-  /** The address a confirmation email went to, once one has. */
-  const [sentTo, setSentTo] = useState(null)
-  const [resending, setResending] = useState(false)
 
   const emailRef = useRef(null)
   const passwordRef = useRef(null)
@@ -58,14 +54,11 @@ export default function SignUpScreen({ navigation }) {
     if (busy || !canSubmit) return
     setBusy(true)
     setError(null)
-    setNotice(null)
     try {
       const { needsEmailConfirmation } = await signUp({ email, password, displayName })
 
-      if (needsEmailConfirmation) {
-        setSentTo(email.trim())
-        setNotice(`Account created. We've sent a verification link to ${email.trim()}. Verify your email, then sign in.`)
-      }
+      // `replace`, not `navigate`: going back must not land on this form, still filled in.
+      if (needsEmailConfirmation) navigation.replace('VerifyEmail', { email: email.trim() })
       // Otherwise the session arrives and the auth gate swaps the navigator —
       // nothing to do here.
     } catch (e) {
@@ -73,7 +66,7 @@ export default function SignUpScreen({ navigation }) {
     } finally {
       setBusy(false)
     }
-  }, [busy, canSubmit, email, password, displayName, signUp])
+  }, [busy, canSubmit, email, password, displayName, signUp, navigation])
 
   return (
     <AuthShell
@@ -81,7 +74,6 @@ export default function SignUpScreen({ navigation }) {
       footer={<LinkButton prefix="Already have an account?" title="Sign in" onPress={() => navigation.navigate('SignIn')} />}
     >
       <FormError>{error}</FormError>
-      <FormNotice>{notice}</FormNotice>
 
       <Field
         label="Name"
@@ -138,24 +130,6 @@ export default function SignUpScreen({ navigation }) {
         <PrimaryButton title="Continue" onPress={submit} loading={busy} disabled={!canSubmit} />
       </View>
 
-      {sentTo ? (
-        <LinkButton
-          title={resending ? 'Sending…' : 'Resend verification email'}
-          onPress={async () => {
-            if (resending) return
-            setResending(true)
-            setError(null)
-            try {
-              await resendConfirmation(sentTo)
-              setNotice(`A new verification link has been sent to ${sentTo}. Please check your spam folder if you don't see it.`)
-            } catch (e) {
-              setError(userMessage(e, 'Unable to send the email. Please try again.'))
-            } finally {
-              setResending(false)
-            }
-          }}
-        />
-      ) : null}
     </AuthShell>
   )
 }

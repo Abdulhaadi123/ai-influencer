@@ -110,6 +110,28 @@ const SHAPES = {
       <Path d="M3 10h18M7 15h3.2" />
     </G>
   ),
+  // An eye, open: the password is hidden, tap to show it. With a slash: it is shown, tap to hide it.
+  eye: ({ color }) => (
+    <G fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M2.6 12S6 5.6 12 5.6 21.4 12 21.4 12 18 18.4 12 18.4 2.6 12 2.6 12z" />
+      <Circle cx="12" cy="12" r="2.9" />
+    </G>
+  ),
+  eyeOff: ({ color }) => (
+    <G fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M2.6 12S6 5.6 12 5.6 21.4 12 21.4 12 18 18.4 12 18.4 2.6 12 2.6 12z" />
+      <Circle cx="12" cy="12" r="2.9" />
+      <Path d="M4.6 4.6l14.8 14.8" />
+    </G>
+  ),
+  // A triangle with a mark: something to read before going on.
+  warning: ({ color }) => (
+    <G fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M12 3.8 21.2 19.6H2.8z" />
+      <Path d="M12 10v4.2" />
+      <Circle cx="12" cy="16.9" r="0.6" fill={color} />
+    </G>
+  ),
   plus: ({ color }) => <Path d="M12 5v14M5 12h14" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />,
   share: ({ color }) => (
     <Path d="M12 15V3.8M7.6 8 12 3.6 16.4 8M5 12.5v6.2c0 .9.7 1.6 1.6 1.6h10.8c.9 0 1.6-.7 1.6-1.6v-6.2" fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round" />

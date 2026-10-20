@@ -402,6 +402,7 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
         />
         <PromptSuggestion
           suggestion={assist.suggestion}
+          notice={assist.notice}
           loading={assist.loading}
           onUse={() => { const next = assist.suggestion; set('description', next); assist.ignore(next) }}
           onDismiss={assist.dismiss}

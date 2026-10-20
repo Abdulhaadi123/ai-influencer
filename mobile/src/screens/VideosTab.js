@@ -289,6 +289,7 @@ export default function VideosTab({ influencer }) {
         />
         <PromptSuggestion
           suggestion={assist.suggestion}
+          notice={assist.notice}
           loading={assist.loading}
           onUse={() => { const next = assist.suggestion; set('dialogue', next); assist.ignore(next) }}
           onDismiss={assist.dismiss}
@@ -307,6 +308,7 @@ export default function VideosTab({ influencer }) {
         />
         <PromptSuggestion
           suggestion={sceneAssist.suggestion}
+          notice={sceneAssist.notice}
           loading={sceneAssist.loading}
           onUse={() => { const next = sceneAssist.suggestion; set('scene', next); sceneAssist.ignore(next) }}
           onDismiss={sceneAssist.dismiss}

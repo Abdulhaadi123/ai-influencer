@@ -23,8 +23,12 @@ import { useTheme, space, radius, font, layout } from '../../theme'
 import { Button, PillInput } from '../../components/ui'
 import { Logo } from '../../components/brand'
 
-/** Page frame: keyboard-aware, scrollable. Content at the top, the footer at the bottom. */
-export function AuthShell({ title, subtitle, children, footer }) {
+/**
+ * Page frame: keyboard-aware, scrollable. Content at the top, the footer at the bottom.
+ * `hero` is a picture between the logo and the title (the tick of the "check your email" page);
+ * `subtitle` may be text with parts in bold.
+ */
+export function AuthShell({ title, subtitle, hero, children, footer }) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
 
@@ -41,7 +45,8 @@ export function AuthShell({ title, subtitle, children, footer }) {
         keyboardShouldPersistTaps="handled"
       >
         <View>
-          <View style={styles.logo}><Logo height={30} /></View>
+          <View style={[styles.logo, hero && styles.logoAboveHero]}><Logo height={30} /></View>
+          {hero ? <View style={styles.hero}>{hero}</View> : null}
 
           <View style={styles.header}>
             <Text style={[styles.title, font('bold'), { color: colors.textPrimary }]} accessibilityRole="header">{title}</Text>
@@ -149,6 +154,8 @@ export function FormNotice({ children }) {
 const styles = StyleSheet.create({
   scroll: { paddingHorizontal: layout.gutter + 16, flexGrow: 1, justifyContent: 'space-between' },
   logo: { alignItems: 'center', marginBottom: space.xxl + space.md },
+  logoAboveHero: { marginBottom: space.xl },
+  hero: { alignItems: 'center', marginBottom: space.xl },
   header: { marginBottom: space.lg, alignItems: 'center' },
   title: { fontSize: 22, letterSpacing: -0.3, textAlign: 'center' },
   subtitle: { fontSize: 14, lineHeight: 20, marginTop: space.sm, textAlign: 'center' },
@@ -157,7 +164,7 @@ const styles = StyleSheet.create({
 
   field: { marginBottom: space.md },
   label: { fontSize: 15, marginBottom: space.sm, textAlign: 'center' },
-  input: { textAlign: 'center' },
+  input: {},
   hint: { fontSize: 12, marginTop: 6, lineHeight: 16, textAlign: 'center' },
   fieldError: { fontSize: 12, marginTop: 6, lineHeight: 16, fontWeight: '500', textAlign: 'center' },
 

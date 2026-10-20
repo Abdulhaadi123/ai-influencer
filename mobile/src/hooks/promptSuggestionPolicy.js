@@ -24,9 +24,10 @@ export const REQUEST = 'request'
  * @param {boolean} input.available  whether the server has an assistant at all
  * @param {number} input.minLength   below this there is no intent to improve on
  * @param {boolean} input.ignored    text the user did not write (see below)
- * @param {string|null|undefined} input.cached  a previous answer for this exact
- *        text; `undefined` means never asked, `null` means asked and not worth
- *        showing — which is still an answer and must not be asked again
+ * @param {object|null|undefined} input.cached  a previous answer for this exact
+ *        text (the hook caches `{ suggestion, notice }`); `undefined` means never
+ *        asked, `null` means asked and there was nothing to show — which is still
+ *        an answer and must not be asked again
  * @returns {{action: string, suggestion?: string|null, reason: string}}
  */
 export function nextAction({ text, available, minLength, ignored = false, cached }) {

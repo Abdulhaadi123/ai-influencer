@@ -6,14 +6,44 @@
  *
  * In the design it is a dashed, frosted card with a small orb beside "Suggestions", the
  * suggested text in violet, and a white pill to accept it.
+ *
+ * It is also where the assistant says something about the text itself: that it goes against the
+ * content guidelines (`notice.tone` "blocked"), that it may ("warning"), or that nothing could be
+ * done with it ("info"). Silence here read as "nothing happened", which was the wrong answer to a
+ * description the server had refused.
  */
 
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 
 import { useTheme, space, radius, font } from '../theme'
 import { Orb } from './brand'
+import Icon from './icons'
 
-export default function PromptSuggestion({ suggestion, loading, onUse, onDismiss }) {
+function Notice({ notice, onDismiss }) {
+  const { colors } = useTheme()
+  const look = {
+    blocked: { fg: colors.danger, bg: colors.dangerSoft, icon: 'warning' },
+    warning: { fg: colors.warning, bg: colors.warningSoft, icon: 'warning' },
+    info: { fg: colors.textSecondary, bg: colors.accentSoft, icon: 'sparkle' },
+  }[notice.tone] || { fg: colors.textSecondary, bg: colors.accentSoft, icon: 'sparkle' }
+
+  return (
+    <View
+      accessibilityRole="alert"
+      style={[styles.notice, { backgroundColor: look.bg, borderColor: look.fg }]}
+    >
+      <View style={styles.noticeIcon}><Icon name={look.icon} size={20} color={look.fg} /></View>
+      <Text style={[styles.noticeText, { color: colors.textPrimary }]}>{notice.message}</Text>
+      {onDismiss ? (
+        <Pressable onPress={onDismiss} hitSlop={10} accessibilityRole="button" accessibilityLabel="Dismiss">
+          <Icon name="close" size={16} color={colors.textTertiary} />
+        </Pressable>
+      ) : null}
+    </View>
+  )
+}
+
+export default function PromptSuggestion({ suggestion, notice, loading, onUse, onDismiss }) {
   const { colors } = useTheme()
 
   if (loading) {
@@ -27,9 +57,11 @@ export default function PromptSuggestion({ suggestion, loading, onUse, onDismiss
     )
   }
 
-  if (!suggestion) return null
+  if (!suggestion) return notice ? <Notice notice={notice} onDismiss={onDismiss} /> : null
 
   return (
+    <>
+    {notice ? <Notice notice={notice} /> : null}
     <View style={[styles.wrap, { borderColor: colors.border, backgroundColor: colors.glass }]}>
       <View style={styles.header}>
         <View style={styles.title}>
@@ -55,10 +87,18 @@ export default function PromptSuggestion({ suggestion, loading, onUse, onDismiss
         <Text style={[styles.useText, font('medium'), { color: colors.primary }]}>Use Suggestion</Text>
       </Pressable>
     </View>
+    </>
   )
 }
 
 const styles = StyleSheet.create({
+  notice: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: space.md,
+    borderWidth: 1, borderRadius: radius.md, padding: space.md + 2, marginTop: space.md,
+  },
+  noticeIcon: { marginTop: 1 },
+  noticeText: { flex: 1, fontSize: 13.5, lineHeight: 19 },
+
   wrap: {
     borderWidth: 1.2,
     borderStyle: 'dashed',

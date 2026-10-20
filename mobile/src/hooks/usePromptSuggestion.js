@@ -34,7 +34,9 @@ import { nextAction, CLEAR, SHOW } from './promptSuggestionPolicy'
 const DEBOUNCE_MS = 900
 
 export function usePromptSuggestion(text, kind = 'appearance') {
-  const [suggestion, setSuggestion] = useState(null)
+  // What the assistant said about this text: { suggestion, notice } — a stronger version, a word of
+  // warning about the text itself, both, or nothing. The cache holds the same thing per text.
+  const [answer, setAnswer] = useState(null)
   const [loading, setLoading] = useState(false)
   const [dismissed, setDismissed] = useState(false)
 
@@ -61,12 +63,12 @@ export function usePromptSuggestion(text, kind = 'appearance') {
     })
 
     if (decision.action === CLEAR) {
-      setSuggestion(null)
+      setAnswer(null)
       setLoading(false)
       return
     }
     if (decision.action === SHOW) {
-      setSuggestion(decision.suggestion)
+      setAnswer(decision.suggestion)   // (the policy hands back whatever was cached)
       setLoading(false)
       return
     }
@@ -81,14 +83,15 @@ export function usePromptSuggestion(text, kind = 'appearance') {
       try {
         const result = await improvePrompt(trimmed, { kind, signal: controller.signal })
         if (controller.signal.aborted) return
+        // `null` is "nothing was asked" (unavailable): still an answer, so it is not asked again.
         cacheRef.current.set(trimmed, result)
-        setSuggestion(result)
+        setAnswer(result)
       } catch (e) {
         if (e?.name !== 'AbortError') {
           // A failing assistant must never block writing a prompt, so this is
           // logged and the UI simply shows nothing.
           console.warn('[promptAssist]', e?.message ?? e)
-          setSuggestion(null)
+          setAnswer(null)
         }
       } finally {
         if (!controller.signal.aborted) setLoading(false)
@@ -119,12 +122,14 @@ export function usePromptSuggestion(text, kind = 'appearance') {
     // A pending request for this exact text is no longer wanted.
     clearTimeout(timerRef.current)
     abortRef.current?.abort()
-    setSuggestion(null)
+    setAnswer(null)
     setLoading(false)
   }, [])
 
   return {
-    suggestion: dismissed ? null : suggestion,
+    suggestion: dismissed ? null : answer?.suggestion ?? null,
+    /** A word about the text itself — it may not be allowed, or could not be improved — or null. */
+    notice: dismissed ? null : answer?.notice ?? null,
     loading: loading && !dismissed,
     dismiss,
     ignore,

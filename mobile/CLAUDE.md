@@ -84,6 +84,15 @@ Things that look like details and are not:
   `aiinfluencer://` links, and a page also works when the email is read on a
   computer. There are no deep-link routes for them.
 
+- **Sign-up ends on its own page.** When the server says a confirmation email is needed,
+  `SignUpScreen` *replaces* itself with `VerifyEmailScreen` (an animated tick — `SuccessTick`, SVG, still for
+  reduce-motion — "Email sent", the address, **Go to sign in**, resend). Going back must not land on the filled-in form.
+  The pages the email link opens (`backend/api/_lib/pages.js`, `successBlock`) draw the same tick.
+- **Every password field has an eye** (`PillInput` with `secureTextEntry`, so Settings' dialogs too), and the auth
+  fields type from the left (`inputLeft`) — they used to be centred, which made typing begin mid-field.
+- **The suggestion card says something about the text**, not only offers a rewrite: `improvePrompt` returns
+  `{ suggestion, notice }` (a refusal, `CONTENT_BLOCKED`, is returned as a `blocked` notice, not thrown).
+
 Errors are deliberately vague about whether an account exists — "that email and
 password combination is not right", and forgot-password / resend always report
 success. Both prevent account enumeration. Do not "improve" them.

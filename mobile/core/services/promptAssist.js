@@ -41,11 +41,18 @@ export function isAvailable() {
 }
 
 /**
+ * What comes back is an answer to show, not just a string: the stronger text (or null when
+ * there is none worth offering) and, when the server has something to say about the text itself —
+ * that it may go against the content guidelines, or that it could not be improved — a `notice`.
+ * A refusal (`CONTENT_BLOCKED`) is an answer too, and is returned as one rather than thrown:
+ * the person typing must be told, not shown nothing.
+ *
  * @param {string} text                what the user typed
  * @param {object} [opts]
- * @param {'appearance'|'script'} [opts.kind]
+ * @param {'appearance'|'script'|'scene'} [opts.kind]
  * @param {AbortSignal} [opts.signal]  cancels a request the user has typed past
- * @returns {Promise<string|null>} the improved text, or null if not worth showing
+ * @returns {Promise<{suggestion: string|null, notice: {tone: 'blocked'|'warning'|'info', message: string}|null}|null>}
+ *          null when there was nothing to ask
  */
 export async function improvePrompt(text, { kind = 'appearance', signal } = {}) {
   const input = (text || '').trim()
@@ -58,8 +65,12 @@ export async function improvePrompt(text, { kind = 'appearance', signal } = {}) 
       body: { text: input, kind },
       signal,
     })
-    return json?.suggestion ?? null
+    return { suggestion: json?.suggestion ?? null, notice: noticeFrom(json?.notice) }
   } catch (e) {
+    // The server's own refusal of the text: say so, in the server's words.
+    if (e instanceof ApiError && e.code === 'CONTENT_BLOCKED') {
+      return { suggestion: null, notice: { tone: 'blocked', message: e.message } }
+    }
     // 501 means the server has no OpenAI key. That is a configuration state,
     // not a failure — stop asking for the rest of the session rather than
     // retrying on every keystroke pause.
@@ -69,4 +80,10 @@ export async function improvePrompt(text, { kind = 'appearance', signal } = {}) 
     }
     throw e
   }
+}
+
+/** A notice from the server ({ code, message }) as the card draws it. Anything else is no notice. */
+function noticeFrom(raw) {
+  if (!raw || typeof raw.message !== 'string' || !raw.message) return null
+  return { tone: raw.code === 'REVIEW' ? 'warning' : 'info', message: raw.message }
 }

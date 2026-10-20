@@ -49,6 +49,7 @@ import WelcomeScreen from '../screens/auth/WelcomeScreen'
 import SignInScreen from '../screens/auth/SignInScreen'
 import SignUpScreen from '../screens/auth/SignUpScreen'
 import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen'
+import VerifyEmailScreen from '../screens/auth/VerifyEmailScreen'
 
 import { useQueueSync } from '../hooks/useQueueSync'
 import { useCollectedResults, usePollingWhileForeground } from '../hooks/useCollectedResults'
@@ -169,6 +170,7 @@ function AuthFlow() {
       <AuthStack.Screen name="Welcome" component={WelcomeScreen} />
       <AuthStack.Screen name="SignIn" component={SignInScreen} />
       <AuthStack.Screen name="SignUp" component={SignUpScreen} />
+      <AuthStack.Screen name="VerifyEmail" component={VerifyEmailScreen} options={{ animation: 'fade' }} />
       <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
     </AuthStack.Navigator>
   )

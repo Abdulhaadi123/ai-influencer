@@ -65,6 +65,8 @@ const light = {
   success: '#16A34A',
   danger: '#E0142E',
   dangerSoft: 'rgba(255,60,110,0.16)',
+  warning: '#B45309',
+  warningSoft: 'rgba(245,158,11,0.16)',
 
   // Kept names (see the header).
   brand: '#5B49B2',
@@ -117,6 +119,8 @@ const dark = {
   success: '#4ADE80',
   danger: '#FF6B81',
   dangerSoft: 'rgba(255,90,120,0.18)',
+  warning: '#FBBF24',
+  warningSoft: 'rgba(251,191,36,0.16)',
 
   brand: '#9A87FF',
   brandDeep: '#B7A9FF',
