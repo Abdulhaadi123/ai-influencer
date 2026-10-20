@@ -37,6 +37,7 @@ export function reset() {
   win.document.documentElement.removeAttribute('data-theme')
   win.location.hash = ''
   win.localStorage.clear()
+  win.sessionStorage.clear()
 }
 
 export const dom = () => win

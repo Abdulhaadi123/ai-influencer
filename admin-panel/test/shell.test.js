@@ -5,6 +5,7 @@
 import test, { beforeEach, afterEach, mock } from 'node:test'
 import assert from './assert.js'
 
+import { STORAGE_KEY } from '../lib/api.js'
 import {
   installDom, reset, click, type, submit, press, settle, text, all, byText, dom, stats, creditsSummary, config, user, event, ID,
 } from './helpers.js'
@@ -151,15 +152,15 @@ test('signing in sends the credentials once, checks the admin area with the toke
   assert.equal(root.querySelector('input[type=password]'), null, 'the sign-in form is gone')
 })
 
-test('the session lives in memory only: nothing is written to storage or cookies', async () => {
+test('the session belongs to this tab: only the refresh token is kept, in sessionStorage — never localStorage, cookies, the access token or the password', async () => {
   await bootSignedIn()
   const w = dom()
-  assert.equal(w.sessionStorage.length, 0)
-  assert.deepEqual(Object.keys(w.localStorage), [], 'the panel keeps nothing at all')
+  assert.deepEqual(Object.keys(w.localStorage), [], 'nothing that outlives the tab')
   assert.equal(w.document.cookie, '')
-  for (const key of Object.keys(w.localStorage)) {
-    assert.doesNotMatch(w.localStorage.getItem(key), /access-1|refresh-1|throwaway/)
-  }
+  assert.equal(w.sessionStorage.length, 1)
+  const kept = w.sessionStorage.getItem(w.sessionStorage.key(0))
+  assert.match(kept, /refresh-1/)
+  assert.doesNotMatch(kept, /access-1|throwaway/)
 })
 
 test('a person who is not an administrator is turned away and signed out again', async () => {
@@ -189,6 +190,92 @@ test('signing out tells the server, forgets the session and shows the sign-in sc
   assert.equal(document.title, 'Sign in · Influenza Admin')
   assert.equal(app.api.isSignedIn(), false)
   assert.equal(app.api.user, null)
+})
+
+// ── Reloading the page ──────────────────────────────────────────────────────
+
+/** What a signed-in tab holds when its page is reloaded: the page is gone, the tab's sessionStorage is not. */
+function leaveSavedSession(refreshToken = 'refresh-1') {
+  dom().sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ refreshToken, user: ME }))
+}
+const savedToken = () => JSON.parse(dom().sessionStorage.getItem(STORAGE_KEY) ?? 'null')?.refreshToken ?? null
+
+test('reloading the page keeps you signed in, on the page you were on, without asking for the password again', async () => {
+  leaveSavedSession()
+  dom().location.hash = '#/users'
+  boot()
+  assert.ok(root.querySelector('[role=status]'), 'a moment of "Signing you back in…"')
+  assert.equal(root.querySelector('input[type=password]'), null, 'the sign-in form is never shown')
+  await settle(14)
+
+  assert.ok(document.querySelector('.sidebar'), 'the panel is back')
+  assert.equal(current(), 'users', 'on the same page')
+  assert.equal(requests('POST', '/api/auth/login').length, 0, 'no password was asked for or sent')
+  const refreshes = requests('POST', '/api/auth/refresh')
+  assert.equal(refreshes.length, 1)
+  assert.deepEqual(refreshes[0].body, { refreshToken: 'refresh-1' }, 'the refresh token the tab kept')
+  assert.equal(requests('GET', '/api/admin/stats').at(-1).auth, 'Bearer access-2', 'and the fresh access token is what is used')
+  assert.equal(savedToken(), 'refresh-2', 'the rotated token replaced the old one')
+  assert.match(text(document.querySelector('.me-email')), /admin@test\.example/)
+})
+
+test('signing out forgets the tab\'s session: a reload afterwards is the sign-in screen', async () => {
+  await bootSignedIn()
+  click(byText(document, '.sidebar-foot button', 'Sign out'))
+  await settle(6)
+  assert.equal(dom().sessionStorage.length, 0)
+
+  document.body.replaceChildren()
+  boot()
+  assert.ok(root.querySelector('input[type=password]'))
+  assert.equal(root.querySelector('[role=status]'), null)
+  assert.equal(requests('POST', '/api/auth/refresh').length, 0)
+})
+
+test('a reload after the server has ended the session is the sign-in screen, with the reason, once', async () => {
+  leaveSavedSession('revoked')
+  boot({ 'POST /api/auth/refresh': () => { throw new HttpError(401, 'Your session has expired. Please sign in again.', 'SESSION_EXPIRED') } })
+  await settle(14)
+  assert.equal(document.querySelector('.sidebar'), null)
+  assert.ok(root.querySelector('input[type=password]'))
+  assert.match(text(root.querySelector('[role=alert]')), /Your session ended\. Please sign in again\./)
+  assert.equal(dom().sessionStorage.length, 0, 'and it is forgotten')
+  assert.equal(root.querySelectorAll('form').length, 1)
+})
+
+test('a reload when the server cannot be reached does not sign you out: there is a Try again', async () => {
+  leaveSavedSession()
+  let up = false
+  boot({ 'POST /api/auth/refresh': () => { if (!up) throw new TypeError('Failed to fetch'); return { session: { accessToken: 'access-9', refreshToken: 'refresh-9', expiresIn: 3600, user: ME } } } })
+  await settle(14)
+  assert.equal(document.querySelector('.sidebar'), null)
+  assert.equal(root.querySelector('input[type=password]'), null, 'not the sign-in screen')
+  const retry = byText(root, 'button', 'Try again')
+  assert.ok(retry, 'a way to try again')
+  assert.equal(savedToken(), 'refresh-1', 'the session is still there')
+
+  up = true
+  click(retry)
+  await settle(14)
+  assert.ok(document.querySelector('.sidebar'), 'and now the panel is back')
+  assert.equal(savedToken(), 'refresh-9')
+})
+
+test('a reload when the account is no longer an administrator is turned away and signed out', async () => {
+  leaveSavedSession()
+  boot({ 'GET /api/admin/stats': () => { throw new HttpError(403, 'This area is for administrators.', 'NOT_ADMIN') } })
+  await settle(14)
+  assert.equal(document.querySelector('.sidebar'), null)
+  assert.match(text(root.querySelector('[role=alert]')), /not an administrator/)
+  assert.equal(dom().sessionStorage.length, 0)
+  assert.equal(requests('POST', '/api/auth/logout').length, 1)
+})
+
+test('rubbish in the tab\'s storage is the sign-in screen, and sends nothing', async () => {
+  dom().sessionStorage.setItem(STORAGE_KEY, '{"refreshToken": 42, "user": null}')
+  boot()
+  assert.ok(root.querySelector('input[type=password]'))
+  assert.equal(log.length, 0)
 })
 
 test('after signing out, moving the address does nothing — no request is made for a page nobody can see', async () => {

@@ -266,8 +266,9 @@ what you filtered by live in the address (`#/users?q=mia&status=suspended`,
   when it runs, so two admins demoting each other cannot leave nobody. Viewing a
   user's file is logged. The page's Content-Security-Policy forbids inline script,
   inline style and framing; the panel never inserts server data as HTML; it keeps
-  nothing in the browser at all (no `localStorage`, no cookie): the token lives in
-  memory only, so there is no CSRF. Tests enforce all of that over every panel file.
+  nothing that outlives the tab (no `localStorage`, no cookie): the access token lives in
+  memory and the refresh token in the tab's `sessionStorage` (so a reload does not sign out;
+  closing the tab does), so there is no CSRF. Tests enforce all of that over every panel file.
 - **Where the panel lives.** In the repository's `admin-panel/` folder, beside `backend/`. The
   server looks there, or at `ADMIN_UI_DIR`; in Docker, `docker-compose.yml` mounts the folder
   read-only at `/admin-panel`. Without it the server still starts, logs a warning, and answers

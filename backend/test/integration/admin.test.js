@@ -696,12 +696,12 @@ panelTest('every module the panel imports is a panel file, so nothing is request
   }
 })
 
-panelTest('the panel scripts never insert server data as HTML, reach out anywhere but the API, or keep anything in storage', () => {
+panelTest('the panel scripts never insert server data as HTML, reach out anywhere but the API, or keep anything in storage but its own tab session', () => {
   const code = file => readFileSync(join(UI_DIR, file), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '') // comments may name the rules they follow
     .replace(/^\s*\/\/.*$/gm, '')
   const forbidden = [
-    'innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write', 'eval(', 'new Function', 'sessionStorage', 'document.cookie',
+    'innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write', 'eval(', 'new Function', 'document.cookie',
     "setAttribute('style'", 'setAttribute("style"', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'window.open', 'postMessage',
     "createElement('script')", 'createElement("script")', "createElement('iframe')", 'import(', 'importScripts', 'srcdoc',
   ]
@@ -709,7 +709,10 @@ panelTest('the panel scripts never insert server data as HTML, reach out anywher
     const source = code(file)
     for (const word of forbidden) assert.ok(!source.includes(word), `${file} must not use ${word}`)
     if (file !== 'lib/api.js') assert.ok(!/\bfetch\(/.test(source), `${file}: only lib/api.js talks to the network`)
-    assert.ok(!source.includes('localStorage'), `${file} must not touch storage — the panel keeps nothing in the browser`)
+    assert.ok(!source.includes('localStorage'), `${file} must not touch storage that outlives the tab`)
+    // The tab's sessionStorage is the one place anything is kept (so a reload does not sign out), it is handed
+    // to the API client by main.js and to nobody else, and it is never read by a view.
+    if (file !== 'main.js') assert.ok(!source.includes('sessionStorage'), `${file} must not touch the tab's storage — only main.js hands it to the API client`)
   }
 })
 

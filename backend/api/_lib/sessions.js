@@ -47,7 +47,7 @@ export const REFRESH_TTL_SECONDS = Number(process.env.REFRESH_TOKEN_TTL_SECONDS 
 /**
  * An admin session is a working session at a desk, not a phone that stays signed in for a month: its
  * refresh token lasts twelve hours from its last use, so a copy of one that leaks stops being useful the
- * same day. (The panel keeps its tokens in memory only, so closing the tab ends a session sooner still.)
+ * same day. (The panel keeps the refresh token in its tab's sessionStorage, so closing the tab ends a session sooner still.)
  */
 export const ADMIN_REFRESH_TTL_SECONDS = Number(process.env.ADMIN_REFRESH_TOKEN_TTL_SECONDS || 12 * 60 * 60)
 

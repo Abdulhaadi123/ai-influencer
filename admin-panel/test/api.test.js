@@ -3,7 +3,7 @@
 import test from 'node:test'
 import assert from './assert.js'
 
-import { createApi, ApiError, queryString, SESSION_ENDED } from '../lib/api.js'
+import { createApi, ApiError, queryString, SESSION_ENDED, STORAGE_KEY } from '../lib/api.js'
 
 const json = (status, body) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
@@ -15,7 +15,7 @@ const issued = (n, { expiresIn = 3600 } = {}) => ({
  * A fetch driven by a function of the request, plus a log of every request made.
  * `handler(req)` returns a Response (or a promise of one), or throws.
  */
-function harness(handler) {
+function harness(handler, { storage = null } = {}) {
   const calls = []
   let clock = 1_000_000
   const ended = []
@@ -28,7 +28,7 @@ function harness(handler) {
     calls.push(req)
     return handler(req, calls.length)
   }
-  const api = createApi({ fetchImpl, now: () => clock, onSessionEnded: message => ended.push(message) })
+  const api = createApi({ fetchImpl, now: () => clock, onSessionEnded: message => ended.push(message), storage })
   return { api, calls, ended, advance: ms => { clock += ms }, paths: () => calls.map(c => `${c.method} ${c.url}`) }
 }
 
@@ -349,4 +349,111 @@ test('after a sign-out a stale in-flight refresh cannot bring the session back',
   // The refresh finishing later may install a token, but the request that waited
   // for it must not have been sent as the signed-out person.
   assert.ok(!h.calls.some(c => c.url === '/api/x'), 'no request was made after the sign-out')
+})
+
+// ── Surviving a reload (the tab's sessionStorage) ────────────────────────────
+
+
+const memoryStorage = (initial = {}) => {
+  const data = new Map(Object.entries(initial))
+  return {
+    data,
+    getItem: key => (data.has(key) ? data.get(key) : null),
+    setItem: (key, value) => { data.set(key, String(value)) },
+    removeItem: key => { data.delete(key) },
+  }
+}
+
+test('signing in keeps the refresh token and the email for a reload — and never the access token', async () => {
+  const storage = memoryStorage()
+  const h = harness(() => json(200, { session: issued(1) }), { storage })
+  await h.api.login('boss@test.example', 'secret-password')
+  const kept = JSON.parse(storage.getItem(STORAGE_KEY))
+  assert.deepEqual(kept, { refreshToken: 'refresh-1', user: { id: 'u1', email: 'boss@test.example' } })
+  assert.ok(!JSON.stringify([...storage.data.values()]).includes('access-1'), 'the access token stays in memory')
+  assert.ok(!JSON.stringify([...storage.data.values()]).includes('secret-password'), 'and the password is nowhere')
+})
+
+test('after a reload the saved session is picked up with ONE refresh, and the newest refresh token is the one kept', async () => {
+  const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ refreshToken: 'refresh-old', user: { id: 'u1', email: 'boss@test.example' } }) })
+  const h = harness(req => (req.url === '/api/auth/refresh' ? json(200, { session: issued(7) }) : OK), { storage })
+  assert.equal(h.api.hasSavedSession(), true)
+  assert.equal(h.calls.length, 0, 'finding out costs no request')
+
+  const user = await h.api.restore()
+  assert.deepEqual(user, { id: 'u1', email: 'boss@test.example' })
+  assert.deepEqual(h.calls.map(c => [c.url, c.body]), [['/api/auth/refresh', { refreshToken: 'refresh-old' }]])
+  assert.equal(h.api.isSignedIn(), true)
+  assert.equal(h.api.hasSavedSession(), false, 'it is a live session now, not a saved one')
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).refreshToken, 'refresh-7', 'the rotated token replaced the old one')
+
+  await h.api.get('/api/x')
+  assert.equal(h.calls.at(-1).auth, 'Bearer access-7', 'and the new access token is what is sent')
+})
+
+test('a saved session the server no longer accepts ends once, says so, and is forgotten', async () => {
+  const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ refreshToken: 'dead', user: { id: 'u1', email: 'boss@test.example' } }) })
+  const h = harness(() => json(401, { error: 'Your session has expired. Please sign in again.', code: 'SESSION_EXPIRED' }), { storage })
+  assert.equal(await h.api.restore(), null)
+  assert.deepEqual(h.ended, [SESSION_ENDED])
+  assert.equal(storage.getItem(STORAGE_KEY), null)
+  assert.equal(h.api.isSignedIn(), false)
+})
+
+test('a saved session is not lost because the server could not be reached — the next try may work', async () => {
+  const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ refreshToken: 'still-good', user: { id: 'u1', email: 'boss@test.example' } }) })
+  let up = false
+  const h = harness(req => { if (!up) throw new TypeError('Failed to fetch'); return req.url === '/api/auth/refresh' ? json(200, { session: issued(3) }) : OK }, { storage })
+  const user = await h.api.restore()
+  assert.deepEqual(h.ended, [], 'nobody was signed out')
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).refreshToken, 'still-good')
+  assert.ok(user, 'the person is treated as signed in, and the next request refreshes first')
+
+  up = true
+  await h.api.get('/api/x')
+  assert.equal(h.calls.at(-1).auth, 'Bearer access-3')
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).refreshToken, 'refresh-3')
+})
+
+test('nothing saved, or rubbish saved, is simply signed out — and sends nothing', async () => {
+  for (const value of [undefined, 'not json', '{}', JSON.stringify({ refreshToken: 5, user: { email: 'a@b.c' } }), JSON.stringify({ refreshToken: 'x' }), JSON.stringify({ refreshToken: '', user: { email: 'a@b.c' } }), 'null', '[]']) {
+    const storage = memoryStorage(value === undefined ? {} : { [STORAGE_KEY]: value })
+    const h = harness(() => OK, { storage })
+    assert.equal(h.api.hasSavedSession(), false, String(value))
+    assert.equal(await h.api.restore(), null, String(value))
+    assert.equal(h.calls.length, 0, String(value))
+  }
+})
+
+test('signing out, or being signed out, forgets the saved session', async () => {
+  const storage = memoryStorage()
+  const h = await signedIn(() => OK)
+  // (a second client sharing a storage)
+  const mine = harness(() => json(200, { session: issued(1) }), { storage })
+  await mine.api.login('boss@test.example', 'x')
+  assert.ok(storage.getItem(STORAGE_KEY))
+  await mine.api.logout()
+  assert.equal(storage.getItem(STORAGE_KEY), null)
+
+  const refused = harness(req => (req.url === '/api/auth/login' ? json(200, { session: issued(1) }) : json(401, { error: 'no', code: 'NOT_AUTHENTICATED' })), { storage })
+  await refused.api.login('boss@test.example', 'x')
+  assert.ok(storage.getItem(STORAGE_KEY))
+  await refused.api.get('/api/x').catch(() => {})
+  assert.equal(storage.getItem(STORAGE_KEY), null, 'a session the server ended is gone from the tab too')
+  assert.ok(h)
+})
+
+test('storage that is missing, full or refuses is no reason to fail: the panel works, a reload just signs out', async () => {
+  const hostile = { getItem() { throw new Error('denied') }, setItem() { throw new Error('quota') }, removeItem() { throw new Error('denied') } }
+  const h = harness(() => json(200, { session: issued(1) }), { storage: hostile })
+  await h.api.login('boss@test.example', 'x')
+  assert.equal(h.api.isSignedIn(), true)
+  assert.equal(h.api.hasSavedSession(), false)
+  assert.equal(await h.api.restore(), h.api.user, 'already signed in: nothing to pick up')
+  await h.api.logout()
+  assert.equal(h.api.isSignedIn(), false)
+
+  const none = harness(() => OK, { storage: null })
+  assert.equal(none.api.hasSavedSession(), false)
+  assert.equal(await none.api.restore(), null)
 })

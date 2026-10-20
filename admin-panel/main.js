@@ -62,8 +62,11 @@ export function start({ root, api: injected = null, win = window }) {
   let current = null          // { id, abort, controller }
   let poll = null
   let shell = null            // { content, nav, badge, ... } once signed in
+  let loginShown = false
 
-  const api = injected ?? createApi({ onSessionEnded: message => showLogin(message) })
+  // The tab's own sessionStorage lets a reload pick the session up again (lib/api.js); closing the tab ends it.
+  const tabStorage = (() => { try { return win.sessionStorage ?? null } catch { return null } })()
+  const api = injected ?? createApi({ onSessionEnded: message => showLogin(message), storage: tabStorage })
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   function navigate(hash, { force = false } = {}) {
@@ -198,6 +201,7 @@ export function start({ root, api: injected = null, win = window }) {
   }
 
   function showShell(stats) {
+    loginShown = false
     buildShell(stats)
     win.addEventListener('hashchange', renderRoute)
     clearInterval(poll)
@@ -206,6 +210,7 @@ export function start({ root, api: injected = null, win = window }) {
   }
 
   function showLogin(notice = null) {
+    loginShown = true
     leaveView()
     clearOverlays()
     clearInterval(poll)
@@ -215,7 +220,32 @@ export function start({ root, api: injected = null, win = window }) {
     renderLogin({ container: root, api, notice, onSignedIn: ({ stats }) => showShell(stats) })
   }
 
-  showLogin()
+  /**
+   * The page was reloaded in a tab that was signed in: pick the session up again instead of asking for
+   * the password. The overview is asked for first, as at sign-in — it is also how the panel learns that the
+   * account is still an administrator. If the server will not have the session any more, the sign-in screen
+   * says so (api.restore → onSessionEnded); if it cannot be reached, nobody is signed out: there is a retry.
+   */
+  async function resume() {
+    leaveView()
+    win.document.title = `${PANEL_NAME} Admin`
+    mount(root, h('main', { class: 'login-page' }, h('div', { class: 'login-card', 'aria-busy': 'true' },
+      h('p', { class: 'login-sub', role: 'status' }, 'Signing you back in…'))))
+
+    const user = await api.restore()
+    if (!user) { if (!loginShown) showLogin(); return }
+    try {
+      const stats = await api.get('/api/admin/stats')
+      showShell(stats)
+    } catch (e) {
+      if (!api.isSignedIn()) return        // it ended meanwhile, and the sign-in screen is already up
+      if (e.code === 'NOT_ADMIN') { await api.logout(); showLogin('This account is not an administrator.'); return }
+      mount(root, h('main', { class: 'login-page' }, errorState({ message: e.message, onRetry: () => resume() })))
+    }
+  }
+
+  if (api.hasSavedSession?.()) resume()
+  else showLogin()
   return { navigate, refreshShell, api }
 }
 

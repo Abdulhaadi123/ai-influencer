@@ -6,7 +6,8 @@ in its own folder, with its own tests.
 
 It is served by the backend at `https://<your-domain>/admin` and talks to the backend's
 `/api/admin/*` endpoints (`backend/api/admin/`). Same origin, so there is no CORS and the page
-keeps nothing in the browser: the sign-in lives in memory only. Only an administrator account
+keeps nothing that outlives the tab: the access token is in memory, and the refresh token is in the tab's
+`sessionStorage` so that reloading the page does not sign you out (closing the tab does). Only an administrator account
 can sign in here (the login sends `scope: 'admin'`), and an administrator account cannot sign in
 to the app: staff who want to try the app use a second, ordinary account.
 

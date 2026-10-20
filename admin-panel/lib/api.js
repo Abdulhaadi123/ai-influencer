@@ -3,10 +3,16 @@
  *
  * ── The session ──────────────────────────────────────────────────────────────
  *
- * Signing in returns an access token (an hour) and a refresh token. Both live in
- * this object's memory and nowhere else: not localStorage, not a cookie. Closing the
- * tab signs out, and there is no cookie for a forged cross-site request to ride on
- * (which is why this needs no CSRF token).
+ * Signing in returns an access token (an hour) and a refresh token. The access token lives
+ * in this object's memory and nowhere else. The refresh token (and the account's email, for
+ * the sidebar) is also kept in the tab's sessionStorage, so that RELOADING the page does not
+ * sign anyone out: the page asks the server for a fresh access token with it (`restore`).
+ * sessionStorage belongs to that one tab and is gone when the tab is closed, so closing the
+ * tab still signs out; it is never localStorage, and never a cookie, so there is no cookie
+ * for a forged cross-site request to ride on (which is why this needs no CSRF token). Any
+ * script on the page could read it — which is why the page's policy allows no script but its
+ * own and the panel never builds markup from text. The server ends an admin session twelve
+ * hours after its last use, whatever the tab does.
  *
  * The access token is renewed quietly before it expires, and once more if the
  * server turns a request down for it, so a long session is not interrupted.
@@ -34,6 +40,9 @@ export class ApiError extends Error {
 /** Renew when fewer than this many seconds are left on the token. */
 const RENEW_BEFORE_SECONDS = 60
 
+/** Where the tab keeps what survives a reload. */
+export const STORAGE_KEY = 'influenza_admin_session'
+
 export const SESSION_ENDED = 'Your session ended. Please sign in again.'
 
 /** `?a=1&b=2` from an object, leaving out anything empty. */
@@ -52,11 +61,25 @@ export function queryString(params) {
  * @param {typeof fetch} [opts.fetchImpl]
  * @param {() => number} [opts.now]  milliseconds
  * @param {(message: string) => void} [opts.onSessionEnded]  called when the session cannot continue
+ * @param {Pick<Storage, 'getItem'|'setItem'|'removeItem'>|null} [opts.storage]  the tab's sessionStorage, or nothing
+ *        (then a reload signs out). Never localStorage.
  */
-export function createApi({ fetchImpl = (...args) => fetch(...args), now = Date.now, onSessionEnded = () => {} } = {}) {
+export function createApi({ fetchImpl = (...args) => fetch(...args), now = Date.now, onSessionEnded = () => {}, storage = null } = {}) {
   /** @type {{accessToken: string, refreshToken: string, expiresAt: number, user: object} | null} */
   let session = null
   let refreshing = null
+
+  // Storage can be missing, full or refused (a private window): the panel works without it.
+  const keep = () => {
+    try { storage?.setItem(STORAGE_KEY, JSON.stringify({ refreshToken: session.refreshToken, user: { id: session.user?.id, email: session.user?.email } })) } catch { /* a reload will sign out */ }
+  }
+  const forget = () => { try { storage?.removeItem(STORAGE_KEY) } catch { /* nothing to do */ } }
+  const saved = () => {
+    try {
+      const value = JSON.parse(storage?.getItem(STORAGE_KEY) ?? 'null')
+      return typeof value?.refreshToken === 'string' && value.refreshToken && typeof value.user?.email === 'string' ? value : null
+    } catch { return null }
+  }
 
   const setSession = issued => {
     session = {
@@ -65,12 +88,14 @@ export function createApi({ fetchImpl = (...args) => fetch(...args), now = Date.
       expiresAt: now() + (Number(issued.expiresIn) || 3600) * 1000,
       user: issued.user,
     }
+    keep()
   }
 
   function end(message) {
     const wasSignedIn = session !== null
     session = null
     refreshing = null
+    forget()
     if (wasSignedIn) onSessionEnded(message)
   }
 
@@ -172,11 +197,30 @@ export function createApi({ fetchImpl = (...args) => fetch(...args), now = Date.
       return session.user
     },
 
+    /** Whether this tab holds a session from before a reload (no request is made to find out). */
+    hasSavedSession: () => session === null && saved() !== null,
+
+    /**
+     * After a reload: pick the session up again by asking the server for a fresh access token with
+     * the refresh token this tab kept. Resolves to the signed-in user, or null when there is nothing
+     * to pick up or the server no longer accepts it (then `onSessionEnded` says so, once). A server that
+     * cannot be reached is not a "no": the person stays signed in and the next request tries again.
+     */
+    async restore() {
+      if (session) return session.user
+      const found = saved()
+      if (!found) { forget(); return null }
+      session = { accessToken: '', refreshToken: found.refreshToken, expiresAt: 0, user: found.user }
+      try { await refresh() } catch { /* a refusal has ended the session; a dropped connection has not */ }
+      return session?.user ?? null
+    },
+
     /** Signs out on the server too, then forgets everything. Never throws. */
     async logout() {
       const current = session
       session = null
       refreshing = null
+      forget()
       if (!current) return
       try {
         await send('POST', '/api/auth/logout', { body: { refreshToken: current.refreshToken }, token: current.accessToken })
