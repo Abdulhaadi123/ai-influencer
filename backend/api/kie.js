@@ -24,6 +24,7 @@ import { withProviderFilters } from './_lib/moderation/kieFilters.js'
 import { screenCreateRequest, screenBase64Upload, ModerationRefusal } from './_lib/moderation/service.js'
 import { callbackUrl } from './kie-callback.js'
 import { reserve, attachTask, giveBack, BillingRefusal } from './_lib/billing.js'
+import { recordTaskOwner, ownerOf, TASK_NOT_YOURS_MESSAGE } from './_lib/taskOwners.js'
 import { rateLimit } from '../lib/rateLimit.js'
 
 // KIE_BASE_URL only points tests at a local stand-in; production leaves it unset.
@@ -157,6 +158,22 @@ async function checkBeforeSending(req, subPath, user) {
   return null
 }
 
+/**
+ * KIE started a task: write down whose it is. Tried twice, and a failure is only logged — the task is
+ * already running (and paid for), so the person must still be able to follow it; the cost of the miss
+ * is that this one task is not protected from a stranger who learns its id.
+ */
+async function rememberWhoStarted(userId, answer) {
+  let taskId = null
+  try { const json = JSON.parse(answer); if (json?.code === 200) taskId = json?.data?.taskId || null } catch { /* not JSON: no task */ }
+  if (typeof taskId !== 'string' || !taskId) return
+  try {
+    await recordTaskOwner(userId, taskId)
+  } catch {
+    try { await recordTaskOwner(userId, taskId) } catch (e) { console.error('[kie] could not record who started a task:', e?.message ?? e) }
+  }
+}
+
 export default async function handler(req, res) {
   if (applyCors(req, res, 'GET, POST, OPTIONS')) return
 
@@ -184,6 +201,18 @@ export default async function handler(req, res) {
 
   if (!isAllowedPath(subPath)) {
     return res.status(400).json({ error: 'This request is not allowed.', code: 'BAD_PATH' })
+  }
+
+  // KIE answers for any task of the studio's one key, so asking after a task is limited to the account
+  // that started it (api/_lib/taskOwners.js). A task nobody is recorded for is answered as before.
+  if (RECORD_INFO_PATHS.has(subPath)) {
+    try {
+      const taskId = url.searchParams.get('taskId')
+      const owner = taskId ? await ownerOf(taskId) : null
+      if (owner && owner !== user.id) return res.status(403).json({ error: TASK_NOT_YOURS_MESSAGE, code: 'TASK_NOT_YOURS' })
+    } catch (e) {
+      return sendServerError(res, e, { tag: '[kie] could not check who owns a task:', message: 'Generation is currently unavailable. Please try again shortly.' })
+    }
   }
 
   let hold = null
@@ -243,6 +272,7 @@ export default async function handler(req, res) {
     if (RECORD_INFO_PATHS.has(subPath)) text = withoutStudioCost(text)
 
     await settleHold(upstream.ok, text)
+    if (upstream.ok && PAID_PATHS.has(subPath)) await rememberWhoStarted(user.id, text)
 
     // KIE refusing OUR key is not the caller's session failing. Passed through
     // as a 401, the app read it as "your session has ended".

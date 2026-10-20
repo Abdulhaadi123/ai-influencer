@@ -28,7 +28,7 @@ export const badRequest = (message, code = 'BAD_REQUEST') => new HttpError(400, 
 export const forbidden = (message = 'You do not have permission to do this.', code = 'FORBIDDEN') => new HttpError(403, message, code)
 export const notFound = (message = 'Not found.', code = 'NOT_FOUND') => new HttpError(404, message, code)
 
-function fail(res, e, opts) {
+function fail(res, e, opts = {}) {
   if (e instanceof HttpError) {
     for (const [name, value] of Object.entries(e.headers || {})) res.setHeader(name, value)
     return res.status(e.status).json({ error: e.message, code: e.code })
@@ -47,15 +47,21 @@ export function publicRoute(handler, opts) {
   }
 }
 
-/** @param {(req, res, user) => Promise<void>} handler */
-export function userRoute(handler, opts) {
+/**
+ * @param {(req, res, user) => Promise<void>} handler
+ * @param {{audience?: 'app'|'shared'|'admin', tag?: string, message?: string}} [opts]
+ *        `audience` says which sessions may call (auth.js requireUser); the rest is
+ *        what an unexpected failure is logged and answered with
+ */
+export function userRoute(handler, opts = {}) {
+  const { audience, ...failure } = opts
   return async (req, res) => {
-    const user = await requireUser(req, res)
+    const user = await requireUser(req, res, { audience })
     if (!user) return
     try {
       await handler(req, res, user)
     } catch (e) {
-      fail(res, e, opts)
+      fail(res, e, failure)
     }
   }
 }

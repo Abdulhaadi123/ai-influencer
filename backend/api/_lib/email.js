@@ -188,8 +188,12 @@ ${body}
 </div></body></html>`
 }
 
-export function confirmationEmail({ to, displayName, link }) {
-  const hello = displayName ? `Hi ${displayName},` : 'Hi,'
+export function confirmationEmail({ to, link }) {
+  // Always a plain "Hi,". Anyone can type any address into sign-up, so this goes to someone who may have
+  // asked for nothing — and a greeting built from the name typed beside it would let a stranger write a
+  // line of a message that arrives from the app's own address ("Hi Your account is locked, call ...").
+  // What the mail says is the server's, and only the server's.
+  const hello = 'Hi,'
   const intro = `Thank you for signing up for ${APP_NAME}. Please verify your email address to activate your account.`
   const footer = 'This link can be used once and expires in 24 hours. If you did not create an account, you can ignore this email.'
   return {

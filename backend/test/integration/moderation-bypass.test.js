@@ -288,9 +288,15 @@ test('a link passed once is not fetched again for the same file', async () => {
 
 test('a link with a control character in it is refused before anything is fetched', async () => {
   const u = await stack.createUser()
-  const res = await createTask(u.token, { prompt: 'hello there', image_urls: ['https://tempfile.aiquickdraw.com/a\u0000.png'] })
-  assert.equal(res.status, 400)
-  assert.equal(res.body.code, 'MEDIA_NOT_ALLOWED')
+  for (const ch of ['\u0001', '\n', '\u007f', '\r\nHost: evil.test']) {
+    const res = await createTask(u.token, { prompt: 'hello there', image_urls: [`https://tempfile.aiquickdraw.com/a${ch}.png`] })
+    assert.equal(res.status, 400, JSON.stringify(ch))
+    assert.equal(res.body.code, 'MEDIA_NOT_ALLOWED', JSON.stringify(ch))
+  }
+  // A NUL does not even get as far as the link check: the request is refused at the door (api/_lib/nul.js).
+  const nul = await createTask(u.token, { prompt: 'hello there', image_urls: ['https://tempfile.aiquickdraw.com/a\u0000.png'] })
+  assert.equal(nul.status, 400)
+  assert.equal(nul.body.code, 'BAD_CHARACTER')
   assert.equal(fetched.length, 0)
 })
 

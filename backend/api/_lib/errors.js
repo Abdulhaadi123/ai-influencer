@@ -79,10 +79,13 @@ export function classifyServerError(e) {
  *
  * @param {object} res
  * @param {unknown} e
- * @param {{tag: string, message: string}} opts  `message` is the endpoint's own
- *        sentence for a failure nothing more specific describes
+ * @param {{tag?: string, message?: string}} opts  `message` is the endpoint's own
+ *        sentence for a failure nothing more specific describes. A route declared
+ *        without options (the whole of auth/account.js) gets the defaults: before
+ *        them, its first unexpected failure threw inside this very handler, so it
+ *        was neither logged nor answered with the JSON the app reads.
  */
-export function sendServerError(res, e, { tag, message }) {
+export function sendServerError(res, e, { tag = '[api]', message = 'Something went wrong. Please try again.' } = {}) {
   console.error(tag, e)
   const known = classifyServerError(e)
   if (known) return res.status(known.status).json({ error: known.error, code: known.code })

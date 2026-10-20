@@ -71,6 +71,12 @@ other session, which is the case it existed for.
 - Sessions: random access + refresh tokens stored only as SHA-256 hashes,
   checked against the database on every call, refresh tokens rotated with
   replay detection (`backend/api/_lib/sessions.js`).
+- **The app and the admin panel are different places.** A session has a scope (`app` or
+  `admin`): an administrator account signs in to the panel and is refused at the app's
+  sign-in; every other account signs in to the app and is refused at the panel. An admin
+  token never works on an app endpoint, nor an app token on `/api/admin/*`. Staff who want
+  to try the app use a second, ordinary account. See the Admin panel section of
+  `backend/README.md`.
 - Emails: SMTP from the backend (`SMTP_HOST` / `SMTP_USER` / `SMTP_PASS`). Links
   open small web pages on the backend (`backend/api/auth/pages.js`), not screens
   in the app — mail clients strip custom-scheme links.
@@ -113,6 +119,11 @@ Rules with history behind them — detail in `mobile/CLAUDE.md`:
   holds the theme preference only; the session is in the Keychain / Keystore.
 - **Every backend query on user data filters by the session's user id.** An
   endpoint that trusted an id from the request would expose everyone's data.
+- **A new endpoint brings its guard and its tests.** `backend/test/integration/security-routes.test.js`
+  reads every route from the real app and fails one that answers a caller with no session;
+  `security-admin.test.js` fails an admin write route that is not audited. Take ids, numbers and
+  times from a request through `backend/api/_lib/validate.js` (never straight into SQL or `Number()`),
+  and add the new fields to `security-input.test.js`, which sends every field every awkward value.
 - **Offline is not signed out.** Only the server rejecting a refresh token ends
   a session in the app.
 

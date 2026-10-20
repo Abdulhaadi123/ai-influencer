@@ -171,12 +171,23 @@ test('the minors suspension can be turned off, and the request is still refused'
   } finally { delete process.env.MODERATION_SUSPEND_ON_MINORS }
 })
 
-test('an admin testing the checker is refused but never suspended', async () => {
+test('an admin account cannot use the app, and is never suspended by the checker', async () => {
+  // An administrator holds a panel session, which the app's endpoints do not accept: they are not
+  // refused by the checker, because they never get as far as it.
   const admin = await stack.createUser({ role: 'admin' })
   const res = await createTask(admin.token, { prompt: 'XXX-MINOR test' })
-  assert.equal(res.status, 400)
-  assert.equal(res.body.code, 'CONTENT_BLOCKED')
+  assert.equal(res.status, 401)
+  assert.equal(res.body.code, 'NOT_AUTHENTICATED')
+  assert.equal(moderationCalls(), 0, 'the checker was never asked')
   assert.equal((await stack.one('select status from users where id = $1', [admin.id])).status, 'active')
+
+  // The rule underneath, for an account made an administrator after it was refused: even at the
+  // hardest rule an administrator is not suspended, and the same call does suspend an ordinary account.
+  const { applyEnforcement } = await stack.load('api/_lib/moderation/events.js')
+  const config = { strikeLimit: 1, strikeWindowDays: 30, suspendOnMinors: true }
+  assert.equal((await applyEnforcement(admin.id, { hardRule: true, config })).suspended, false)
+  const ordinary = await stack.createUser()
+  assert.equal((await applyEnforcement(ordinary.id, { hardRule: true, config })).suspended, true)
 })
 
 test('a session that outlives a suspension is refused too', async () => {

@@ -122,6 +122,11 @@ export async function serveAdminUi(req, res) {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'no-referrer',
+    // The panel is only ever used over https (Caddy terminates TLS): a browser that has seen it once will not
+    // be talked into plain http for it. Nothing else may reach into its window, and it needs no device feature.
+    'Strict-Transport-Security': 'max-age=31536000',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), clipboard-read=(), display-capture=()',
     // The page and its code are never cached (an update shows on the next load); the typeface does not change.
     'Cache-Control': file.startsWith('fonts/') ? 'public, max-age=86400' : 'no-store',
   })

@@ -35,10 +35,14 @@ const ASSET_ID = ['main_asset_id', 'reference_asset_id', 'character_sheet_asset_
 const JSON_COLUMNS = ['wardrobe_slots']
 
 /** Columns that may not be null — a null is replaced by the column's default. */
-const NOT_NULL_DEFAULTS = { name: '', type: 'Influencer' }
+const NOT_NULL_DEFAULTS = { name: '', type: 'Influencer', intro_extrovert: 50 }
 
 const MAX_TEXT = 20_000
 const MAX_ARRAY = 100
+
+/** A JSON document stored on an influencer (wardrobe slots, the creation parameters): as large as studio settings may be. */
+const MAX_JSON_BYTES = 64 * 1024
+const tooLarge = value => Buffer.byteLength(JSON.stringify(value)) > MAX_JSON_BYTES
 
 /**
  * How many of an influencer's newest gallery entries the roster carries.
@@ -60,7 +64,11 @@ function cleanRow(input) {
       else if (typeof value === 'string') row[column] = value.slice(0, MAX_TEXT)
       else throw badRequest(`${column} must be text.`)
     } else if (INTEGER.includes(column)) {
-      const n = Number(value)
+      // A number, or text that is one. (Number() alone also takes true, [] and "" for 1, 0 and 0 — and
+      // throws on an object whose toString is not a function, which was a 500 for a hand-made body.)
+      const n = value === null
+        ? NOT_NULL_DEFAULTS[column]
+        : typeof value === 'number' || (typeof value === 'string' && value.trim() !== '') ? Number(value) : NaN
       if (!Number.isInteger(n) || n < 0 || n > 100) throw badRequest(`${column} must be a whole number from 0 to 100.`)
       row[column] = n
     } else if (TEXT_ARRAY.includes(column)) {
@@ -71,6 +79,7 @@ function cleanRow(input) {
       row[column] = value
     } else if (JSON_COLUMNS.includes(column)) {
       if (!Array.isArray(value) || value.length > 20) throw badRequest(`${column} must be a short list.`)
+      if (tooLarge(value)) throw badRequest(`${column} is too large.`, 'TOO_LARGE')
       row[column] = value
     }
     // Anything else — including user_id and id — is ignored.
@@ -176,6 +185,7 @@ export const create = userRoute(async (req, res, user) => {
   if (creationParams !== null && (typeof creationParams !== 'object' || Array.isArray(creationParams))) {
     throw badRequest('creationParams must be an object.')
   }
+  if (creationParams !== null && tooLarge(creationParams)) throw badRequest('creationParams is too large.', 'TOO_LARGE')
 
   const influencer = await transaction(async client => {
     const run = (text, params) => client.query(text, params)

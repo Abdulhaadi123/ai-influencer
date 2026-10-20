@@ -40,14 +40,38 @@ export async function getUser(req) {
 }
 
 /**
+ * Which sessions may use an endpoint (see sessions.js, "Scope"):
+ *
+ *   'app'     an 'app' session of an account that is not an administrator — the default
+ *   'shared'  that, or an 'admin' session of an administrator: the endpoints about the
+ *             caller's own account (profile, password)
+ *   'admin'   anything valid: adminRoute makes its own, more specific refusals
+ *
+ * An account's role is read on every call, so the pairing is checked every call too: an app
+ * session whose owner has since been made an administrator stops working (the person signs in
+ * again, and is told this is an administrator account), and so does an admin session whose
+ * owner has been demoted.
+ */
+function fitsAudience(user, audience) {
+  const asApp = user.scope === 'app' && user.role !== 'admin'
+  const asAdmin = user.scope === 'admin' && user.role === 'admin'
+  if (audience === 'app') return asApp
+  if (audience === 'shared') return asApp || asAdmin
+  return true
+}
+
+/**
  * Guard for a handler. Responds 401 when there is no valid session and 503 when
  * the session cannot be checked, returning null either way so a caller can
  * simply `if (!user) return`.
  *
  * The app signs out on `code: 'NOT_AUTHENTICATED'` and on nothing else, so that
- * code must only ever mean "this token is not a session".
+ * code must only ever mean "this token is not a session" — which includes a
+ * session that is not one for this place (an admin token on an app endpoint).
+ *
+ * @param {{audience?: 'app'|'shared'|'admin'}} [opts]  who may call — see fitsAudience
  */
-export async function requireUser(req, res) {
+export async function requireUser(req, res, { audience = 'app' } = {}) {
   let user
   try {
     user = await getUser(req)
@@ -73,7 +97,30 @@ export async function requireUser(req, res) {
     res.status(403).json({ error: SUSPENDED_MESSAGE, code: 'ACCOUNT_SUSPENDED' })
     return null
   }
+
+  if (!fitsAudience(user, audience)) {
+    res.status(401).json({ error: 'Please sign in to continue.', code: 'NOT_AUTHENTICATED' })
+    return null
+  }
   return user
+}
+
+/**
+ * Middleware, mounted at /api before the body parsers: a request that carries a body is not read —
+ * let alone parsed — unless it comes with a session.
+ *
+ * A body is read in full before any handler runs, and the generation proxy's allowance is 10 MB. Without this,
+ * anyone on the internet could make the server buffer and parse 10 MB per request just to answer "please sign
+ * in". Now that answer is sent first (Node then throws the unread body away as it arrives, without keeping it).
+ * Only the sign-in family under /api/auth is open to callers with no session, and it has a 16 KB ceiling of
+ * its own; the handlers check the session again, for the audience and the role.
+ */
+export async function requireSessionBeforeBody(req, res, next) {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next()
+  if (req.path.startsWith('/auth/')) return next()
+  // 'admin' is the widest audience: any valid, active session. What it may do is each handler's business.
+  const user = await requireUser(req, res, { audience: 'admin' })
+  if (user) next()
 }
 
 /** The caller's IP. Correct behind Caddy because server/index.js trusts one proxy hop. */

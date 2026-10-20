@@ -158,9 +158,15 @@ export function createApi({ fetchImpl = (...args) => fetch(...args), now = Date.
   }
 
   return {
-    /** @returns {Promise<{id, email}>} the signed-in user */
+    /**
+     * Signs in to the PANEL: `scope: 'admin'` tells the server which place this is. Only an
+     * administrator account gets a session here (an admin session, which works on /api/admin/*
+     * and nowhere in the app), and an administrator is refused at the app's own sign-in.
+     *
+     * @returns {Promise<{id, email}>} the signed-in user
+     */
     async login(email, password) {
-      const json = await send('POST', '/api/auth/login', { body: { email, password } })
+      const json = await send('POST', '/api/auth/login', { body: { email, password, scope: 'admin' } })
       if (!json?.session?.accessToken) throw new ApiError('The server sent an unexpected answer.', 0, 'BAD_RESPONSE')
       setSession(json.session)
       return session.user

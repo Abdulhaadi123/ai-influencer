@@ -23,7 +23,7 @@ import { one, query, transaction } from '../_lib/db.js'
 import { clientIp, bearerToken } from '../_lib/auth.js'
 import { publicRoute, userRoute, badRequest, HttpError, noStore, enforceLimit } from '../_lib/http.js'
 import { passwordProblem, hashPassword, verifyPassword } from '../_lib/passwords.js'
-import { normalizeEmail, emailProblem, text } from '../_lib/validate.js'
+import { normalizeEmail, emailProblem, displayNameOf } from '../_lib/validate.js'
 import {
   createSession, refreshSession, revokeSession, revokeAllSessions, newToken, hashToken, publicUser,
 } from '../_lib/sessions.js'
@@ -42,8 +42,16 @@ export const REQUIRE_EMAIL_CONFIRMATION = process.env.REQUIRE_EMAIL_CONFIRMATION
 export const CONFIRM_TOKEN_TTL_SECONDS = 24 * 60 * 60
 export const RESET_TOKEN_TTL_SECONDS = 60 * 60
 
+// Sign-in is limited three ways, because one limit per address can be turned against its owner: anyone
+// who types ten wrong passwords for an address locks that address out for everybody, the owner included.
+//   per caller                       30 in 10 minutes   one machine cannot try many accounts
+//   per address FROM that caller     10 in 15 minutes   one machine cannot guess one account; the lockout it
+//                                                       causes is its own (the owner signs in from elsewhere)
+//   per address, from anywhere      100 in an hour      many machines together cannot guess one account either;
+//                                                       high enough that locking an owner out takes a real effort
 const signInByIp = createRateLimiter([{ windowMs: 10 * 60_000, max: 30 }])
-const signInByEmail = createRateLimiter([{ windowMs: 15 * 60_000, max: 10 }])
+const signInByEmailAndIp = createRateLimiter([{ windowMs: 15 * 60_000, max: 10 }])
+const signInByEmail = createRateLimiter([{ windowMs: 60 * 60_000, max: 100 }])
 const signUpByIp = createRateLimiter([{ windowMs: 60 * 60_000, max: 20 }])
 const emailsByAddress = createRateLimiter([{ windowMs: 60_000, max: 1 }, { windowMs: 60 * 60_000, max: 5 }])
 const emailsByIp = createRateLimiter([{ windowMs: 60 * 60_000, max: 30 }])
@@ -51,6 +59,9 @@ const refreshByIp = createRateLimiter([{ windowMs: 60_000, max: 60 }])
 const passwordChecksByUser = createRateLimiter([{ windowMs: 15 * 60_000, max: 10 }])
 
 const INVALID_CREDENTIALS = 'Incorrect email or password.'
+
+/** What an administrator is told at the app's sign-in (only after the right password). */
+const ADMIN_ACCOUNT_MESSAGE = 'This is an administrator account. Sign in to the admin panel; the app needs a regular account.'
 
 const findUserByEmail = email => one('select * from users where lower(email) = $1', [email])
 
@@ -73,7 +84,7 @@ function sendConfirmation(user) {
   sendInBackground(async () => {
     const token = await issueEmailToken(user.id, 'confirm_email', CONFIRM_TOKEN_TTL_SECONDS)
     const link = `${publicBaseUrl()}/auth/confirm-email?token=${encodeURIComponent(token)}`
-    await sendEmail(confirmationEmail({ to: user.email, displayName: user.display_name, link }))
+    await sendEmail(confirmationEmail({ to: user.email, link }))
   }, 'confirmation email')
 }
 
@@ -109,24 +120,28 @@ export const signUp = publicRoute(async (req, res) => {
   if (problem) throw badRequest(problem, 'WEAK_PASSWORD')
   enforceLimit(signUpByIp, `ip:${clientIp(req)}`)
 
-  const displayName = text(req.body?.displayName, 80)?.trim() || null
+  const displayName = displayNameOf(req.body?.displayName)
 
   const existing = await findUserByEmail(email)
   if (existing) return alreadyRegistered(res, existing, password)
 
   let user
   try {
+    // `on conflict do nothing`: two sign-ups for one address at the same moment are decided by the
+    // database's unique index, and the loser simply gets no row back — there is no failed statement,
+    // no error to catch, and no aborted connection for whatever request is queued behind it.
     user = await one(
       `insert into users (email, password_hash, display_name, email_confirmed_at)
        values ($1, $2, $3, case when $4::boolean then null else now() end)
+       on conflict do nothing
        returning *`,
       [email, await hashPassword(password), displayName, REQUIRE_EMAIL_CONFIRMATION],
     )
   } catch (e) {
-    // Two sign-ups for the same address at the same moment.
     if (e.code === '23505') return alreadyRegistered(res, await findUserByEmail(email), null)
     throw e
   }
+  if (!user) return alreadyRegistered(res, await findUserByEmail(email), null)
 
   if (REQUIRE_EMAIL_CONFIRMATION) {
     if (emailsByAddress(`email:${email}`).ok) sendConfirmation(user)
@@ -159,13 +174,22 @@ async function alreadyRegistered(res, user, password) {
 
 // ── Sign in / sessions ───────────────────────────────────────────────────────
 
-/** POST /api/auth/login  { email, password } → { session } */
+/**
+ * POST /api/auth/login  { email, password, scope? } → { session }
+ *
+ * `scope` is where the person is signing in: 'admin' for the admin panel, anything else (the
+ * app sends nothing) for the app. Administrator accounts get an admin session and only at the
+ * panel; every other account gets an app session and only at the app (sessions.js, "Scope").
+ */
 export const signIn = publicRoute(async (req, res) => {
   const email = readEmail(req.body)
   const password = req.body?.password
   if (typeof password !== 'string' || !password) throw badRequest('Enter your password.', 'PASSWORD_REQUIRED')
+  const scope = req.body?.scope === 'admin' ? 'admin' : 'app'
 
-  enforceLimit(signInByIp, `ip:${clientIp(req)}`)
+  const ip = clientIp(req)
+  enforceLimit(signInByIp, `ip:${ip}`)
+  enforceLimit(signInByEmailAndIp, `email:${email}|ip:${ip}`)
   enforceLimit(signInByEmail, `email:${email}`)
 
   const user = await findUserByEmail(email)
@@ -181,7 +205,11 @@ export const signIn = publicRoute(async (req, res) => {
   // confirm the address is registered.
   if (user.status === 'suspended') throw new HttpError(403, SUSPENDED_MESSAGE, 'ACCOUNT_SUSPENDED')
 
-  const session = await createSession(user, { userAgent: userAgentOf(req) })
+  // Also only after the right password. The two places are kept apart in both directions.
+  if (scope === 'admin' && user.role !== 'admin') throw new HttpError(403, 'This area is for administrators.', 'NOT_ADMIN')
+  if (scope === 'app' && user.role === 'admin') throw new HttpError(403, ADMIN_ACCOUNT_MESSAGE, 'ADMIN_ACCOUNT')
+
+  const session = await createSession(user, { userAgent: userAgentOf(req), scope })
   noStore(res)
   res.json({ session })
 })
@@ -210,21 +238,24 @@ export const signOut = publicRoute(async (req, res) => {
 
 // ── Profile ──────────────────────────────────────────────────────────────────
 
+// The three that are about the caller's own account (profile, password) are for either kind of
+// session: an administrator changes their own password on an admin session.
+
 /** GET /api/auth/me → { user } */
 export const me = userRoute(async (req, res, user) => {
   noStore(res)
-  // role and status are for the server's own checks, not for the app.
-  const { sessionId, role, status, ...visible } = user
+  // role, status and scope are for the server's own checks, not for the app.
+  const { sessionId, role, status, scope, ...visible } = user
   res.json({ user: visible })
-})
+}, { audience: 'shared' })
 
 /** POST /api/auth/me  { displayName } → { user } */
 export const updateMe = userRoute(async (req, res, user) => {
-  const displayName = text(req.body?.displayName, 80)?.trim() || null
+  const displayName = displayNameOf(req.body?.displayName)
   const row = await one('update users set display_name = $2 where id = $1 returning *', [user.id, displayName])
   noStore(res)
   res.json({ user: publicUser(row) })
-})
+}, { audience: 'shared' })
 
 
 // ── Passwords ────────────────────────────────────────────────────────────────
@@ -262,7 +293,7 @@ export const changePassword = userRoute(async (req, res, user) => {
   })
 
   res.json({ ok: true })
-})
+}, { audience: 'shared' })
 
 /** POST /api/auth/forgot-password  { email } → { sent: true }, whether or not the account exists */
 export const forgotPassword = publicRoute(async (req, res) => {

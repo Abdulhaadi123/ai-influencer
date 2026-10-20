@@ -198,12 +198,21 @@ test('roles: a user is promoted and demoted at once; nobody changes their own', 
   assert.equal((await post('/api/admin/users/set-role', { userId: u.id, role: 'owner' })).status, 400)
   assert.equal((await post('/api/admin/users/set-role', { userId: admin.id, role: 'user' })).body.code, 'SELF_ACTION')
 
+  const signInToPanel = async () => {
+    const res = await stack.api('POST', '/api/auth/login', { body: { email: u.email, password: u.password, scope: 'admin' } })
+    return { status: res.status, code: res.body?.code, token: res.body?.session?.accessToken }
+  }
+
   assert.equal((await get('/api/admin/stats', u)).status, 403)
+  assert.equal((await signInToPanel()).code, 'NOT_ADMIN', 'not an administrator yet: the panel will not let them in')
   assert.equal((await post('/api/admin/users/set-role', { userId: u.id, role: 'admin' })).body.changed, true)
-  assert.equal((await get('/api/admin/stats', u)).status, 200, 'effective on their next call')
+  assert.equal((await get('/api/admin/stats', u)).status, 401, 'their APP session is not a panel session: they sign in to the panel')
+  const panel = await signInToPanel()
+  assert.equal(panel.status, 200, 'and the panel lets them in at once')
+  assert.equal((await get('/api/admin/stats', { token: panel.token })).status, 200, 'effective on their next call')
 
   assert.equal((await post('/api/admin/users/set-role', { userId: u.id, role: 'user' })).body.changed, true)
-  assert.equal((await get('/api/admin/stats', u)).status, 403)
+  assert.equal((await get('/api/admin/stats', { token: panel.token })).status, 401, 'demoted: the panel session ends with the role, and the next call finds it gone')
   assert.equal((await post('/api/admin/users/set-role', { userId: u.id, role: 'user' })).body.changed, false, 'no-op')
 
   const log = await stack.sql(`select details from admin_audit_log where action = 'user.set-role' order by id`)

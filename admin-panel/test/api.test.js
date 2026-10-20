@@ -53,7 +53,7 @@ test('login sends the credentials, keeps the session, and returns the user', asy
   assert.deepEqual(user, { id: 'u1', email: 'boss@test.example' })
   assert.equal(h.api.isSignedIn(), true)
   assert.deepEqual(h.api.user, user)
-  assert.deepEqual(h.calls[0].body, { email: 'boss@test.example', password: 'pw' })
+  assert.deepEqual(h.calls[0].body, { email: 'boss@test.example', password: 'pw', scope: 'admin' }, "the panel says it is the panel: an administrator gets an admin session, nobody else gets one")
   assert.equal(h.calls[0].auth, null, 'no token is sent to sign in')
   assert.equal(h.calls[0].url, '/api/auth/login')
 })

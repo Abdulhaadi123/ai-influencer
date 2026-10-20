@@ -6,7 +6,9 @@ in its own folder, with its own tests.
 
 It is served by the backend at `https://<your-domain>/admin` and talks to the backend's
 `/api/admin/*` endpoints (`backend/api/admin/`). Same origin, so there is no CORS and the page
-keeps nothing in the browser: the sign-in lives in memory only.
+keeps nothing in the browser: the sign-in lives in memory only. Only an administrator account
+can sign in here (the login sends `scope: 'admin'`), and an administrator account cannot sign in
+to the app: staff who want to try the app use a second, ordinary account.
 
 ```
 admin-panel/
@@ -19,8 +21,9 @@ admin-panel/
 
 ## Who can use it
 
-Only signed-in accounts with the `admin` role. Set `ADMIN_EMAILS` on the server to make the
-first one (backend/README.md, "Admin panel"). Everything the panel does is written to the audit log.
+Only signed-in accounts with the `admin` role. Make the first one on the server with
+`backend/db/create-admin.js` (backend/README.md, "Admin panel"). Everything the panel does is
+written to the audit log.
 
 ## Running it
 

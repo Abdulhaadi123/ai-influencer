@@ -198,12 +198,33 @@ what you filtered by live in the address (`#/users?q=mia&status=suspended`,
 `#/moderation/<id>`), so a link can be sent to a colleague and Back/Forward work.
 
 - **Who.** An account whose `users.role` is `admin`, checked against the database
-  on every request (so demoting someone takes effect at once). The first admin is
-  set with `ADMIN_EMAILS` (comma separated; applied at start, only for existing
-  accounts with a confirmed email, and ignored while
-  `REQUIRE_EMAIL_CONFIRMATION=false`), or with SQL:
+  on every request (so demoting someone takes effect at once). **The first admin is
+  made on the server** with `db/create-admin.js` — it creates the account (confirmed,
+  active, administrator) or promotes an existing one, and writes it to the audit log. The
+  password goes through a pipe, so it is never in the command line, `ps` or the shell history:
+  ```bash
+  cd ~/ai-influencer/backend
+  read -rp "Email: " E; read -rsp "Password: " P; echo
+  printf '%s\n%s\n' "$E" "$P" | docker compose exec -T api node db/create-admin.js
+  unset E P
+  ```
+  (An empty second line keeps an existing account's password.) Alternatively `ADMIN_EMAILS`
+  (comma separated; applied at start, only for existing accounts with a confirmed email, and
+  ignored while `REQUIRE_EMAIL_CONFIRMATION=false`) or SQL:
   `update users set role = 'admin' where lower(email) = 'you@example.com';`
   Removing an address from the list does not demote anyone; do that in the panel.
+- **Administrators and app users sign in to different places.** An administrator account
+  signs in to the panel (the panel sends `scope: 'admin'` to `/api/auth/login`) and gets an
+  *admin session*, which works on `/api/admin/*` and nowhere in the app; at the app's own
+  sign-in it is refused (`403 ADMIN_ACCOUNT`, after the right password). Every other account
+  signs in to the app and gets an *app session*; at the panel it is refused
+  (`403 NOT_ADMIN`). A session keeps its scope through every refresh (`sessions.scope`,
+  migration 008), and the pairing with the role is checked on every call: promoting an
+  account signs its phone out of the app on the next call, demoting one stops its panel
+  session. Staff who need to try the app use a second, ordinary account. The profile
+  endpoints (`/api/auth/me`, change password) take either kind, so an administrator can
+  change their own password. Sessions that existed before migration 008 are app sessions,
+  so each administrator signs in to the panel once more after it ships.
 - **What.**
   - *Overview* — what needs attention first (store purchases that did not become credits,
     moderation off or without a key, items waiting, a high failure rate, models in use
@@ -330,28 +351,105 @@ working (reviewers, staff) credits from the panel.
 
 ## Security model
 
+**Who is calling, and as what.** The caller never says who they are.
+
 - **The database is only reachable by the backend.** The app calls the API and
   never connects to Postgres, so there is no Row Level Security. Instead, **every
   query on user data carries the user id from the verified session** — never an
   id from the request. Keep it that way in every new endpoint.
-- **Passwords** are Argon2id hashes (`api/_lib/passwords.js`), never logged.
+- **Passwords** are Argon2id hashes (`api/_lib/passwords.js`), never logged. A
+  password is 10–128 characters with a letter and a number, and the commonest
+  passwords are refused; one longer than that is refused before it is hashed.
 - **Sessions** are random access and refresh tokens, stored only as SHA-256
   hashes and checked against the database on every call, so signing out,
-  password changes and account deletion take effect immediately. Refresh tokens rotate on every use; an old one replayed after a
-  30-second grace period ends the session (`api/_lib/sessions.js`).
+  password changes and account deletion take effect immediately. Refresh tokens
+  rotate on every use; an old one replayed after a 30-second grace period ends
+  the session (`api/_lib/sessions.js`). An app session's refresh token lasts 30
+  days from its last use, an admin session's 12 hours (`ADMIN_REFRESH_TOKEN_TTL_SECONDS`).
+- **The app and the admin panel are different places.** A session has a scope,
+  `app` or `admin`, fixed at sign-in and kept through every refresh. An
+  administrator's account signs in to the panel and is refused at the app's
+  sign-in (`ADMIN_ACCOUNT`); every other account signs in to the app and is
+  refused at the panel (`NOT_ADMIN`). An admin token never works on an app
+  endpoint and an app token never on `/api/admin/*`; only the endpoints about the
+  caller's own profile and password take either. The role is read from the
+  database on every call, and changing it ends the sessions of the place the
+  account can no longer use.
 - **No response reveals whether an email is registered.** Sign-in failures are
   identical, forgot-password and resend always answer "sent", and those take the
-  same time either way.
-- **Sign-in, sign-up and email sending are rate limited** by IP and by address
-  (in memory, per API process).
+  same time either way. The confirmation email never repeats anything typed
+  beside the recipient's address (a name), so it cannot be used to put words into
+  a message that arrives from our address.
+
+**Rate limits** (in memory, per API process — `lib/rateLimit.js`). Sign-in is
+limited three ways, so that guessing one account's password is stopped without
+letting an attacker lock the real owner out: by caller address, by address and
+account together, and by account alone at a high ceiling. Sign-up, the emails the
+API sends, refreshes, password checks (change password, delete account), the pages
+the email links open, the two webhooks and the generation proxy have their own
+limits. Several API containers would each count separately; at that point move the
+store to Postgres or Redis.
+
+**What a request may carry** (`server/index.js`, `api/_lib/requestInput.js`). Body size
+limits by kind of route — 16 KB for sign-in and the email pages, 256 KB for the
+webhooks, 10 MB for the generation proxy (a file travels through it as base64), 1 MB
+for everything else — are applied before any handler or guard runs, and a request that
+carries a body to anything under `/api` except the sign-in family is answered 401
+*before its body is read* unless it comes with a valid session (`requireSessionBeforeBody`
+in `api/_lib/auth.js`) — otherwise the 10 MB allowance of the proxy would be open to
+anyone on the internet. A NUL character
+anywhere in a body or query string is a 400 (the database cannot store one), a body
+nested absurdly deep is a 400, and a lone surrogate (half an emoji, which JSON allows
+and a jsonb column refuses) is mended into U+FFFD. Every id is checked to be a UUID
+before it reaches SQL, a number is a number, and a page size or time from a query
+string is parsed, not passed on. Column names in generated SQL come from fixed lists,
+never from a request. An error the caller caused is a 4xx with `{ error, code }`; the
+tests send every field of every endpoint every awkward value and expect nothing else.
+
+**Authorization of objects.**
+
 - **Files** are in a private bucket and handed out as short-lived presigned URLs
   after an ownership check. Upload URLs are signed for the exact file size.
-- **Generated results** are fetched only from KIE's CDNs, with every redirect
-  hop re-checked (`api/_lib/results.js`).
+- **A KIE task id is a bearer secret** — KIE answers for every task of the studio's
+  one key. The proxy records which account started each task (`task_owners`,
+  `api/_lib/taskOwners.js`), and registering, syncing or asking KIE about a task of
+  another account is refused (`TASK_NOT_YOURS`); a callback finds its job through
+  that owner. A task from before the table existed, with nobody recorded, keeps
+  working for the account that registered it.
+- **Generated results** are fetched only from KIE's CDNs over https, with no name and
+  password in the address and every redirect hop re-checked (`api/_lib/results.js`).
+  Video frames are read by ffmpeg with the container forced and every protocol but
+  `file` forbidden (`api/_lib/moderation/frames.js`).
 - **Only the server writes a job's state and result link**, from KIE's own
-  answer (`api/_lib/kieStatus.js`).
+  answer (`api/_lib/kieStatus.js`), and credits are only ever added by the server
+  (a verified store webhook, or an administrator's audited grant).
 - **Every generation request is checked before it is paid for**, and a suspended
   account is signed out everywhere and refused at sign-in (`api/_lib/suspension.js`).
+- **Every change an administrator makes is audited**, with who made it; an action that
+  could not be audited does not happen. `test/integration/security-admin.test.js`
+  fails when an admin write route is added without an entry in the log.
+
+**The two doors without a session** prove the sender instead: KIE's callback with
+an HMAC over the task and the moment (a wrong, missing or stale one is refused, and a
+signed one still gets its owner and its result links from our own records), and
+RevenueCat's with a shared secret compared in constant time. What a purchase is worth
+comes from the price table, never from the delivery.
+
+**What goes out.** Everything under `/api` answers `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff` unless the endpoint sets something stricter; the
+panel's files carry a strict Content-Security-Policy (nothing inline, nothing from
+outside), HSTS, frame and referrer protection, and the pages the emails link to are
+locked down the same way. The panel builds its pages from text nodes only — nothing it
+shows (a prompt, a name) is ever read as markup. No response carries a password hash, a
+token or a key the server holds; `security-admin.test.js` scans every GET for them.
+
+**Known limits.** There is no second factor for administrators — put `/admin` and
+`/api/admin/*` behind an address allow-list in Caddy (see the Caddyfile) if the staff
+have fixed addresses. KIE's callback signature covers the task and the moment, not the
+body (that is KIE's scheme), so a copied signed callback could be replayed for 15
+minutes; what it can do is limited to settling a job that is still running, with
+results only from KIE's hosts. Rate limits are per process. A refund that arrives
+before the purchase it refunds is ignored (RevenueCat retries make this rare).
 
 ---
 
@@ -530,6 +628,13 @@ a few minutes (each integration file starts its own database).
   (`admin`, `admin-depth`), moderation and sessions under load and at their edges
   (`moderation-depth`), the proxy and suggestions (`proxy-depth`), migrations, and
   `fuzz` (every admin parameter and field against hostile values).
+- The security suites: `security-routes` (who may call every route the app registers —
+  read from the real app, so a new route is covered the day it is added), `session-scope`
+  (app and panel are separate places), `security-auth` (tokens, passwords, enumeration,
+  brute force, the one-time links, hostile sign-up input), `security-authz` (one account
+  against another's data, task ownership), `security-input` (every field of every
+  endpoint against hostile values, SSRF, uploads), `security-admin` (audit
+  completeness, roles, no secret in any answer) and `security-webhooks`.
 - The admin panel's own tests (every page, every action and what it sends, in a simulated
   browser) live with it: `cd ../admin-panel && npm install && npm test`. What needs both
   sides — that the panel's labels cover the server's moderation categories and its price
@@ -558,7 +663,7 @@ edit shows on reload.
 | Generation | `/api/kie/*` (proxy), `POST /api/prompt-assist` |
 | Reporting | `POST /api/reports` |
 | Admin | `/admin` (the page and its files); `GET /api/admin/stats` `usage?days=` `audit?action=&admin=` `config` `users?q=&status=&sort=&dir=` `users/detail?userId=` `jobs` `moderation?status=&source=&action=&userId=` `moderation/item?eventId=` `moderation/media?eventId=` `prices` `billing/summary?days=` `billing/activity?kind=&q=&userId=` `billing/store-events?outcome=&problems=` `billing/ledger?userId=`; `POST /api/admin/users/suspend` `unsuspend` `set-role` `delete`, `moderation/resolve`, `prices/upsert` `delete`, `billing/grant` |
-| Callbacks | `POST /webhooks/kie` (signed by KIE, no session) |
+| Callbacks | `POST /webhooks/kie` (signed by KIE, no session), `POST /webhooks/revenuecat` (shared secret, no session) |
 
 ---
 

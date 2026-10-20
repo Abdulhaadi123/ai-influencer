@@ -25,6 +25,16 @@
  * A short grace period covers the one innocent case: the app sent a refresh,
  * the server rotated, and the answer never arrived (the app was killed, the
  * connection dropped), so the app retries with the token it still has.
+ *
+ * ── Scope: the app and the admin panel are different places ─────────────────
+ *
+ * A session has a scope, 'app' or 'admin', fixed when the person signs in and
+ * kept through every refresh (migration 008). An administrator account signs in
+ * to the panel (scope 'admin') and cannot sign in to the app; every other
+ * account signs in to the app (scope 'app') and cannot be given an admin
+ * session. So a token on a phone is never an admin token. auth.js says which
+ * session may use which endpoint; the role is still read from the users row on
+ * every call.
  */
 
 import { createHash, randomBytes } from 'node:crypto'
@@ -33,6 +43,15 @@ import { query, transaction } from './db.js'
 
 export const ACCESS_TTL_SECONDS = Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 60 * 60)
 export const REFRESH_TTL_SECONDS = Number(process.env.REFRESH_TOKEN_TTL_SECONDS || 30 * 24 * 60 * 60)
+
+/**
+ * An admin session is a working session at a desk, not a phone that stays signed in for a month: its
+ * refresh token lasts twelve hours from its last use, so a copy of one that leaks stops being useful the
+ * same day. (The panel keeps its tokens in memory only, so closing the tab ends a session sooner still.)
+ */
+export const ADMIN_REFRESH_TTL_SECONDS = Number(process.env.ADMIN_REFRESH_TOKEN_TTL_SECONDS || 12 * 60 * 60)
+
+const refreshTtlFor = scope => (scope === 'admin' ? ADMIN_REFRESH_TTL_SECONDS : REFRESH_TTL_SECONDS)
 
 /** How long a just-replaced refresh token may still be used — see the header. */
 const REUSE_GRACE_SECONDS = 30
@@ -64,17 +83,22 @@ function issued(user, accessToken, refreshToken) {
 
 const trimAgent = userAgent => (userAgent ? String(userAgent).slice(0, 200) : null)
 
+/** The two places a session can be used — see the header. */
+export const SESSION_SCOPES = Object.freeze(['app', 'admin'])
+
 /**
  * Sign a user in on a new device.
  * @param {{id, email, display_name, email_confirmed_at}} user  a users row
+ * @param {{userAgent?: string|null, scope?: 'app'|'admin'}} [opts]
  */
-export async function createSession(user, { userAgent = null } = {}) {
+export async function createSession(user, { userAgent = null, scope = 'app' } = {}) {
+  if (!SESSION_SCOPES.includes(scope)) throw new Error(`unknown session scope: ${scope}`)
   const accessToken = newToken()
   const refreshToken = newToken()
   await query(
-    `insert into sessions (user_id, access_hash, access_expires_at, refresh_hash, refresh_expires_at, user_agent)
-     values ($1, $2, now() + $3::int * interval '1 second', $4, now() + $5::int * interval '1 second', $6)`,
-    [user.id, hashToken(accessToken), ACCESS_TTL_SECONDS, hashToken(refreshToken), REFRESH_TTL_SECONDS, trimAgent(userAgent)],
+    `insert into sessions (user_id, access_hash, access_expires_at, refresh_hash, refresh_expires_at, user_agent, scope)
+     values ($1, $2, now() + $3::int * interval '1 second', $4, now() + $5::int * interval '1 second', $6, $7)`,
+    [user.id, hashToken(accessToken), ACCESS_TTL_SECONDS, hashToken(refreshToken), refreshTtlFor(scope), trimAgent(userAgent), scope],
   )
   return issued(user, accessToken, refreshToken)
 }
@@ -86,11 +110,13 @@ export async function createSession(user, { userAgent = null } = {}) {
  * `role` and `status` come from the users row on every call — never from the
  * token — so promoting, demoting or suspending someone is effective immediately.
  *
- * @returns {Promise<{id, email, displayName, emailConfirmed, role, status, sessionId} | null>}
+ * `scope` is the session's own ('app' or 'admin'); auth.js decides what it may use.
+ *
+ * @returns {Promise<{id, email, displayName, emailConfirmed, role, status, scope, sessionId} | null>}
  */
 export async function findSessionByAccessToken(accessToken) {
   const { rows } = await query(
-    `select s.id as session_id, s.last_used_at, u.id, u.email, u.display_name, u.email_confirmed_at, u.role, u.status
+    `select s.id as session_id, s.scope, s.last_used_at, u.id, u.email, u.display_name, u.email_confirmed_at, u.role, u.status
        from sessions s
        join users u on u.id = s.user_id
       where s.access_hash = $1 and s.access_expires_at > now()`,
@@ -105,7 +131,7 @@ export async function findSessionByAccessToken(accessToken) {
       .catch(e => console.warn('[sessions] could not record last use:', e.message))
   }
 
-  return { ...publicUser(row), role: row.role, status: row.status, sessionId: row.session_id }
+  return { ...publicUser(row), role: row.role, status: row.status, scope: row.scope, sessionId: row.session_id }
 }
 
 /**
@@ -121,7 +147,7 @@ export async function refreshSession(refreshToken, { userAgent = null } = {}) {
 
   return transaction(async client => {
     let { rows } = await client.query(
-      `select s.id, s.user_id, u.email, u.display_name, u.email_confirmed_at
+      `select s.id, s.user_id, s.scope, u.email, u.display_name, u.email_confirmed_at
          from sessions s
          join users u on u.id = s.user_id
         where s.refresh_hash = $1 and s.refresh_expires_at > now() and u.status = 'active'
@@ -132,7 +158,7 @@ export async function refreshSession(refreshToken, { userAgent = null } = {}) {
 
     if (!session) {
       ;({ rows } = await client.query(
-        `select s.id, s.user_id, u.email, u.display_name, u.email_confirmed_at,
+        `select s.id, s.user_id, s.scope, u.email, u.display_name, u.email_confirmed_at,
                 s.rotated_at > now() - $2::int * interval '1 second' as within_grace
            from sessions s
            join users u on u.id = s.user_id
@@ -164,7 +190,7 @@ export async function refreshSession(refreshToken, { userAgent = null } = {}) {
               last_used_at          = now(),
               user_agent            = coalesce($6, user_agent)
         where id = $1`,
-      [session.id, hashToken(accessToken), ACCESS_TTL_SECONDS, hashToken(nextRefreshToken), REFRESH_TTL_SECONDS, trimAgent(userAgent)],
+      [session.id, hashToken(accessToken), ACCESS_TTL_SECONDS, hashToken(nextRefreshToken), refreshTtlFor(session.scope), trimAgent(userAgent)],
     )
 
     return issued(

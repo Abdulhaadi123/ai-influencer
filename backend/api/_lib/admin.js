@@ -10,7 +10,8 @@
  *
  * ── Who is the first admin ──────────────────────────────────────────────────
  *
- * Not anyone who asks. ADMIN_EMAILS (comma separated) promotes those accounts
+ * Not anyone who asks. The first one is made on the server, by whoever holds it, with
+ * `node db/create-admin.js` (its header says how). Or ADMIN_EMAILS (comma separated) promotes those accounts
  * when the server starts — only if they exist and have CONFIRMED their email,
  * and only while email confirmation is required. With confirmation off, anyone
  * can sign up with any address, so trusting an address would let a stranger
@@ -21,18 +22,34 @@
  *
  * After that an admin can promote others from the panel. Removing an address from
  * ADMIN_EMAILS does not demote anyone; demote from the panel.
+ *
+ * ── Administrators and app users sign in to different places ────────────────
+ *
+ * An administrator account signs in to this panel (a session of scope 'admin') and is refused
+ * at the app's sign-in; every other account signs in to the app and is refused here. The panel
+ * says which place it is by sending `scope: 'admin'` to /api/auth/login. Staff who need to try
+ * the app use a second, ordinary account. See sessions.js ("Scope") and auth.js.
  */
 
 import { query } from './db.js'
-import { userRoute, forbidden, badRequest } from './http.js'
+import { userRoute, forbidden, badRequest, HttpError } from './http.js'
 import { normalizeEmail } from './validate.js'
 
-/** @param {(req, res, admin) => Promise<void>} handler */
+/**
+ * An endpoint for administrators, on an ADMIN session only (sessions.js, "Scope").
+ *
+ *   not an administrator            403 NOT_ADMIN (whatever session it holds)
+ *   an administrator on an app one  401 NOT_AUTHENTICATED — a stale app token from before the
+ *                                   promotion; the panel shows its sign-in
+ *
+ * @param {(req, res, admin) => Promise<void>} handler
+ */
 export function adminRoute(handler, opts) {
   return userRoute(async (req, res, user) => {
     if (user.role !== 'admin') throw forbidden('This area is for administrators.', 'NOT_ADMIN')
+    if (user.scope !== 'admin') throw new HttpError(401, 'Please sign in to the admin panel to continue.', 'NOT_AUTHENTICATED')
     await handler(req, res, user)
-  }, opts)
+  }, { ...opts, audience: 'admin' })
 }
 
 /**

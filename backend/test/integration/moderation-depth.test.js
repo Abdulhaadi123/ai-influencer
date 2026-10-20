@@ -84,13 +84,17 @@ test('a borderline upload is cleared and put in front of a person, with no strik
   assert.equal(await countStrikes(u.id, 30), 0)
 })
 
-test('an administrator\'s refused upload is blocked but never suspends them', async () => {
+test('an administrator cannot confirm an upload through the app, and strikes never suspend one', async () => {
   const admin = await stack.createUser({ role: 'admin' })
-  await earlierStrikes(admin, 6)
   const a = await upload(admin, 'IMG-EXPLICIT')
-  await confirm(admin, a.id)
-  await stack.waitFor(async () => (await statusOf(a.id)) === 'blocked')
-  await new Promise(r => setTimeout(r, 150))
+  assert.equal((await confirm(admin, a.id)).status, 401, 'an admin session is a panel session, not an app one')
+  assert.equal(await statusOf(a.id), 'unchecked', 'so nothing was checked, recorded or counted')
+
+  // The rule underneath (applyEnforcement): however many strikes an administrator has, they are not suspended.
+  await earlierStrikes(admin, 6)
+  const { applyEnforcement } = await stack.load('api/_lib/moderation/events.js')
+  const { moderationConfig } = await stack.load('api/_lib/moderation/config.js')
+  assert.equal((await applyEnforcement(admin.id, { config: moderationConfig() })).suspended, false)
   assert.equal((await userRow(admin.id)).status, 'active')
 })
 

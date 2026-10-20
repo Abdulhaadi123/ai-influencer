@@ -44,9 +44,16 @@ const MAX_REDIRECTS = 3
 const FETCH_TIMEOUT_MS = 10 * 60 * 1000
 
 export function isAllowedResultSource(raw) {
+  // The address as written must be the address as parsed. The URL parser quietly drops a tab or line break
+  // anywhere in it and trims control characters and spaces off both ends — and what gets stored and compared
+  // later is the text that arrived, so two spellings of one address would be two different sources.
+  if (typeof raw !== 'string' || /[\u0000-\u001f\u007f]/.test(raw) || raw !== raw.trim()) return false
   let u
   try { u = new URL(raw) } catch { return false }
   if (u.protocol !== 'https:') return false
+  // No address KIE serves from carries a name and password, and fetch() refuses one with an exception —
+  // which would surface as a 500 for what is a bad address.
+  if (u.username || u.password) return false
   return ALLOWED_RESULT_HOSTS.some(h => u.hostname === h || u.hostname.endsWith(`.${h}`))
 }
 

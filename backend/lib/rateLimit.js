@@ -9,6 +9,10 @@
 
 const LONGEST_DEFAULT = 60_000
 
+/** Keys kept before old ones are looked for, and how often they are looked for at most. */
+const SWEEP_ABOVE_KEYS = 5000
+const SWEEP_EVERY_MS = 30_000
+
 /**
  * @param {Array<{windowMs: number, max: number}>} rules  all must pass
  * @returns {(key: string) => {ok: true} | {ok: false, retryAfter: number}}
@@ -16,6 +20,7 @@ const LONGEST_DEFAULT = 60_000
 export function createRateLimiter(rules) {
   const hits = new Map() // key -> number[] of recent request timestamps (ms)
   const longest = Math.max(LONGEST_DEFAULT, ...rules.map(r => r.windowMs))
+  let lastSweep = 0
 
   return function limit(callerKey) {
     const now = Date.now()
@@ -35,8 +40,11 @@ export function createRateLimiter(rules) {
     times.push(now)
     hits.set(key, times)
 
-    // Opportunistic cleanup so the map cannot grow without bound.
-    if (hits.size > 5000) {
+    // Opportunistic cleanup so the map cannot grow without bound. Not on every call: once there are
+    // thousands of keys that are all still recent, walking them for each request would make a flood of
+    // one-off callers cost the server a pass over the whole map apiece.
+    if (hits.size > SWEEP_ABOVE_KEYS && now - lastSweep >= SWEEP_EVERY_MS) {
+      lastSweep = now
       for (const [k, v] of hits) {
         if (v.every(t => now - t >= longest)) hits.delete(k)
       }

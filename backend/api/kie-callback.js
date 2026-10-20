@@ -35,6 +35,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { one } from './_lib/db.js'
 import { collect } from './_lib/collect.js'
 import { applyKieStatus, creditsFrom } from './_lib/kieStatus.js'
+import { ownerOf } from './_lib/taskOwners.js'
 import { createRateLimiter } from '../lib/rateLimit.js'
 
 const SECRET = process.env.KIE_WEBHOOK_SECRET || ''
@@ -88,7 +89,7 @@ function taskIdOf(body) {
   return typeof id === 'string' && id && id.length <= 200 ? id : null
 }
 
-const urlsFrom = value => (Array.isArray(value) ? value.filter(u => typeof u === 'string') : [])
+const urlsFrom = value => (Array.isArray(value) ? value.filter(u => typeof u === 'string').map(u => u.trim()) : [])
 
 /**
  * KIE's answer, in the shape _lib/kieStatus.js already folds into a job —
@@ -145,13 +146,16 @@ export function statusFromCallback(body) {
  * worker's sweep.
  */
 export async function processCallback(taskId, status) {
-  // The owner comes from our row, never from the payload. Two rows can only
-  // exist if a second account registered someone else's task id, in which case
-  // the first registration is the real one.
+  // The owner comes from our row, never from the payload. The account the proxy recorded as having
+  // started the task is the owner; a task from before that was recorded falls back to the first
+  // registration. (Registering someone else's task is refused now — api/_lib/taskOwners.js — so a second
+  // row can only be one from before the rule.)
+  const owner = await ownerOf(taskId)
   const job = await one(
     `select id, user_id, influencer_id, kie_task_id, kind, label, state, result_url
-       from generation_jobs where kie_task_id = $1 order by created_at asc limit 1`,
-    [taskId],
+       from generation_jobs where kie_task_id = $1 and ($2::uuid is null or user_id = $2::uuid)
+      order by created_at asc limit 1`,
+    [taskId, owner],
   )
   if (!job) {
     // The app registers a job immediately after KIE accepts it, but a very fast

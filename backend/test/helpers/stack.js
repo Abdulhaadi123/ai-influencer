@@ -293,15 +293,19 @@ export async function startStack({ env = {} } = {}) {
       return { status: res.status, body: json, text, headers: res.headers }
     },
 
-    /** A user, confirmed and signed in, straight in the database. */
-    async createUser({ email = `${randomUUID().slice(0, 8)}@test.example`, role = 'user', status = 'active', password = null } = {}) {
+    /**
+     * A user, confirmed and signed in, straight in the database. The session is the kind the
+     * account would get by signing in: an administrator's is an admin-panel session, anyone
+     * else's an app session (`scope` overrides, for the tests of that very rule).
+     */
+    async createUser({ email = `${randomUUID().slice(0, 8)}@test.example`, role = 'user', status = 'active', password = null, scope = null } = {}) {
       const hash = await passwords.hashPassword(password || 'a-long-test-password-1')
       const row = await db.one(
         `insert into users (email, password_hash, display_name, email_confirmed_at, role, status)
          values ($1, $2, $3, now(), $4, $5) returning *`,
         [email, hash, email.split('@')[0], role, status],
       )
-      const session = await sessions.createSession(row)
+      const session = await sessions.createSession(row, { scope: scope || (role === 'admin' ? 'admin' : 'app') })
       return { id: row.id, email: row.email, token: session.accessToken, refreshToken: session.refreshToken, password: password || 'a-long-test-password-1' }
     },
 

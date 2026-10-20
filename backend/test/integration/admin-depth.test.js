@@ -429,10 +429,18 @@ test('audit filters treat % and _ as plain characters, and survive hostile text'
   assert.equal((await get(`/api/admin/audit?action=${q('user_')}`)).body.total, 0)
   assert.equal((await get(`/api/admin/audit?admin=${q('%')}`)).body.total, 0)
   assert.equal((await get(`/api/admin/audit?admin=${q('_')}`)).body.total, 0)
-  for (const value of ['%00', 'a%00b', '%ED%A0%80', "'; drop table admin_audit_log; --", 'x'.repeat(5000)]) {
+  for (const value of ['%ED%A0%80', "'; drop table admin_audit_log; --", 'x'.repeat(5000)]) {
     for (const key of ['action', 'admin']) {
       const res = await get(`/api/admin/audit?${key}=${value.startsWith('%') ? value : q(value)}`)
       assert.equal(res.status, 200, `${key}=${value.slice(0, 20)}`)
+    }
+  }
+  // A NUL byte, which the database cannot store, is refused at the door (api/_lib/nul.js) instead of reaching it.
+  for (const value of ['%00', 'a%00b']) {
+    for (const key of ['action', 'admin']) {
+      const res = await get(`/api/admin/audit?${key}=${value}`)
+      assert.equal(res.status, 400, `${key}=${value}`)
+      assert.equal(res.body.code, 'BAD_CHARACTER')
     }
   }
   assert.equal((await stack.one('select count(*)::int as n from admin_audit_log')).n, 7)

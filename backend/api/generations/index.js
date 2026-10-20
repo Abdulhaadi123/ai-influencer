@@ -10,7 +10,7 @@
 
 import { one, many } from '../_lib/db.js'
 import { userRoute, badRequest, forbidden, noStore } from '../_lib/http.js'
-import { isUuid, text, ASSET_KINDS } from '../_lib/validate.js'
+import { isUuid, text, momentOf, wholeNumber, ASSET_KINDS } from '../_lib/validate.js'
 import { OUTPUT_REMOVED_MESSAGE } from '../_lib/moderation/service.js'
 
 const COLUMNS = 'id, influencer_id, asset_id, kind, label, created_at'
@@ -41,14 +41,13 @@ export const byAsset = userRoute(async (req, res, user) => {
 export const byInfluencer = userRoute(async (req, res, user) => {
   const { influencerId, beforeAt = null, beforeId = null } = req.query || {}
   if (!isUuid(influencerId)) throw badRequest('influencerId is required.')
-  const limit = Math.min(Math.max(Number(req.query?.limit) || 30, 1), MAX_PAGE)
+  const limit = wholeNumber(req.query?.limit, { min: 1, max: MAX_PAGE, fallback: 30 })
 
-  if (beforeAt !== null && Number.isNaN(new Date(String(beforeAt)).getTime())) {
-    throw badRequest('beforeAt is not a valid time.')
-  }
+  const at = beforeAt === null ? null : momentOf(beforeAt)
+  if (beforeAt !== null && !at) throw badRequest('beforeAt is not a valid time.')
   if (beforeId !== null && !isUuid(beforeId)) throw badRequest('beforeId is not valid.')
   // Both halves of the cursor or neither — one alone cannot order anything.
-  const cursor = beforeAt !== null && beforeId !== null
+  const cursor = at !== null && beforeId !== null
 
   // One row more than asked for, to answer hasMore without a second count.
   const rows = await many(
@@ -57,7 +56,7 @@ export const byInfluencer = userRoute(async (req, res, user) => {
         and ($3::boolean is false or (created_at, id) < ($4::timestamptz, $5::uuid))
       order by created_at desc, id desc
       limit $6`,
-    [user.id, influencerId, cursor, cursor ? beforeAt : null, cursor ? beforeId : null, limit + 1],
+    [user.id, influencerId, cursor, cursor ? at : null, cursor ? beforeId : null, limit + 1],
   )
 
   noStore(res)

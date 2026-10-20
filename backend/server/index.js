@@ -18,8 +18,10 @@ import express from 'express'
 
 import { migrate } from '../db/migrate.js'
 import { closeDb } from '../api/_lib/db.js'
-import { applyCors } from '../api/_lib/auth.js'
+import { applyCors, requireSessionBeforeBody } from '../api/_lib/auth.js'
 import { sendServerError } from '../api/_lib/errors.js'
+import { guardRequestInput } from '../api/_lib/requestInput.js'
+import { HttpError } from '../api/_lib/http.js'
 import { emailConfigured, emailLogOnly } from '../api/_lib/email.js'
 
 import * as account from '../api/auth/account.js'
@@ -41,7 +43,7 @@ import kieCallback, { CALLBACK_PATH, webhooksConfigured } from '../api/kie-callb
 import promptAssist from '../api/prompt-assist.js'
 import report from '../api/reports/index.js'
 import * as billing from '../api/billing/index.js'
-import revenueCatWebhook, { REVENUECAT_PATH, revenueCatConfigured } from '../api/revenuecat-webhook.js'
+import revenueCatWebhook, { REVENUECAT_PATH, revenueCatConfigured, sandboxAccepted } from '../api/revenuecat-webhook.js'
 import { billingEnforced } from '../api/_lib/billing.js'
 import { registerAdminRoutes } from '../api/admin/routes.js'
 import { adminUiAvailable, adminUiDir } from '../api/admin/ui.js'
@@ -56,12 +58,42 @@ export function createApp() {
   app.set('trust proxy', 1)
   app.disable('x-powered-by')
 
-  app.use(express.json({ limit: '10mb' }))
+  // Nothing the API answers is for keeping or for reading as a web page: not by a shared cache between
+  // here and the app (a signed-in answer is one person's), and not by a browser guessing at its type.
+  // First of all, so a refusal from the body parser carries it too. An endpoint that sets its own
+  // Cache-Control (noStore, in api/_lib/http.js) replaces this one.
+  app.use('/api', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    next()
+  })
 
+  // Before the body parsers and the session gate below, so that their refusals carry the CORS headers too
+  // (a browser caller on an allowed origin must be able to read a 401).
   app.use('/api', (req, res, next) => {
     if (applyCors(req, res)) return
     next()
   })
+
+  // A body is read in full before any handler — or any guard — runs, so its size limit is all that stands
+  // between a caller with no session and the server's memory. Each kind of route gets what it can need:
+  //   sign-in, sign-up, resets and the pages the email links open     16 KB
+  //   the two webhooks (RevenueCat, KIE)                              256 KB
+  //   the generation proxy, which a file can go through as base64     10 MB
+  //   everything else, all of it signed in                            1 MB
+  // The first parser to read a body wins (body-parser skips one already read), so the narrow routes come first.
+  // Everything else under /api takes a body only from a signed-in caller, and is told so before any of it is
+  // read (requireSessionBeforeBody) — otherwise the 10 MB and 1 MB limits below are open to anyone.
+  app.use('/api/auth', express.json({ limit: '16kb' }))
+  app.use('/auth', express.json({ limit: '16kb' }))
+  app.use('/webhooks', express.json({ limit: '256kb' }))
+  app.use('/api', requireSessionBeforeBody)
+  app.use('/api/kie', express.json({ limit: '10mb' }))
+  app.use(express.json({ limit: '1mb' }))
+
+  // What a body or query may contain, settled once for every route: no NUL character (a 500 from the
+  // database, a 400 here), nothing absurdly deep, and no lone surrogate to upset a jsonb column.
+  app.use(guardRequestInput)
 
   /** Liveness. Deliberately says nothing about configuration. */
   app.get('/health', (_req, res) => res.status(200).json({ ok: true }))
@@ -151,12 +183,24 @@ export function createApp() {
 
   // Last resort. Without it a throw returns Express's HTML error page, which
   // leaks a stack trace.
-  app.use((err, _req, res, _next) => {
+  app.use((err, _req, res, next) => {
+    if (res.headersSent) return next(err)
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message, code: err.code })
     if (err?.type === 'entity.parse.failed') {
       return res.status(400).json({ error: 'The request body is not valid JSON.', code: 'BAD_JSON' })
     }
     if (err?.type === 'entity.too.large') {
       return res.status(413).json({ error: 'The request is too large.', code: 'TOO_LARGE' })
+    }
+    // Anything else the body parser refuses on the request's own account — a charset or encoding it does not
+    // read, a body that stopped halfway, a length that does not add up — is the caller's doing, not ours.
+    const status = err?.status ?? err?.statusCode
+    if (Number.isInteger(status) && status >= 400 && status < 500) {
+      const unsupported = status === 415
+      return res.status(status).json({
+        error: unsupported ? 'This content type or encoding is not supported.' : 'The request could not be read.',
+        code: unsupported ? 'UNSUPPORTED_MEDIA_TYPE' : 'BAD_REQUEST',
+      })
     }
     return sendServerError(res, err, { tag: '[server] unhandled:', message: 'The server hit an unexpected error. Please try again.' })
   })
@@ -196,6 +240,10 @@ async function main() {
   )
   if (!revenueCatConfigured()) {
     console.warn('[server] REVENUECAT_WEBHOOK_AUTH is not set — purchases cannot be credited (the webhook refuses every delivery).')
+  }
+  if (billingEnforced() && sandboxAccepted()) {
+    // A test purchase costs its buyer nothing, so while these are credited anyone who can make one gets free credits.
+    console.warn('[server] Credits are ENFORCED while REVENUECAT_ACCEPT_SANDBOX is not "false": a RevenueCat TEST purchase is credited like a real one. Set it to false before real sales.')
   }
 
   if (!adminUiAvailable()) {

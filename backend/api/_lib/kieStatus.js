@@ -84,7 +84,9 @@ export async function fetchKieTaskStatus(taskId) {
 
   return {
     state: d.state || 'unknown',
-    resultUrls: resultUrls.filter(u => typeof u === 'string'),
+    // Trimmed: the address check refuses padding (api/_lib/results.js), and a result KIE has paid for must not be
+    // lost because of a space around its link.
+    resultUrls: resultUrls.filter(u => typeof u === 'string').map(u => u.trim()),
     failMsg: d.failMsg || null,
     completeTime: d.completeTime || null,
     // Only some models report one. Clamped rather than trusted, and 0 means

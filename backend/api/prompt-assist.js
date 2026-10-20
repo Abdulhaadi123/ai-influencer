@@ -100,10 +100,11 @@ export function keepsTimings(input, output) {
 
 export default async function handler(req, res) {
   if (applyCors(req, res)) return
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' })
 
+  // Signed in first, so an anonymous caller gets the same 401 here as on every other endpoint.
   const user = await requireUser(req, res)
   if (!user) return
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' })
 
   if (!OPENAI_KEY) {
     // Not an error: the feature is optional and the client treats 501 as

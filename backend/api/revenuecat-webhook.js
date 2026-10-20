@@ -65,7 +65,8 @@ const byIp = createRateLimiter([{ windowMs: 10_000, max: 120 }])
 const secret = () => (process.env.REVENUECAT_WEBHOOK_AUTH || '').trim()
 
 /** Are test purchases (RevenueCat's SANDBOX environment) credited? Off it at launch. */
-const acceptSandbox = () => String(process.env.REVENUECAT_ACCEPT_SANDBOX ?? 'true').toLowerCase() !== 'false'
+export const sandboxAccepted = () => String(process.env.REVENUECAT_ACCEPT_SANDBOX ?? 'true').toLowerCase() !== 'false'
+const acceptSandbox = sandboxAccepted
 
 export function revenueCatConfigured() {
   return secret() !== ''
@@ -79,6 +80,9 @@ function sameSecret(expected, received) {
 }
 
 const text = (value, max = 200) => (typeof value === 'string' && value ? value.slice(0, max) : null)
+
+/** A test purchase. (Only text is compared: String() throws on an object whose toString is not a function.) */
+const isSandbox = event => typeof event.environment === 'string' && event.environment.toUpperCase() === 'SANDBOX'
 
 /** "credits_500", whether the store reports it as that or as "credits_500:base-plan". */
 export const packIdOf = productId => (typeof productId === 'string' ? productId.split(':')[0] : '')
@@ -105,13 +109,13 @@ async function apply(event, client) {
   const transactionId = text(event.transaction_id) || text(event.original_transaction_id)
 
   if (type === 'NON_RENEWING_PURCHASE') {
-    if (String(event.environment).toUpperCase() === 'SANDBOX' && !acceptSandbox()) return { outcome: 'sandbox_off', userId }
+    const sandbox = isSandbox(event)
+    if (sandbox && !acceptSandbox()) return { outcome: 'sandbox_off', userId }
 
     const { rows } = await client.query('select credits from credit_packs where product_id = $1 and enabled', [packIdOf(text(event.product_id))])
     if (!rows.length) return { outcome: 'ignored', userId }
     const credits = Number(rows[0].credits)
 
-    const sandbox = String(event.environment).toUpperCase() === 'SANDBOX'
     const { inserted } = await addEntry({
       userId, kind: 'purchase', delta: credits,
       ref: `purchase:${transactionId || `event-${event.id}`}`,

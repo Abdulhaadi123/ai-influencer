@@ -221,6 +221,10 @@ export const setRole = adminRoute(async (req, res, admin) => {
     if (!stillAdmin) throw forbidden('This area is for administrators.', 'NOT_ADMIN')
 
     const { rowCount } = await client.query('update users set role = $2 where id = $1 and role <> $2', [target.id, role])
+    // A session belongs to one place (sessions.js, "Scope"), and which place this account may use has just
+    // changed: the sessions of the place it can no longer use end now, rather than lingering — refreshable
+    // and useless — until they expire. (The role is read on every call, so they were never usable.)
+    if (rowCount > 0) await client.query('delete from sessions where user_id = $1 and scope = $2', [target.id, role === 'admin' ? 'app' : 'admin'])
     await audit(admin, 'user.set-role', { targetType: 'user', targetId: target.id, details: { email: target.email, from: target.role, to: role } }, client)
     return rowCount > 0
   })

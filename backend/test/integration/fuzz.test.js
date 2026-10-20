@@ -229,12 +229,19 @@ test('proxy: hostile request bodies are refused or forwarded, never a 500', asyn
   assert.deepEqual(failures, [])
 })
 
-test('proxy: a NUL in a refused prompt is recorded without it, and still a clean refusal', async () => {
+test('proxy: a NUL in a prompt is refused at the door — a clean 400 before moderation, KIE or the database see it', async () => {
   const res = await stack.api('POST', '/api/kie/api/v1/jobs/createTask', { token: victim.token, body: { model: 'm', input: { prompt: 'XXX-EXPLICIT\u0000 and more' } } })
   assert.equal(res.status, 400)
-  assert.equal(res.body.code, 'CONTENT_BLOCKED')
-  const [e] = await stack.sql(`select excerpt from moderation_events where source = 'prompt'`)
-  assert.ok(!e.excerpt.includes('\u0000'))
+  assert.equal(res.body.code, 'BAD_CHARACTER')
+  assert.equal((await stack.one(`select count(*)::int as n from moderation_events where source = 'prompt'`)).n, 0)
+})
+
+test('moderation events: a NUL in what is recorded is dropped — a refusal can never turn into a server error', async () => {
+  // Over HTTP a NUL is refused earlier (above); this is the second line of defence for anything that records an event itself.
+  const { recordEvent } = await stack.load('api/_lib/moderation/events.js')
+  await recordEvent({ userId: victim.id, source: 'prompt', action: 'blocked', excerpt: 'XXX-EXPLICIT\u0000 and more', taskId: 'task\u0000id', model: 'm\u0000' })
+  const [e] = await stack.sql(`select excerpt, kie_task_id, model from moderation_events where source = 'prompt'`)
+  assert.ok(!e.excerpt.includes('\u0000') && !e.kie_task_id.includes('\u0000') && !e.model.includes('\u0000'))
   assert.match(e.excerpt, /XXX-EXPLICIT/)
 })
 

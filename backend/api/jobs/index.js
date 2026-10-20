@@ -15,8 +15,9 @@
 
 import { one, many, query } from '../_lib/db.js'
 import { userRoute, badRequest, forbidden, noStore, enforceLimit } from '../_lib/http.js'
-import { isUuid, text, ASSET_KINDS } from '../_lib/validate.js'
+import { isUuid, text, momentOf, wholeNumber, ASSET_KINDS } from '../_lib/validate.js'
 import { fetchKieTaskStatus, applyKieStatus, ACTIVE_STATES, JOB_COLUMNS } from '../_lib/kieStatus.js'
+import { assertTasksAreYours } from '../_lib/taskOwners.js'
 import { rateLimit } from '../../lib/rateLimit.js'
 
 const RESULT_TTL_HOURS = 24
@@ -32,7 +33,7 @@ const taskIdFrom = value => (typeof value === 'string' && value && value.length 
  * (~20 KB) to throw nearly all of them away.
  */
 export const list = userRoute(async (req, res, user) => {
-  const limit = Math.min(Math.max(Number(req.query?.limit) || 60, 1), 200)
+  const limit = wholeNumber(req.query?.limit, { min: 1, max: 200, fallback: 60 })
   const activeOnly = req.query?.active === '1' || req.query?.active === 'true'
   // Two plain queries rather than one with an "or": the running-jobs one can then
   // use jobs_active_idx and never walks an account's whole history to find three rows.
@@ -82,8 +83,8 @@ export const activeCount = userRoute(async (req, res, user) => {
  * reported twice, and callers treat a repeat as a no-op.
  */
 export const changes = userRoute(async (req, res, user) => {
-  const since = req.query?.since ? new Date(String(req.query.since)) : null
-  if (since && Number.isNaN(since.getTime())) throw badRequest('since is not a valid time.')
+  const since = req.query?.since ? momentOf(req.query.since) : null
+  if (req.query?.since && !since) throw badRequest('since is not a valid time.')
 
   // The cursor and the count in one round trip — this endpoint is asked every few
   // seconds by every open app. The cursor is taken BEFORE the rows are read, as it
@@ -120,6 +121,8 @@ export const sync = userRoute(async (req, res, user) => {
   if (!taskId) throw badRequest('taskId is required.')
   // Shares the generation proxy's per-user allowance: both spend KIE requests.
   enforceLimit(rateLimit, `user:${user.id}`, 'Too many requests. Please wait a moment and try again.')
+  // KIE answers for any task of the studio's key; only the account that started this one may ask.
+  await assertTasksAreYours(user.id, [taskId])
 
   const status = await fetchKieTaskStatus(taskId)
   const job = status.state === 'ratelimited' || status.state === 'unknown'
@@ -155,6 +158,10 @@ export const register = userRoute(async (req, res, user) => {
     if (!ASSET_KINDS.includes(kind)) throw badRequest('kind is not valid.')
     return { taskId, influencerId, kind, label: text(e?.label, 120) || 'Generation', model: text(e?.model, 200) }
   })
+
+  // A task id is a secret of whoever started it: registering someone else's would copy their result
+  // into this account (api/_lib/taskOwners.js).
+  await assertTasksAreYours(user.id, rows.map(r => r.taskId))
 
   const influencerIds = [...new Set(rows.map(r => r.influencerId).filter(Boolean))]
   if (influencerIds.length) {

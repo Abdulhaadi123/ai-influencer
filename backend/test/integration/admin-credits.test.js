@@ -136,7 +136,10 @@ test('activity: filter by kind, by account email, or by one account; hostile ter
   assert.equal((await get(`/api/admin/billing/activity?userId=${a.id}&kind=spend`)).body.total, 1)
   assert.equal((await get('/api/admin/billing/activity?userId=not-a-uuid')).status, 400)
   assert.equal((await get('/api/admin/billing/activity?q=%25')).body.total, 0, '% is a character, not a wildcard')
-  assert.equal((await get('/api/admin/billing/activity?q=%00')).status, 200)
+  // A NUL byte is refused at the door (api/_lib/nul.js): the database cannot store one, and used to answer with a 500.
+  const nul = await get('/api/admin/billing/activity?q=%00')
+  assert.equal(nul.status, 400)
+  assert.equal(nul.body.code, 'BAD_CHARACTER')
 })
 
 test('activity pages', async () => {

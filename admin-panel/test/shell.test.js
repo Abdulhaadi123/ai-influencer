@@ -144,7 +144,7 @@ test('signing in sends the credentials once, checks the admin area with the toke
   await signIn()
   const login = requests('POST', '/api/auth/login')
   assert.equal(login.length, 1)
-  assert.deepEqual(login[0].body, { email: ME.email, password: PASSWORD })
+  assert.deepEqual(login[0].body, { email: ME.email, password: PASSWORD, scope: 'admin' })
   assert.equal(login[0].auth, undefined, 'no token on the login itself')
   assert.ok(requests('GET', '/api/admin/stats').every(r => r.auth === 'Bearer access-1'))
   assert.ok(document.querySelector('.sidebar'))
