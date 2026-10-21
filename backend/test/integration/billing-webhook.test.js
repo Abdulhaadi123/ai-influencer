@@ -91,6 +91,21 @@ test('each of the three packs is worth what the table says', async () => {
   assert.equal(await balance(u), 7000)
 })
 
+test('the packs on sale — 5,000, 10,000 and 20,000 credits — are each credited in full, also as the store reports them with a purchase option', async () => {
+  const u = await stack.createUser()
+  for (const [product_id, credits] of [['credits_5000', 5000], ['credits_10000', 10000], ['credits_20000', 20000], ['credits_10000:buy', 10000]]) {
+    const before = await balance(u)
+    const res = await deliver(purchase(u, { product_id }))
+    assert.equal(res.body.outcome, 'credited', product_id)
+    assert.equal(await balance(u), before + credits, product_id)
+  }
+  assert.equal(await balance(u), 45_000)
+  const pack = await stack.api('GET', '/api/billing/me', { token: u.token })
+  assert.deepEqual(pack.body.packs.filter(p => p.credits >= 5000).map(p => [p.productId, p.credits, p.label]), [
+    ['credits_5000', 5000, '5,000 credits'], ['credits_10000', 10000, '10,000 credits'], ['credits_20000', 20000, '20,000 credits'],
+  ], 'and the app is told about them, smallest first')
+})
+
 test('the same delivery arriving again (RevenueCat retries) credits once', async () => {
   const u = await stack.createUser()
   const body = purchase(u)

@@ -319,9 +319,13 @@ app ──createTask──► /api/kie ──gate: take the price──► KIE �
   same credits twice. It is given back at once if KIE refuses or never answers, when the job
   fails (KIE's own filter included — those cost the user nothing), when the worker times a
   job out, and by the worker's sweep for a spend that never got an answer.
-- **Packs** (`credit_packs`): which store product is worth how many credits. Seeded with
-  `credits_500`, `credits_1500`, `credits_5000` (RevenueCat Test Store); edit with SQL for now.
-  A product that is not listed is never credited.
+- **Packs** (`credit_packs`): which store product is worth how many credits. The packs on sale are
+  `credits_5000` ($20), `credits_10000` ($35) and `credits_20000` ($70) (migration 010; the dollar
+  prices are set in Google Play, never here); `credits_500` and `credits_1500` are the Test Store's
+  leftovers. A product that is not listed, or is disabled, is never credited. To add a pack: create
+  the product in Play Console and RevenueCat with an id like `credits_<n>`, then
+  `insert into credit_packs (product_id, credits, label) values ('credits_<n>', <n>, '<n> credits');`
+  — the app picks it up with no new build.
 - **The webhook** (`api/revenuecat-webhook.js`): authenticated by the `Authorization` header
   matching `REVENUECAT_WEBHOOK_AUTH` (unset = it refuses everything). `NON_RENEWING_PURCHASE`
   credits the pack once per *store transaction*; `CANCELLATION` takes a refunded purchase's

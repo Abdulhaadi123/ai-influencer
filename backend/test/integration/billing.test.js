@@ -298,7 +298,7 @@ test('GET /api/billing/me needs a session and tells only the caller\'s balance, 
   assert.equal(res.body.balance, 123.5)
   assert.equal(res.body.enforced, false)
   assert.deepEqual(res.body.prices.map(p => p.model).sort(), ['free-model', 'nano-banana-pro', 'wan/2-5-image-to-video'], 'a disabled model is not offered')
-  assert.deepEqual(res.body.packs.map(p => [p.productId, p.credits]), [['credits_500', 500], ['credits_1500', 1500], ['credits_5000', 5000]])
+  assert.deepEqual(res.body.packs.map(p => [p.productId, p.credits]), [['credits_500', 500], ['credits_1500', 1500], ['credits_5000', 5000], ['credits_10000', 10000], ['credits_20000', 20000]])
   assert.equal(res.headers.get('cache-control'), 'private, no-store')
 
   enforce()

@@ -29,7 +29,7 @@ async function legacyDatabase() {
 
 test('the migrations are numbered in order with no gaps', () => {
   const files = readdirSync(migrations).filter(f => f.endsWith('.sql')).sort()
-  assert.deepEqual(files, ['001_schema.sql', '002_moderation_admin.sql', '003_provider_refusals.sql', '004_admin_list_indexes.sql', '005_billing.sql', '006_sealed_uploads.sql', '007_credit_ledger_created_idx.sql', '008_session_scope.sql', '009_task_owners.sql'])
+  assert.deepEqual(files, ['001_schema.sql', '002_moderation_admin.sql', '003_provider_refusals.sql', '004_admin_list_indexes.sql', '005_billing.sql', '006_sealed_uploads.sql', '007_credit_ledger_created_idx.sql', '008_session_scope.sql', '009_task_owners.sql', '010_launch_packs.sql'])
 })
 
 test('006 adds sealed_at to a live table without touching a row, and nothing needs backfilling', async () => {
