@@ -74,14 +74,16 @@ export const VIDEO_MODELS = [
   {
     id: 'kling/v3-turbo-image-to-video',
     label: 'Kling 3.0 Turbo',
-    note: 'Faster Kling 3. No audio track. 3–15s.',
+    note: 'Faster Kling 3. One image. No audio track. 3–15s.',
     supportsSound: false,
-    maxImages: 2,
+    // KIE answers "image_urls supports at most 1 files" to a second image (found by sending this
+    // model's real request on 23 October 2026) — it used to be sent two and refused every time.
+    maxImages: 1,
     durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     buildInput: ({ prompt, imageUrls, duration }) => ({
       prompt,
       duration: String(nearest(duration, [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])),
-      image_urls: imageUrls.slice(0, 2),
+      image_urls: imageUrls.slice(0, 1),
       resolution: '1080p',
     }),
   },
@@ -148,20 +150,22 @@ export const VIDEO_MODELS = [
     id: 'hailuo/2-3-image-to-video-pro',
     label: 'Hailuo 2.3 Pro',
     // Capital P in the resolution is not a typo — this vendor rejects '1080p'.
-    // 10s is documented as unsupported at 1080P, so 768P is used for it.
-    note: 'MiniMax Hailuo. Single image. 6 or 10s only.',
+    //
+    // 6 seconds only. KIE bills a 6 s clip at 1080P for 80 credits and a 10 s clip (768P, the
+    // only resolution it does at that length) for 90, so no single per-second price fits both:
+    // a rate that is exact for 6 s charges a 10 s clip about 43 credits more than it costs,
+    // and the price list holds one rate per model, not one per resolution. Offering the one
+    // length keeps the price exact (80 for a clip).
+    note: 'MiniMax Hailuo. Single image. 6s only.',
     supportsSound: false,
     maxImages: 1,
-    durations: [6, 10],
-    buildInput: ({ prompt, imageUrls, duration }) => {
-      const d = nearest(duration, [6, 10])
-      return {
-        prompt,
-        duration: String(d),
-        image_url: imageUrls[0],
-        resolution: d === 10 ? '768P' : '1080P',
-      }
-    },
+    durations: [6],
+    buildInput: ({ prompt, imageUrls }) => ({
+      prompt,
+      duration: '6',
+      image_url: imageUrls[0],
+      resolution: '1080P',
+    }),
   },
   {
     id: 'minimax-h3/image-to-video',
@@ -186,14 +190,16 @@ export const VIDEO_MODELS = [
     id: 'pixverse-v6/image-to-video',
     label: 'PixVerse v6',
     // Audio is a switch here, not a `sound` boolean like Kling.
-    note: 'Stylised output. Can generate audio. Up to 2 images, 1–15s.',
+    note: 'Stylised output. Can generate audio. One image, 1–15s.',
     supportsSound: true,
-    maxImages: 2,
+    // KIE answers "template_id cannot be empty when multiple image_urls are provided" to two images
+    // (found by sending this model's real request on 23 October 2026). One image needs no template.
+    maxImages: 1,
     durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     buildInput: ({ prompt, imageUrls, duration, hasVoice, audioUrl }) => ({
       prompt,
       duration: nearest(duration, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]),
-      image_urls: imageUrls.slice(0, 2),
+      image_urls: imageUrls.slice(0, 1),
       quality: '1080p',
       generate_audio_switch: !!(audioUrl || hasVoice),
     }),
@@ -279,9 +285,14 @@ export const VIDEO_MODELS = [
   {
     id: 'veo-3-1',
     label: 'Veo 3.1',
-    // One image only: the quality model has no reference mode, so a second
-    // image would become the last frame rather than another reference.
-    note: 'Google Veo, highest quality. One image, audio, 4/6/8s.',
+    // One image only: this mode has no reference images, so a second image would
+    // become the last frame rather than another reference.
+    //
+    // Not "highest quality": the request names no tier, and KIE answers a request without
+    // one as Veo 3.1 Fast — the real run on 23 October 2026 was billed 65 credits, the Fast
+    // price, not the 255 of the Quality tier. What this entry adds over the one above is
+    // first-frame mode and a choice of 4, 6 or 8 seconds.
+    note: 'Google Veo 3.1 Fast, from one starting image. Audio, 4/6/8s.',
     supportsSound: true,
     maxImages: 1,
     durations: [4, 6, 8],
