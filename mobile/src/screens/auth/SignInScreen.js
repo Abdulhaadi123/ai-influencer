@@ -7,7 +7,7 @@
  * address is registered, which is the first step of a credential-stuffing run.
  */
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { View } from 'react-native'
 
 import { useAuth } from '@core/auth/AuthContext'
@@ -17,11 +17,15 @@ import { userMessage } from '@core/errors'
 
 import { AuthShell, Field, PrimaryButton, LinkButton, FormError, FormNotice, emailProps, passwordProps } from './parts'
 
-export default function SignInScreen({ navigation }) {
+export default function SignInScreen({ navigation, route }) {
   // `notice` explains a sign-out the app did, not the user — a session that ended.
   const { signIn, notice, clearNotice, resendConfirmation } = useAuth()
 
-  const [email, setEmail] = useState('')
+  // Arriving from "An account with this email already exists" on the sign-up form carries the address
+  // along, so the person types only the password.
+  const passedEmail = route?.params?.email
+  const [email, setEmail] = useState(passedEmail || '')
+  useEffect(() => { if (passedEmail) setEmail(passedEmail) }, [passedEmail])
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)

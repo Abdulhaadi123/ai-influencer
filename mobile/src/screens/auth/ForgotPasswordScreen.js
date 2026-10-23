@@ -11,7 +11,7 @@
  * on its way" — which is honest to a real user and useless to someone probing.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { View } from 'react-native'
 
 import { useAuth } from '@core/auth/AuthContext'
@@ -19,10 +19,13 @@ import { userMessage } from '@core/errors'
 
 import { AuthShell, Field, PrimaryButton, LinkButton, FormError, FormNotice, emailProps } from './parts'
 
-export default function ForgotPasswordScreen({ navigation }) {
+export default function ForgotPasswordScreen({ navigation, route }) {
   const { requestPasswordReset } = useAuth()
 
-  const [email, setEmail] = useState('')
+  // The sign-up form passes along the address it just refused, so it need not be typed again.
+  const passedEmail = route?.params?.email
+  const [email, setEmail] = useState(passedEmail || '')
+  useEffect(() => { if (passedEmail) setEmail(passedEmail) }, [passedEmail])
   const [sent, setSent] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)

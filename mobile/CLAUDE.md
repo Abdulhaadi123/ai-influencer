@@ -93,9 +93,10 @@ Things that look like details and are not:
 - **The suggestion card says something about the text**, not only offers a rewrite: `improvePrompt` returns
   `{ suggestion, notice }` (a refusal, `CONTENT_BLOCKED`, is returned as a `blocked` notice, not thrown).
 
-Errors are deliberately vague about whether an account exists — "that email and
-password combination is not right", and forgot-password / resend always report
-success. Both prevent account enumeration. Do not "improve" them.
+Sign-in errors are deliberately vague — "that email and password combination is
+not right" — and forgot-password / resend always report success. Do not "improve"
+those. Sign-up is the exception: an address that already has an account is
+refused on the form (`EMAIL_TAKEN`), not answered with "check your email".
 
 ## Data
 

@@ -73,7 +73,9 @@ other session, which is the case it existed for.
 - Emails: SMTP from the backend (`SMTP_HOST` / `SMTP_USER` / `SMTP_PASS`). Links
   open small web pages on the backend (`backend/api/auth/pages.js`), not screens
   in the app — mail clients strip custom-scheme links.
-- No answer reveals whether an email is registered.
+- Sign-in never says which half was wrong, and forgot-password / resend always answer "sent".
+  Sign-up does say when the address is taken (`409 EMAIL_TAKEN`, shown on the form) — it must not
+  go back to "check your email" and an email to the owner.
 
 ## Generation stack
 

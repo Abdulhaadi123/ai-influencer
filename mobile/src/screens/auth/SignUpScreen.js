@@ -12,16 +12,21 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { View } from 'react-native'
+import { View, StyleSheet } from 'react-native'
 
 import { useAuth } from '@core/auth/AuthContext'
-import { validatePassword, MIN_PASSWORD_LENGTH } from '@core/auth'
+import { validatePassword, MIN_PASSWORD_LENGTH, EMAIL_TAKEN } from '@core/auth'
 import { userMessage } from '@core/errors'
 
+import { space } from '../../theme'
 import {
   AuthShell, Field, PrimaryButton, LinkButton, FormError,
   emailProps, passwordProps,
 } from './parts'
+
+const styles = StyleSheet.create({
+  takenActions: { marginTop: space.md, gap: space.xs },
+})
 
 export default function SignUpScreen({ navigation }) {
   const { signUp } = useAuth()
@@ -32,6 +37,10 @@ export default function SignUpScreen({ navigation }) {
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  // The address that was refused because it already has an account. Kept as the address, not a
+  // flag, so editing it clears the message and typing it back brings nothing stale.
+  const [takenEmail, setTakenEmail] = useState(null)
+  const taken = takenEmail !== null && takenEmail === email.trim().toLowerCase()
 
   const emailRef = useRef(null)
   const passwordRef = useRef(null)
@@ -54,6 +63,7 @@ export default function SignUpScreen({ navigation }) {
     if (busy || !canSubmit) return
     setBusy(true)
     setError(null)
+    setTakenEmail(null)
     try {
       const { needsEmailConfirmation } = await signUp({ email, password, displayName })
 
@@ -62,7 +72,9 @@ export default function SignUpScreen({ navigation }) {
       // Otherwise the session arrives and the auth gate swaps the navigator —
       // nothing to do here.
     } catch (e) {
-      setError(userMessage(e, 'Unable to create your account. Please try again.'))
+      // Said on the email field itself, with the two ways forward below the button.
+      if (e?.code === EMAIL_TAKEN) setTakenEmail(email.trim().toLowerCase())
+      else setError(userMessage(e, 'Unable to create your account. Please try again.'))
     } finally {
       setBusy(false)
     }
@@ -89,6 +101,7 @@ export default function SignUpScreen({ navigation }) {
       <Field
         ref={emailRef}
         label="Email"
+        error={taken ? 'An account with this email already exists.' : null}
         value={email}
         onChangeText={setEmail}
         placeholder="name@example.com"
@@ -127,8 +140,15 @@ export default function SignUpScreen({ navigation }) {
       />
 
       <View>
-        <PrimaryButton title="Continue" onPress={submit} loading={busy} disabled={!canSubmit} />
+        <PrimaryButton title="Continue" onPress={submit} loading={busy} disabled={!canSubmit || taken} />
       </View>
+
+      {taken ? (
+        <View style={styles.takenActions}>
+          <LinkButton title="Sign in instead" onPress={() => navigation.navigate('SignIn', { email: email.trim() })} />
+          <LinkButton title="Forgot password?" onPress={() => navigation.navigate('ForgotPassword', { email: email.trim() })} />
+        </View>
+      ) : null}
 
     </AuthShell>
   )

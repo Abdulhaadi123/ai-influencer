@@ -177,7 +177,8 @@ function DeleteAccountDialog({ visible, email, onClose, onDelete }) {
     <Dialog visible={visible} onClose={close} title="Delete account">
       <Text style={[styles.dialogBody, { color: colors.textSecondary }]}>
         This will permanently delete your account, including all influencers, images and
-        videos. Any generations in progress will be lost. Enter your password to continue.
+        videos, and any credits you have left. Any generations in progress will be lost.
+        Enter your password to continue.
       </Text>
 
       <PillInput

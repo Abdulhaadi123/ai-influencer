@@ -68,10 +68,8 @@ export default function VerifyEmailScreen({ navigation, route }) {
       </View>
 
       <View style={styles.again}>
-        {/* The server answers a sign-up for a registered address exactly like a new one (it never
-            says who is registered) and emails that address "you already have an account" instead. */}
         <Text style={[styles.hint, { color: colors.textTertiary }]}>
-          Can't find it? Look in your spam folder. If this email already has an account, we've emailed you how to sign in instead.
+          Can't find it? Look in your spam folder.
         </Text>
         {email ? <LinkButton title={resending ? 'Sending…' : 'Resend verification email'} onPress={resend} /> : null}
       </View>

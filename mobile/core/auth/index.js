@@ -17,10 +17,13 @@
  * email links open (backend/api/auth/pages.js). The app only asks for the email
  * to be sent; the person then signs in here.
  *
- * ── Account enumeration ──────────────────────────────────────────────────────
+ * ── What is said about an email that is already registered ───────────────────
  *
- * The server's answers never reveal whether an email is registered, and the
- * messages here do not add that information back. Do not "improve" them.
+ * Sign-in never says which half was wrong ("Incorrect email or password."), and
+ * forgot-password / resend answer "sent" whether or not the account exists. Do not
+ * "improve" those. Sign-up is the exception: when the address already has an account
+ * the server answers EMAIL_TAKEN and the form says so, because "check your email"
+ * for a message that never comes is worse than the truth.
  */
 
 import { apiFetch } from '../api/client'
@@ -38,6 +41,9 @@ export const MAX_PASSWORD_LENGTH = 128
 
 /** `code` on the error signIn throws for an account whose email is not confirmed yet. */
 export const EMAIL_NOT_CONFIRMED = 'EMAIL_NOT_CONFIRMED'
+
+/** `code` on the error signUp throws when the address already has an account. */
+export const EMAIL_TAKEN = 'EMAIL_TAKEN'
 
 /** @returns {string|null} a problem to show the user, or null when acceptable */
 export function validatePassword(password) {
@@ -67,7 +73,7 @@ function check(problem) {
 // ── Sign up / in / out ───────────────────────────────────────────────────────
 
 /**
- * Create an account.
+ * Create an account. An address that already has one throws an error with `code` EMAIL_TAKEN.
  * @returns {Promise<{needsEmailConfirmation: boolean}>} false means signed in already
  */
 export async function signUp({ email, password, displayName }) {
