@@ -385,9 +385,15 @@ working (reviewers, staff) credits from the panel.
   caller's own profile and password take either. The role is read from the
   database on every call, and changing it ends the sessions of the place the
   account can no longer use.
-- **No response reveals whether an email is registered.** Sign-in failures are
-  identical, forgot-password and resend always answer "sent", and those take the
-  same time either way. The confirmation email never repeats anything typed
+- **Sign-in never says which half was wrong.** Failures are identical and take
+  the same time either way; forgot-password and resend always answer "sent".
+  **Sign-up does say when the address is taken** (`409 EMAIL_TAKEN`, "An account
+  with this email already exists. Please sign in instead.") and the app shows it
+  on the form — answering "check your email" and mailing the owner instead left
+  people waiting on a screen that explained nothing. An address that signed up
+  but never confirmed gets its confirmation again, not an error. Sign-up is
+  limited per caller (20 an hour), which is what stops it being a cheap way to
+  list registered addresses. The confirmation email never repeats anything typed
   beside the recipient's address (a name), so it cannot be used to put words into
   a message that arrives from our address.
 
@@ -465,12 +471,9 @@ before the purchase it refunds is ignored (RevenueCat retries make this rare).
 
 ## Email — SMTP
 
-Three emails: **confirm your email**, **reset your password**, and **you already
-have an account** — what a sign-up (or "resend") for an address that already has a
-confirmed account gets instead of a confirmation, with a reset link. The app's
-answer to that sign-up is the same as for a new account, so this email is how the
-owner learns why. All are sent from this server over SMTP (`api/_lib/email.js`)
-and carry a one-time link to a page this server renders (`api/auth/pages.js`):
+Two emails: **confirm your email** and **reset your password**. Both are sent
+from this server over SMTP (`api/_lib/email.js`) and carry a one-time link to a
+page this server renders (`api/auth/pages.js`):
 
 | Link | Page |
 |---|---|

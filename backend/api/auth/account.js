@@ -5,13 +5,19 @@
  *
  * Three rules run through this file.
  *
- * 1. NOTHING REVEALS WHETHER AN EMAIL IS REGISTERED.
- *    Sign-in failures say "that email and password combination is not right"
- *    whichever half was wrong; forgot-password and resend always answer "sent";
- *    and those answer at the same speed either way (passwords.js hashes even
- *    for a missing account, emails send in the background). Rate limits are
- *    keyed on the address whether or not it exists. Knowing which addresses are
- *    registered is the first step of a phishing or credential-stuffing run.
+ * 1. SIGN-IN NEVER SAYS WHICH HALF WAS WRONG.
+ *    A failed sign-in says "that email and password combination is not right"
+ *    whichever half it was, and takes as long either way (passwords.js hashes
+ *    even for a missing account). Guessing a password is the attack; telling a
+ *    guesser the address is right would halve it. Forgot-password and resend
+ *    answer "sent" whether or not the address is registered.
+ *
+ *    Sign-up is the exception: it says "an account with this email already
+ *    exists". It used to answer like a new sign-up and email the owner instead,
+ *    which left the person looking at "check your email" for a message that
+ *    explained nothing the screen could have said. A sign-up form has to say the
+ *    address is taken; the rate limits below (per caller) keep it from being a
+ *    cheap way to list registered addresses.
  *
  * 2. PASSWORDS ARE HASHED AND DROPPED. See passwords.js.
  *
@@ -28,7 +34,7 @@ import {
   createSession, refreshSession, revokeSession, revokeAllSessions, newToken, hashToken, publicUser,
 } from '../_lib/sessions.js'
 import {
-  sendEmail, sendInBackground, confirmationEmail, passwordResetEmail, accountExistsEmail, publicBaseUrl,
+  sendEmail, sendInBackground, confirmationEmail, passwordResetEmail, publicBaseUrl,
 } from '../_lib/email.js'
 import { createRateLimiter } from '../../lib/rateLimit.js'
 import { SUSPENDED_MESSAGE } from '../_lib/suspension.js'
@@ -96,24 +102,7 @@ function sendPasswordReset(user) {
   }, 'password reset email')
 }
 
-/** "You already have an account", with a reset link — for a sign-up that named a confirmed account. */
-function sendAccountExists(user) {
-  sendInBackground(async () => {
-    const token = await issueEmailToken(user.id, 'reset_password', RESET_TOKEN_TTL_SECONDS)
-    const link = `${publicBaseUrl()}/auth/reset-password?token=${encodeURIComponent(token)}`
-    await sendEmail(accountExistsEmail({ to: user.email, link }))
-  }, 'account exists email')
-}
-
-/**
- * The email for someone who asked for a confirmation: the confirmation itself while the account is
- * unconfirmed, and "you already have an account" once it is. Before the second case existed, a person
- * who signed up again with their own address was told an email was on its way and never got one.
- */
-function sendSignUpHelp(user) {
-  if (user.email_confirmed_at) sendAccountExists(user)
-  else sendConfirmation(user)
-}
+const EMAIL_TAKEN = 'An account with this email already exists. Please sign in instead.'
 
 function readEmail(body) {
   const email = normalizeEmail(body?.email)
@@ -175,20 +164,20 @@ export const signUp = publicRoute(async (req, res) => {
 /**
  * Sign-up for an address that already has an account.
  *
- * With confirmation on, the answer is identical to a new sign-up — telling the
- * two apart would reveal who is registered. What differs is the email: an
- * unconfirmed account gets its confirmation again, a confirmed one is told it
- * already has an account (with a reset link), so the screen's "check your email"
- * is true either way. With confirmation off there is no way to hide it (a new
- * account would be signed in, this one cannot be), so it says so.
+ * A confirmed account is answered with an error the app shows on the sign-up form
+ * (409 EMAIL_TAKEN) — no email is sent, because the person is looking at the
+ * screen. An account that was never confirmed is the same person coming back to
+ * finish: they get the confirmation email again and the usual "check your email"
+ * answer. Nothing about the existing account changes either way, so signing up
+ * with someone else's address cannot touch their password.
  */
 async function alreadyRegistered(res, user, password) {
   // Same work as hashing a new password, so the response takes as long.
   if (password) await verifyPassword(null, password)
-  if (!REQUIRE_EMAIL_CONFIRMATION) {
-    throw new HttpError(409, 'An account with this email already exists. Please sign in instead.', 'EMAIL_TAKEN')
+  if (!user || user.email_confirmed_at || !REQUIRE_EMAIL_CONFIRMATION) {
+    throw new HttpError(409, EMAIL_TAKEN, 'EMAIL_TAKEN')
   }
-  if (user && emailsByAddress(`email:${user.email}`).ok) sendSignUpHelp(user)
+  if (emailsByAddress(`email:${user.email}`).ok) sendConfirmation(user)
   return res.status(201).json({ needsEmailConfirmation: true })
 }
 
@@ -334,9 +323,7 @@ export const resendConfirmation = publicRoute(async (req, res) => {
   enforceLimit(emailsByAddress, `email:${email}`)
 
   const user = await findUserByEmail(email)
-  // "Resend" on the check-your-email screen, after a sign-up for an address that may already be
-  // confirmed: that person is waiting for an email too.
-  if (user) sendSignUpHelp(user)
+  if (user && !user.email_confirmed_at) sendConfirmation(user)
   res.json({ sent: true })
 })
 
