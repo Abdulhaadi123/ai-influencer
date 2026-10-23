@@ -279,6 +279,49 @@ test('sign-up, forgot-password and resend answer identically whether or not the 
   assert.deepEqual(strip(r1), strip(r2), 'resend-confirmation')
 })
 
+/** Wait for something an email sent in the background leaves behind (its link row). */
+const eventually = async (check, ms = 3000) => {
+  const end = Date.now() + ms
+  while (Date.now() < end) { if (await check()) return true; await new Promise(r => setTimeout(r, 25)) }
+  return false
+}
+const linksFor = (userId, purpose) =>
+  stack.sql('select count(*)::int as n from email_tokens where user_id = $1 and purpose = $2', [userId, purpose]).then(r => r[0].n)
+
+test('signing up again with a confirmed address emails its owner "you already have an account" (a reset link), never a second account', async () => {
+  const owner = await stack.createUser({ email: 'returning@test.example' })
+
+  const res = await signup({ email: 'Returning@Test.Example', password: PASSWORD })
+  assert.deepEqual([res.status, res.body], [201, { needsEmailConfirmation: true }], 'the same answer as a new account')
+  assert.ok(await eventually(async () => (await linksFor(owner.id, 'reset_password')) === 1), 'a reset link was issued for the owner')
+  assert.equal((await stack.sql(`select count(*)::int as n from users where lower(email) = 'returning@test.example'`))[0].n, 1)
+  assert.equal(await linksFor(owner.id, 'confirm_email'), 0, 'no confirmation for an account that is already confirmed')
+
+  // "Resend" on the check-your-email screen reaches them too.
+  await stack.reset()
+  const again = await stack.createUser({ email: 'resend-owner@test.example' })
+  const r = await api('POST', '/api/auth/resend-confirmation', { body: { email: again.email } })
+  assert.deepEqual([r.status, r.body], [200, { sent: true }])
+  assert.ok(await eventually(async () => (await linksFor(again.id, 'reset_password')) === 1), 'resend sends the account-exists email')
+})
+
+test('an account that is not confirmed yet gets its confirmation again on a second sign-up, not a reset link', async () => {
+  assert.equal((await signup({ email: 'pending-owner@test.example', password: PASSWORD })).status, 201)
+  const user = (await stack.sql(`select id from users where email = 'pending-owner@test.example'`))[0]
+  assert.ok(await eventually(async () => (await linksFor(user.id, 'confirm_email')) === 1), 'the sign-up sent a confirmation')
+  assert.equal(await linksFor(user.id, 'reset_password'), 0, 'and no reset link')
+})
+
+test('the account-exists email says only the server\'s words and carries the reset link', async () => {
+  const { accountExistsEmail } = await stack.load('api/_lib/email.js')
+  const link = 'https://api.test.example/auth/reset-password?token=t'
+  const mail = accountExistsEmail({ to: 'owner@test.example', link })
+  assert.equal(mail.to, 'owner@test.example')
+  assert.match(mail.subject, /already have/)
+  assert.ok(mail.text.includes(link) && mail.html.includes(link))
+  assert.match(mail.text, /no new one was made/)
+})
+
 test('the time sign-in takes does not tell a registered address from an unregistered one', async () => {
   const real = await stack.createUser({ email: 'timing@test.example', password: PASSWORD })
   const median = async (email, n = 7) => {

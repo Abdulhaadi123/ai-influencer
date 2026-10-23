@@ -3,7 +3,8 @@
  * Email — sent over SMTP.
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Two emails exist: confirm your address, and reset your password. Each carries
+ * Three emails exist: confirm your address, reset your password, and "you already
+ * have an account" (a sign-up for a registered address). Each carries
  * a one-time link to a page on THIS server (api/auth/pages.js) — an https link,
  * not a link straight into the app. Mail clients such as Gmail strip links with
  * custom schemes like `aiinfluencer://`, and a web page also works when the
@@ -201,6 +202,25 @@ export function confirmationEmail({ to, link }) {
     subject: `Verify your email address for ${APP_NAME}`,
     text: `${hello}\n\n${intro}\n\n${link}\n\n${footer}`,
     html: layout('Verify your email', [hello, intro], link, 'Verify email', footer),
+  }
+}
+
+/**
+ * Someone signed up with an address that already has a confirmed account. The app's answer is
+ * the same as for a new account (it must not reveal who is registered), so this email is the
+ * only place the owner learns why no confirmation arrived. Like the confirmation email it may
+ * reach someone who asked for nothing, so it says only the server's words, and its link is the
+ * ordinary one-hour reset link.
+ */
+export function accountExistsEmail({ to, link }) {
+  const intro = `Someone, probably you, tried to sign up for ${APP_NAME} with this email address. You already have an account, so no new one was made.`
+  const next = 'Sign in to the app with this email address. If you do not remember your password, use the button below to set a new one.'
+  const footer = 'This link can be used once and expires in 1 hour. If this was not you, you can ignore this email; nothing about your account has changed.'
+  return {
+    to,
+    subject: `You already have an account with ${APP_NAME}`,
+    text: `Hi,\n\n${intro}\n\n${next}\n\n${link}\n\n${footer}`,
+    html: layout('You already have an account', ['Hi,', intro, next], link, 'Reset password', footer),
   }
 }
 

@@ -465,9 +465,12 @@ before the purchase it refunds is ignored (RevenueCat retries make this rare).
 
 ## Email — SMTP
 
-Two emails: **confirm your email** and **reset your password**. Both are sent
-from this server over SMTP (`api/_lib/email.js`) and carry a one-time link to a
-page this server renders (`api/auth/pages.js`):
+Three emails: **confirm your email**, **reset your password**, and **you already
+have an account** — what a sign-up (or "resend") for an address that already has a
+confirmed account gets instead of a confirmation, with a reset link. The app's
+answer to that sign-up is the same as for a new account, so this email is how the
+owner learns why. All are sent from this server over SMTP (`api/_lib/email.js`)
+and carry a one-time link to a page this server renders (`api/auth/pages.js`):
 
 | Link | Page |
 |---|---|

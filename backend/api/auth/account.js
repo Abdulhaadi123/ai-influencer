@@ -28,7 +28,7 @@ import {
   createSession, refreshSession, revokeSession, revokeAllSessions, newToken, hashToken, publicUser,
 } from '../_lib/sessions.js'
 import {
-  sendEmail, sendInBackground, confirmationEmail, passwordResetEmail, publicBaseUrl,
+  sendEmail, sendInBackground, confirmationEmail, passwordResetEmail, accountExistsEmail, publicBaseUrl,
 } from '../_lib/email.js'
 import { createRateLimiter } from '../../lib/rateLimit.js'
 import { SUSPENDED_MESSAGE } from '../_lib/suspension.js'
@@ -96,6 +96,25 @@ function sendPasswordReset(user) {
   }, 'password reset email')
 }
 
+/** "You already have an account", with a reset link — for a sign-up that named a confirmed account. */
+function sendAccountExists(user) {
+  sendInBackground(async () => {
+    const token = await issueEmailToken(user.id, 'reset_password', RESET_TOKEN_TTL_SECONDS)
+    const link = `${publicBaseUrl()}/auth/reset-password?token=${encodeURIComponent(token)}`
+    await sendEmail(accountExistsEmail({ to: user.email, link }))
+  }, 'account exists email')
+}
+
+/**
+ * The email for someone who asked for a confirmation: the confirmation itself while the account is
+ * unconfirmed, and "you already have an account" once it is. Before the second case existed, a person
+ * who signed up again with their own address was told an email was on its way and never got one.
+ */
+function sendSignUpHelp(user) {
+  if (user.email_confirmed_at) sendAccountExists(user)
+  else sendConfirmation(user)
+}
+
 function readEmail(body) {
   const email = normalizeEmail(body?.email)
   const problem = emailProblem(email)
@@ -157,9 +176,11 @@ export const signUp = publicRoute(async (req, res) => {
  * Sign-up for an address that already has an account.
  *
  * With confirmation on, the answer is identical to a new sign-up — telling the
- * two apart would reveal who is registered — and an unconfirmed account gets
- * its confirmation email again. With confirmation off there is no way to hide
- * it (a new account would be signed in, this one cannot be), so it says so.
+ * two apart would reveal who is registered. What differs is the email: an
+ * unconfirmed account gets its confirmation again, a confirmed one is told it
+ * already has an account (with a reset link), so the screen's "check your email"
+ * is true either way. With confirmation off there is no way to hide it (a new
+ * account would be signed in, this one cannot be), so it says so.
  */
 async function alreadyRegistered(res, user, password) {
   // Same work as hashing a new password, so the response takes as long.
@@ -167,7 +188,7 @@ async function alreadyRegistered(res, user, password) {
   if (!REQUIRE_EMAIL_CONFIRMATION) {
     throw new HttpError(409, 'An account with this email already exists. Please sign in instead.', 'EMAIL_TAKEN')
   }
-  if (user && !user.email_confirmed_at && emailsByAddress(`email:${user.email}`).ok) sendConfirmation(user)
+  if (user && emailsByAddress(`email:${user.email}`).ok) sendSignUpHelp(user)
   return res.status(201).json({ needsEmailConfirmation: true })
 }
 
@@ -313,7 +334,9 @@ export const resendConfirmation = publicRoute(async (req, res) => {
   enforceLimit(emailsByAddress, `email:${email}`)
 
   const user = await findUserByEmail(email)
-  if (user && !user.email_confirmed_at) sendConfirmation(user)
+  // "Resend" on the check-your-email screen, after a sign-up for an address that may already be
+  // confirmed: that person is waiting for an email too.
+  if (user) sendSignUpHelp(user)
   res.json({ sent: true })
 })
 
