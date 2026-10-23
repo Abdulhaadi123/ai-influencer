@@ -7,11 +7,12 @@
  */
 
 import { useMemo, useState } from 'react'
-import { View, Text, Image, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
 
 import { useInfluencers } from '@core/store'
 
-import { mediaSource } from '../lib/seedMedia'
+import { isServable } from '../lib/seedMedia'
+import MediaImage from '../components/MediaImage'
 import { useTheme, space, layout } from '../theme'
 import Screen, { ScreenHeader } from '../components/Screen'
 import { Segmented } from '../components/ui'
@@ -54,7 +55,7 @@ export default function InfluencerDetailScreen({ route, navigation }) {
     )
   }
 
-  const avatar = mediaSource(influencer.mainImage)
+  const avatar = isServable(influencer.mainImage) ? influencer.mainImage : null
 
   return (
     <Screen>
@@ -62,7 +63,7 @@ export default function InfluencerDetailScreen({ route, navigation }) {
         onBack={goBack}
         title={influencer.name || 'Studio'}
         size={16}
-        right={avatar ? <Image source={avatar} style={styles.avatar} resizeMode="cover" /> : null}
+        right={avatar ? <MediaImage uri={avatar} style={styles.avatar} contentFit="cover" /> : null}
       />
 
       <View style={styles.tabs}>

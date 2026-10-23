@@ -136,6 +136,10 @@ const SHAPES = {
   share: ({ color }) => (
     <Path d="M12 15V3.8M7.6 8 12 3.6 16.4 8M5 12.5v6.2c0 .9.7 1.6 1.6 1.6h10.8c.9 0 1.6-.7 1.6-1.6v-6.2" fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round" />
   ),
+  // Two corners pulling outward: "open this bigger".
+  expand: ({ color }) => (
+    <Path d="M14.5 4H20v5.5M20 4l-6.5 6.5M9.5 20H4v-5.5M4 20l6.5-6.5" fill="none" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round" />
+  ),
 }
 
 /**

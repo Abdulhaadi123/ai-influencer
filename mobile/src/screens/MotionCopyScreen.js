@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, ScrollView, Image,
+  View, Text, ScrollView,
   ActivityIndicator, StyleSheet,
 } from 'react-native'
 
@@ -34,6 +34,7 @@ import CostNote from '../components/CostNote'
 import { Section, Button, Segmented, Collapsible, Field, Chip, PillInput, Notice, ProgressBar } from '../components/ui'
 import { pickImageWithPrompt, pickVideo } from '../lib/picker'
 import ModelPicker from '../components/ModelPicker'
+import MediaImage from '../components/MediaImage'
 import { shareMedia } from '../lib/share'
 
 export default function MotionCopyScreen({ influencer }) {
@@ -62,6 +63,8 @@ export default function MotionCopyScreen({ influencer }) {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
+  /** The result is playing and its copy into the gallery is still running. */
+  const [storing, setStoring] = useState(false)
   // Polling stopped watching, but the job is alive in the queue.
   const [handedOff, setHandedOff] = useState(false)
 
@@ -140,19 +143,29 @@ export default function MotionCopyScreen({ influencer }) {
       if (cancelRef.current) return
       if (!url) { setError('No video was returned. Please try again.'); return }
 
-      // KIE deletes results within a day, so the server copies the file into
-      // this user's storage before the entry is recorded.
-      const { assetId, url: storedUrl } = await persistGenerated({
-        sourceUrl: url, kind: 'video', influencerId: influencer?.id ?? null,
-      })
-      if (cancelRef.current) return
-
-      setResult(storedUrl)
-
-      if (influencer?.id) {
-        await addGeneration({
-          influencerId: influencer.id, assetId, kind: 'video', label: 'Motion copy',
+      // Playing at once, from the generator's own link, while the server copies it into the
+      // gallery — that copy used to come first, a long second wait in front of a finished clip.
+      // The link stays on screen only, never saved, and the clip is not downloaded twice.
+      setResult(url)
+      setGenerating(false)
+      setStoring(true)
+      try {
+        // KIE deletes results within a day, so the server copies the file into
+        // this user's storage before the entry is recorded.
+        const { assetId } = await persistGenerated({
+          sourceUrl: url, kind: 'video', influencerId: influencer?.id ?? null,
         })
+        if (influencer?.id) {
+          await addGeneration({
+            influencerId: influencer.id, assetId, kind: 'video', label: 'Motion copy',
+          })
+        }
+      } catch (e) {
+        // Removed by the content check after it finished: it does not stay on screen either.
+        if (e?.code === 'CONTENT_BLOCKED') setResult(r => (r === url ? null : r))
+        setError(userMessage(e, 'The motion copy could not be saved to the gallery. You can save it from the Queue tab.'))
+      } finally {
+        setStoring(false)
       }
     } catch (e) {
       if (e?.message === STILL_RUNNING) setHandedOff(true)
@@ -184,7 +197,7 @@ export default function MotionCopyScreen({ influencer }) {
           {characterImage ? (
             <View style={{ gap: space.md }}>
               <View style={styles.characterRow}>
-                <Image source={{ uri: characterImage }} style={styles.characterThumb} resizeMode="cover" />
+                <MediaImage uri={characterImage} style={styles.characterThumb} contentFit="cover" />
                 <View style={styles.flex}>
                   {characterOptions.length > 1 ? (
                     <View style={styles.chipRow}>
@@ -303,6 +316,12 @@ export default function MotionCopyScreen({ influencer }) {
       {result && !generating ? (
         <Section title="Result">
           <View style={[styles.padded, { gap: space.md }]}>
+            {storing ? (
+              <View style={styles.progressRow}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={[styles.progressText, { color: colors.textSecondary }]}>Saving to the gallery…</Text>
+              </View>
+            ) : null}
             <VideoPreview uri={result} autoPlay loop />
             <Button
               title="Share"

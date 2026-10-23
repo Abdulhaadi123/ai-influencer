@@ -59,6 +59,8 @@ import { useOfferPacks } from '../hooks/useOfferPacks'
 import FloatingTabBar from './FloatingTabBar'
 import Screen from '../components/Screen'
 import SplashOverlay from '../components/SplashOverlay'
+import PurchaseNoticeHost from '../components/PurchaseNotice'
+import { clearMediaImageCache } from '../components/MediaImage'
 import { navigationRef } from './ref'
 import { useTheme, space, font } from '../theme'
 
@@ -209,6 +211,14 @@ export default function RootNavigator() {
   const [splashGone, setSplashGone] = useState(false)
   const endSplash = useCallback(() => setSplashGone(true), [])
 
+  // Pictures are cached on the device by asset (components/MediaImage.js). None of them may
+  // outlast the session of the account they belong to: signing out clears them all.
+  const wasSignedIn = useRef(false)
+  useEffect(() => {
+    if (wasSignedIn.current && !isSignedIn) clearMediaImageCache()
+    wasSignedIn.current = isSignedIn
+  }, [isSignedIn])
+
   // A build that is not configured has nothing to show a splash for: say so at once.
   useEffect(() => {
     if (configError) SplashScreen.hideAsync().catch(() => {})
@@ -222,6 +232,7 @@ export default function RootNavigator() {
           {isSignedIn ? <SignedIn /> : <AuthFlow />}
         </NavigationContainer>
       )}
+      {isSignedIn ? <PurchaseNoticeHost /> : null}
       {splashGone ? null : <SplashOverlay ready={!initialising} onGone={endSplash} />}
     </View>
   )

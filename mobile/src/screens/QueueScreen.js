@@ -35,6 +35,7 @@ import { useInfluencers } from '@core/store'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { resolveUrl } from '@core/data/assets'
 import { userMessage } from '@core/errors'
+import { failureMessage } from '@core/services/generation/transient'
 
 import { syncActiveJobs } from '../lib/queueSync'
 import { shareMedia } from '../lib/share'
@@ -349,7 +350,7 @@ function describe(job, colors) {
   if (job.state === 'fail') {
     return {
       label: 'Failed', tint: colors.danger, soft: colors.dangerSoft,
-      blurb: job.failMsg || 'This generation failed.',
+      blurb: failureMessage(job.failMsg, 'This generation failed.'),
     }
   }
   if (isDeleted(job)) {

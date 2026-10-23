@@ -9,6 +9,7 @@ import { fitPrompt } from '../../../prompts/fitPrompt'
 import { createProgress } from '../progress'
 import { OUT_OF_CREDITS, notifyOutOfCredits } from '../../../billing/outOfCredits'
 import { AppError, ERROR_CODES, generatorMessage, isSessionEnded } from '../../../errors'
+import { isTransientFailure, TRANSIENT_FAILURE_MESSAGE } from '../transient'
 
 /**
  * Thrown when foreground polling gives up while KIE is still working.
@@ -61,6 +62,11 @@ function generatorError(code, detail) {
 
 /** Every job came back failed: say so, with the generator's reason when it gave one. */
 function failedGeneration(reasons) {
+  // Failed on the generator's side, not because of anything asked for ("internal error,
+  // please try again later"): said in the person's words, not the vendor's (transient.js).
+  if (reasons.length && reasons.every(isTransientFailure)) {
+    return new AppError(TRANSIENT_FAILURE_MESSAGE, { code: ERROR_CODES.GENERATION_FAILED })
+  }
   const reason = String(reasons.find(Boolean) || '').trim().slice(0, 240)
   return new AppError(
     reason

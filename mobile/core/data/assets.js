@@ -161,6 +161,22 @@ export async function urlForGeneration(source) {
   }
 }
 
+/**
+ * The asset a URL this session signed points at, or null.
+ *
+ * A signed URL changes every time it is re-signed (every few minutes, see
+ * URL_REFRESH_INTERVAL_MS), so an image cache keyed by URL saw a new image each
+ * time and downloaded the full file again — the main reason pictures kept
+ * loading slowly. The asset id never changes, so it is the key the screens'
+ * image cache uses instead (src/components/MediaImage.js).
+ *
+ * @param {string} url
+ * @returns {string|null}
+ */
+export function assetIdForUrl(url) {
+  return typeof url === 'string' ? assetIdByUrl.get(url) ?? null : null
+}
+
 /** Convenience for a single asset. */
 export async function resolveUrl(assetId) {
   if (!assetId) return null

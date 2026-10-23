@@ -6,12 +6,13 @@
  */
 
 import { useMemo } from 'react'
-import { View, Text, Image, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 
 import { useInfluencers } from '@core/store'
 
 import { useBottomInset } from '../hooks/useBottomInset'
-import { mediaSource } from '../lib/seedMedia'
+import { isServable } from '../lib/seedMedia'
+import MediaImage from '../components/MediaImage'
 import { useTheme, space, font, layout } from '../theme'
 import Screen, { ScreenHeader } from '../components/Screen'
 import { GlassCard, EmptyState } from '../components/ui'
@@ -94,7 +95,8 @@ export default function InfluencersScreen({ navigation }) {
 function InfluencerCard({ influencer, onPress }) {
   // Resolve rather than trust the string: seed avatars are web-origin paths
   // that render blank, and must fall through to the letter placeholder.
-  const image = mediaSource(influencer.mainImage || influencer.image)
+  const image = influencer.mainImage || influencer.image
+  const showImage = isServable(image)
   const subtitle = influencer.niche || influencer.gender || '—'
 
   return (
@@ -110,8 +112,8 @@ function InfluencerCard({ influencer, onPress }) {
             <Text style={[styles.name, font('regular')]} numberOfLines={1}>{influencer.name || 'Unnamed'}</Text>
             <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
           </View>
-          {image ? (
-            <Image source={image} style={styles.avatar} resizeMode="cover" />
+          {showImage ? (
+            <MediaImage uri={image} style={styles.avatar} contentFit="cover" />
           ) : (
             <View style={[styles.avatar, styles.avatarFallback]}>
               <Text style={[styles.avatarLetter, font('bold')]}>{(influencer.name || '?').charAt(0).toUpperCase()}</Text>

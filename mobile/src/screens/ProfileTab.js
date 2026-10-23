@@ -15,12 +15,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  View, Text, TextInput, ScrollView, Image,
+  View, Text, TextInput, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, Alert,
 } from 'react-native'
 
 import { useBottomInset } from '../hooks/useBottomInset'
-import { mediaSource } from '../lib/seedMedia'
+import { isServable } from '../lib/seedMedia'
+import MediaImage from '../components/MediaImage'
+import ImageViewer from '../components/ImageViewer'
 
 import { useInfluencers } from '@core/store'
 import { getNiches } from '@core/niches'
@@ -47,8 +49,16 @@ export default function ProfileTab({ influencer, navigation }) {
   const bottomInset = useBottomInset()
   const { updateInfluencer, removeInfluencer } = useInfluencers()
 
-  const heroSource = mediaSource(influencer.mainImage)
+  /** A regenerated image shown from the generator's link: `assetId` null while it is being stored. */
+  const [fresh, setFresh] = useState(null)
+  const [storingHero, setStoringHero] = useState(false)
+  // The fresh picture while it is being stored, and after, for as long as it is still the main
+  // image (an upload or another regeneration replaces it).
+  const heroSource = fresh && (storingHero || fresh.assetId === null || fresh.assetId === influencer.mainAssetId)
+    ? fresh.url
+    : isServable(influencer.mainImage) ? influencer.mainImage : null
 
+  const [viewingHero, setViewingHero] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [nicheOpen, setNicheOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -112,12 +122,27 @@ export default function ProfileTab({ influencer, navigation }) {
       const url = await regenerateMainImage(influencer, undefined, {
         influencerId: influencer.id, influencerName: influencer.name, label: 'Main image',
       }, ids => { taskId = ids?.[0] ?? null })
-      // KIE's result URLs expire within a day, so the server copies the file
-      // into this user's storage before it becomes the influencer's main image.
-      const { assetId } = await persistGenerated({
-        sourceUrl: url, kind: 'image', influencerId: influencer.id,
-      })
-      await setMainImage(assetId)
+      // On screen at once, from the generator's link, while the server copies it into storage —
+      // the copy used to come first and the old picture stayed up for as long again. The link is
+      // only what is on screen, never saved, and keeping it avoids downloading the picture twice.
+      setFresh({ url, assetId: null })
+      setRegenerating(false)
+      setStoringHero(true)
+      try {
+        // KIE's result URLs expire within a day, so the server copies the file
+        // into this user's storage before it becomes the influencer's main image.
+        const { assetId } = await persistGenerated({
+          sourceUrl: url, kind: 'image', influencerId: influencer.id,
+        })
+        setFresh({ url, assetId })
+        await setMainImage(assetId)
+      } catch (e) {
+        // Not stored (refused by the content check, or the copy failed): the old image comes back.
+        setFresh(null)
+        throw e
+      } finally {
+        setStoringHero(false)
+      }
     } catch (e) {
       if (e?.message === NO_CREATION_PARAMS) {
         // Not necessarily an old influencer: the record can also be missing
@@ -200,7 +225,14 @@ export default function ProfileTab({ influencer, navigation }) {
           {heroSource ? (
             <View style={{ gap: space.md }}>
               <View>
-                <Image source={heroSource} style={styles.hero} resizeMode="cover" />
+                <Pressable
+                  onPress={() => setViewingHero(true)}
+                  accessibilityRole="imagebutton"
+                  accessibilityLabel="Main image, open full screen"
+                >
+                  <MediaImage uri={heroSource} style={styles.hero} contentFit="cover" />
+                </Pressable>
+                <ImageViewer uri={viewingHero ? heroSource : null} title={influencer.name} onClose={() => setViewingHero(false)} />
                 {regenerating || pendingTaskId ? (
                   <View style={styles.heroOverlay}>
                     <ActivityIndicator size="large" color="#FFFFFF" />
@@ -208,13 +240,19 @@ export default function ProfileTab({ influencer, navigation }) {
                   </View>
                 ) : null}
               </View>
+              {storingHero ? (
+                <View style={styles.savingRow}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={[styles.savingText, { color: colors.textSecondary }]}>Saving the new image…</Text>
+                </View>
+              ) : null}
               <CostNote model={IMAGE_MODEL_ID} />
               <View style={styles.buttonRow}>
                 <View style={styles.flex}>
-                  <Button title="Regenerate" size="sm" onPress={regenerate} disabled={regenerating || !!pendingTaskId} />
+                  <Button title="Regenerate" size="sm" onPress={regenerate} disabled={regenerating || storingHero || !!pendingTaskId} />
                 </View>
                 <View style={styles.flex}>
-                  <Button title="Replace" size="sm" variant="soft" onPress={replaceImage} disabled={regenerating || !!pendingTaskId} />
+                  <Button title="Replace" size="sm" variant="soft" onPress={replaceImage} disabled={regenerating || storingHero || !!pendingTaskId} />
                 </View>
               </View>
               <Button
@@ -407,6 +445,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(8,3,83,0.55)', borderRadius: radius.md, gap: space.sm,
   },
   heroOverlayText: { color: '#FFFFFF', fontSize: 14 },
+  savingRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  savingText: { fontSize: 13 },
   empty: { fontSize: 14 },
 
   buttonRow: { flexDirection: 'row', gap: space.md },

@@ -14,6 +14,7 @@
 import { getJobByTaskId, isCollectable, isExpired } from './data/jobs'
 import { resolveUrl } from './data/assets'
 import { persistGenerated } from './platform/persistMedia'
+import { failureMessage } from './services/generation/transient'
 
 /**
  * @param {string} taskId
@@ -31,7 +32,7 @@ export async function checkPendingResult(taskId, { kind = 'image', influencerId 
   if (!job) return { status: 'waiting' }
 
   if (job.state === 'fail') {
-    return { status: 'failed', message: job.failMsg || 'The generation failed. Please try again.' }
+    return { status: 'failed', message: failureMessage(job.failMsg, 'The generation failed. Please try again.') }
   }
   if (isExpired(job)) {
     return { status: 'failed', message: 'This result finished more than a day ago and has expired.' }

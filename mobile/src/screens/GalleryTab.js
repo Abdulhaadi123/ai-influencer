@@ -32,7 +32,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, FlatList, Image, Pressable, StyleSheet, Alert, Modal, ActivityIndicator,
+  View, Text, FlatList, Pressable, StyleSheet, Alert, Modal, ActivityIndicator,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useVideoPlayer, VideoView } from 'expo-video'
@@ -44,7 +44,9 @@ import { assetUses } from '@core/data/influencers'
 import { report as reportGeneration } from '@core/data/reports'
 
 import { useBottomInset } from '../hooks/useBottomInset'
-import { isServable, mediaSource } from '../lib/seedMedia'
+import { isServable } from '../lib/seedMedia'
+import MediaImage from '../components/MediaImage'
+import { ZoomableImage } from '../components/ImageViewer'
 import { useTheme, space, font, layout } from '../theme'
 import Screen from '../components/Screen'
 import { Button, Chip, EmptyState } from '../components/ui'
@@ -280,7 +282,7 @@ const Tile = memo(function Tile({ entry, onPress }) {
       <View style={styles.thumbWrap}>
         {isVideo
           ? <TilePreview uri={entry.url} />
-          : <Image source={mediaSource(entry.url)} style={styles.thumb} resizeMode="cover" />}
+          : <MediaImage uri={entry.url} style={styles.thumb} contentFit="cover" />}
 
         {isVideo ? (
           <View style={styles.playBadge}>
@@ -304,7 +306,11 @@ const Tile = memo(function Tile({ entry, onPress }) {
  * happens in the lightbox so only one clip is ever decoding at a time.
  */
 function TilePreview({ uri }) {
-  const player = useVideoPlayer(uri, p => { p.loop = false; p.muted = true })
+  // The URL the tile mounted with. The roster re-signs every URL every few minutes, and a new
+  // URL made the player load the clip again — every visible video, over and over. The first
+  // frame, once shown, does not need a fresh link; a tile scrolled away and back gets the new one.
+  const [pinned] = useState(uri)
+  const player = useVideoPlayer(pinned, p => { p.loop = false; p.muted = true })
   return <VideoView style={styles.thumb} player={player} nativeControls={false} contentFit="cover" />
 }
 
@@ -340,7 +346,7 @@ function Lightbox({ entry, influencerName, onClose, onShare, onReport, onDelete 
           {entry ? (
             (entry.type || 'video') === 'video'
               ? <LightboxVideo uri={entry.url} />
-              : <Image source={mediaSource(entry.url)} style={styles.stageMedia} resizeMode="contain" />
+              : <ZoomableImage uri={entry.url} accessibilityLabel={entry.label || 'Image'} />
           ) : null}
         </View>
 

@@ -54,7 +54,8 @@
             "backgroundColor": "#FFFFFF"
           }
         }
-      ]
+      ],
+      "expo-image"
     ],
     "owner": "nnkjk",
     "extra": {

@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useState } from 'react'
-import { View, Text, Image, Pressable, ActivityIndicator, StyleSheet, Alert } from 'react-native'
+import { View, Text, Pressable, ActivityIndicator, StyleSheet, Alert } from 'react-native'
 
 import { IDENTITY_SLOTS, generateIdentityRef, NO_MAIN_IMAGE } from '@core/identityRefs'
 import { STILL_RUNNING } from '@core/services/generation'
@@ -24,7 +24,10 @@ import { useInfluencers } from '@core/store'
 
 import { useTheme, space, radius, font } from '../theme'
 import { Section, Button } from '../components/ui'
-import { mediaSource } from '../lib/seedMedia'
+import { isServable } from '../lib/seedMedia'
+import MediaImage from './MediaImage'
+import ImageViewer from './ImageViewer'
+import Icon from './icons'
 import { pickImageWithPrompt } from '../lib/picker'
 import { shareMedia } from '../lib/share'
 import { usePendingResult } from '../hooks/usePendingResult'
@@ -52,9 +55,17 @@ function RefSlot({ slot, influencer }) {
   const [error, setError] = useState(null)
   /** A sheet that outlived the foreground poll, watched until it lands. */
   const [pendingTaskId, setPendingTaskId] = useState(null)
+  /** Open full screen, to zoom into the detail a sheet exists for. */
+  const [viewing, setViewing] = useState(false)
+  /** A sheet just generated, shown from the generator's link: `assetId` null while it is being stored. */
+  const [fresh, setFresh] = useState(null)
+  const [storing, setStoring] = useState(false)
 
   const value = influencer[slot.field]
-  const source = mediaSource(value)
+  // The fresh sheet while it is stored, and after, for as long as it is still this slot's file.
+  const source = fresh && (storing || fresh.assetId === null || fresh.assetId === influencer[slot.assetField])
+    ? fresh.url
+    : isServable(value) ? value : null
 
   /**
    * Point the slot at an asset, and record it in the gallery.
@@ -84,12 +95,26 @@ function RefSlot({ slot, influencer }) {
         onJobIds: ids => { taskId = ids?.[0] ?? null },
         queueMeta: { influencerId: influencer.id, influencerName: influencer.name, label: slot.label },
       })
-      // KIE deletes result URLs within a day, so the server copies the file
-      // into this user's storage — same as every other generated file.
-      const { assetId } = await persistGenerated({
-        sourceUrl: url, kind: 'image', influencerId: influencer.id,
-      })
-      await save(assetId)
+      // On screen at once, from the generator's link, while the server copies it into storage
+      // (that copy used to come first). Only shown, never saved; kept so it is not fetched twice.
+      setFresh({ url, assetId: null })
+      setBusy(false)
+      setStoring(true)
+      try {
+        // KIE deletes result URLs within a day, so the server copies the file
+        // into this user's storage — same as every other generated file.
+        const { assetId } = await persistGenerated({
+          sourceUrl: url, kind: 'image', influencerId: influencer.id,
+        })
+        setFresh({ url, assetId })
+        await save(assetId)
+      } catch (e) {
+        // Not stored (refused by the content check, or the copy failed): the previous sheet comes back.
+        setFresh(null)
+        throw e
+      } finally {
+        setStoring(false)
+      }
     } catch (e) {
       if (e?.message === STILL_RUNNING && taskId) {
         // Not failed. Watched below so it is set in THIS slot when it lands.
@@ -167,12 +192,23 @@ function RefSlot({ slot, influencer }) {
       </View>
 
       {source ? (
-        <Image
-          source={source}
-          style={[styles.preview, { aspectRatio: previewRatio(slot.aspectRatio), backgroundColor: colors.surfaceAlt }]}
-          resizeMode="contain"
-        />
+        <Pressable
+          onPress={() => setViewing(true)}
+          accessibilityRole="imagebutton"
+          accessibilityLabel={`${slot.label}, open full screen`}
+          style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+        >
+          <MediaImage
+            uri={source}
+            style={[styles.preview, { aspectRatio: previewRatio(slot.aspectRatio), backgroundColor: colors.surfaceAlt }]}
+            contentFit="contain"
+          />
+          <View style={styles.expand} pointerEvents="none">
+            <Icon name="expand" size={16} color="#FFFFFF" />
+          </View>
+        </Pressable>
       ) : null}
+      <ImageViewer uri={viewing ? source : null} title={`${influencer.name || ''} · ${slot.label}`} onClose={() => setViewing(false)} />
 
       {busy || pendingTaskId ? (
         <View style={[styles.progressBox, { borderColor: colors.border }]}>
@@ -182,6 +218,11 @@ function RefSlot({ slot, influencer }) {
               ? 'Still generating. The image will appear here when it is ready.'
               : progress > 0 ? `Generating… ${Math.round(progress)}%` : 'Generating…'}
           </Text>
+        </View>
+      ) : storing ? (
+        <View style={styles.savingRow}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={[styles.progressText, { color: colors.textSecondary }]}>Saving the new image…</Text>
         </View>
       ) : (
         <View style={styles.actions}>
@@ -199,9 +240,9 @@ function RefSlot({ slot, influencer }) {
         </View>
       )}
 
-      {source && !busy && !pendingTaskId ? (
+      {source && !busy && !storing && !pendingTaskId ? (
         <View style={styles.subActions}>
-          <Pressable onPress={() => shareMedia(value, `${(influencer.name || 'ref').toLowerCase()}-${slot.key}.jpg`)} hitSlop={8}>
+          <Pressable onPress={() => shareMedia(source, `${(influencer.name || 'ref').toLowerCase()}-${slot.key}.jpg`)} hitSlop={8}>
             <Text style={[styles.subAction, font('semibold'), { color: colors.primary }]}>Share</Text>
           </Pressable>
           <Pressable onPress={remove} hitSlop={8}>
@@ -232,6 +273,11 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 11 },
 
   preview: { width: '100%', borderRadius: radius.md },
+  expand: {
+    position: 'absolute', right: space.sm, bottom: space.sm,
+    width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
 
   progressBox: {
     flexDirection: 'row', alignItems: 'center', gap: space.sm,
@@ -239,6 +285,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md, borderWidth: 1.2, borderStyle: 'dashed',
   },
   progressText: { fontSize: 13, flex: 1 },
+  savingRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.sm },
 
   actions: { flexDirection: 'row', gap: space.md },
   flex: { flex: 1 },

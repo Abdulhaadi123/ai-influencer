@@ -9,6 +9,7 @@
     "@react-navigation/native-stack": "^7.18.9",
     "expo": "^56.0.20",
     "expo-file-system": "~56.0.10",
+    "expo-image": "~56.0.13",
     "expo-image-manipulator": "~56.0.25",
     "expo-image-picker": "~56.0.24",
     "expo-linear-gradient": "~56.0.4",

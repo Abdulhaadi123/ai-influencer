@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, ScrollView, Image, Pressable,
+  View, Text, ScrollView, Pressable,
   ActivityIndicator, StyleSheet,
 } from 'react-native'
 
@@ -47,6 +47,7 @@ import { pickImageWithPrompt } from '../lib/picker'
 import PromptSuggestion from '../components/PromptSuggestion'
 import { usePromptSuggestion } from '../hooks/usePromptSuggestion'
 import ModelPicker from '../components/ModelPicker'
+import MediaImage from '../components/MediaImage'
 import { shareMedia } from '../lib/share'
 import { showError } from '../lib/alerts'
 
@@ -76,6 +77,8 @@ export default function VideosTab({ influencer }) {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState(null)
   const [results, setResults] = useState([])
+  /** The result is playing and its copy into the gallery is still running. */
+  const [storing, setStoring] = useState(false)
   // Set when polling ran longer than we watch for; the job lives on in the queue.
   const [handedOff, setHandedOff] = useState(false)
 
@@ -179,6 +182,41 @@ export default function VideosTab({ influencer }) {
   const durationOptions = useMemo(() => offeredDurations(chosenModel.id, DURATIONS), [chosenModel.id])
   const duration = durationFor(chosenModel.id, settings.duration)
 
+  /**
+   * Copy finished clips into the gallery while they play. Never throws: the clip was made (and
+   * paid for) whatever happens here, so a failure is said as what it is, not as a failed generation.
+   */
+  const storeResults = useCallback(async urls => {
+    setStoring(true)
+    try {
+      for (const url of urls) {
+        let assetId
+        try {
+          // KIE deletes results within a day or so, so the server copies each into this user's
+          // storage. The same request marks the queue row collected, so it does not sit in the
+          // Queue tab asking to be saved a second time.
+          ({ assetId } = await persistGenerated({ sourceUrl: url, kind: 'video', influencerId: influencer.id }))
+        } catch (e) {
+          if (e?.code === 'CONTENT_BLOCKED') {
+            // Removed by the content check after it finished: it does not stay on screen either.
+            setResults(r => r.filter(u => u !== url))
+            setError(userMessage(e, 'This video was removed because it goes against our content guidelines.'))
+          } else {
+            setError(userMessage(e, 'The video could not be saved to the gallery. You can save it from the Queue tab.'))
+          }
+          continue
+        }
+        try {
+          await addGeneration({ influencerId: influencer.id, assetId, kind: 'video', label: 'Video' })
+        } catch (e) {
+          setError(userMessage(e, 'The video was saved but could not be added to the gallery. Please try again.'))
+        }
+      }
+    } finally {
+      setStoring(false)
+    }
+  }, [influencer.id, addGeneration])
+
   const generate = useCallback(async () => {
     if (!canGenerate) return
     cancelRef.current = false
@@ -229,25 +267,13 @@ export default function VideosTab({ influencer }) {
       if (cancelRef.current) return
       if (!urls?.length) { setError('No video was returned. Please try again.'); return }
 
-      // KIE deletes results within a day or so, so the server copies each into
-      // this user's storage. The same request marks the queue row collected, so
-      // it does not sit in the Queue tab asking to be saved a second time.
-      const stored = []
-      for (const url of urls) {
-        const { assetId, url: storedUrl } = await persistGenerated({
-          sourceUrl: url, kind: 'video', influencerId: influencer.id,
-        })
-        stored.push({ assetId, url: storedUrl })
-      }
-
-      if (cancelRef.current) return
-      setResults(stored.map(s => s.url))
-
-      for (const { assetId } of stored) {
-        await addGeneration({
-          influencerId: influencer.id, assetId, kind: 'video', label: 'Video',
-        })
-      }
+      // Playing at once, from the generator's own link. The copy into the gallery (the server
+      // downloads the clip, checks it and stores it) used to come first, and for a video that
+      // was a long second wait in front of a finished result. The link stays on screen only —
+      // it is never saved — and keeping it means the clip is not downloaded a second time.
+      setResults(urls)
+      setGenerating(false)
+      await storeResults(urls)
     } catch (e) {
       // A slow job is not a failed one. The task is still alive on KIE and the
       // queue is holding its taskId, so say that instead of showing an error.
@@ -256,7 +282,7 @@ export default function VideosTab({ influencer }) {
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }
-  }, [canGenerate, influencer, settings, duration, products, selection, addGeneration])
+  }, [canGenerate, influencer, settings, duration, products, selection, storeResults])
 
   const voicePresets = influencer.gender === 'Male' ? VOICE_PRESETS.male : VOICE_PRESETS.female
 
@@ -321,7 +347,7 @@ export default function VideosTab({ influencer }) {
             <View style={styles.productRow}>
               {products.map((product, i) => (
                 <View key={product.assetId}>
-                  <Image source={{ uri: product.url }} style={styles.product} resizeMode="cover" />
+                  <MediaImage uri={product.url} style={styles.product} contentFit="cover" />
                   <Pressable
                     onPress={() => removeProduct(product)}
                     disabled={generating}
@@ -490,6 +516,12 @@ export default function VideosTab({ influencer }) {
       {results.length && !generating ? (
         <Section title="Result">
           <View style={[styles.padded, { gap: space.md }]}>
+            {storing ? (
+              <View style={styles.progressRow}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={[styles.progressText, { color: colors.textSecondary }]}>Saving to the gallery…</Text>
+              </View>
+            ) : null}
             {results.map(url => (
               <View key={url} style={{ gap: space.sm }}>
                 <ResultVideo uri={url} />

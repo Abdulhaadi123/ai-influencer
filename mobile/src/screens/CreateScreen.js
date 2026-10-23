@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, ScrollView, Image, Pressable, ActivityIndicator,
+  View, Text, ScrollView, Pressable, ActivityIndicator,
   StyleSheet, KeyboardAvoidingView, Platform,
 } from 'react-native'
 
@@ -33,6 +33,8 @@ import CostNote from '../components/CostNote'
 import Screen, { ScreenHeader } from '../components/Screen'
 import { Button, GlassCard, Block, PillInput, ChoicePill, Notice, ProgressBar } from '../components/ui'
 import Icon from '../components/icons'
+import MediaImage from '../components/MediaImage'
+import ImageViewer from '../components/ImageViewer'
 import { pickImageWithPrompt } from '../lib/picker'
 import { showError } from '../lib/alerts'
 import PromptSuggestion from '../components/PromptSuggestion'
@@ -79,6 +81,8 @@ export default function CreateScreen({ navigation }) {
   const [error, setError] = useState(null)
   const [uploadingRef, setUploadingRef] = useState(false)
   const [saving, setSaving] = useState(false)
+  /** The generated image is on screen and its copy into storage is still running. */
+  const [storing, setStoring] = useState(false)
   /** A generation that outlived the foreground poll, watched until it lands. */
   const [pendingTaskId, setPendingTaskId] = useState(null)
 
@@ -107,7 +111,7 @@ export default function CreateScreen({ navigation }) {
    * the one it replaces can never be chosen again — its file is deleted.
    */
   const showVariation = useCallback(next => {
-    const replaced = variationsRef.current.filter(v => v.assetId !== next.assetId)
+    const replaced = variationsRef.current.filter(v => v.assetId && v.assetId !== next.assetId)
     variationsRef.current = [next]
     setVariations([next])
     setSelectedIdx(0)
@@ -191,13 +195,37 @@ export default function CreateScreen({ navigation }) {
       if (cancelledRef.current) return
       if (!urls?.[0]) { setError('No image was returned. Please try again.'); return }
 
-      // KIE deletes results within a day, so the server copies the file into
-      // this user's storage before anything else happens to it — and marks the
-      // queue row collected in the same request.
-      const { assetId, url } = await persistGenerated({ sourceUrl: urls[0], kind: 'image' })
-      if (cancelledRef.current) return
-
-      showVariation({ assetId, url })
+      // On screen at once, from the generator's own link. The copy into this user's storage (the
+      // server downloads the file, checks it and stores it) used to come first, and the picture
+      // only appeared after it — as long a wait again. Now the copy runs while the picture shows,
+      // and only Save waits for it, because the influencer is saved with the stored file. The
+      // link is never saved anywhere: it is what is on screen, for as long as this screen is.
+      const generated = urls[0]
+      const before = variationsRef.current
+      variationsRef.current = [{ assetId: null, url: generated }]
+      setVariations(variationsRef.current)
+      setSelectedIdx(0)
+      setGenerating(false)
+      setStoring(true)
+      try {
+        // KIE deletes results within a day, so the server copies the file into this user's
+        // storage — and marks the queue row collected in the same request.
+        const { assetId } = await persistGenerated({ sourceUrl: generated, kind: 'image' })
+        if (cancelledRef.current) return
+        // The link already loaded stays on screen, so the picture is not fetched a second time.
+        variationsRef.current = [{ assetId, url: generated }]
+        setVariations(variationsRef.current)
+        // The image this one replaces can never be chosen again; it goes now that this one is safe.
+        before.forEach(v => discardAsset(v.assetId))
+      } catch (e) {
+        // Not stored (refused by the content check, or the copy failed): it cannot become the
+        // influencer, so the previous image comes back and the reason is shown below.
+        variationsRef.current = before
+        setVariations(before)
+        throw e
+      } finally {
+        setStoring(false)
+      }
     } catch (e) {
       if (e?.message === STILL_RUNNING && taskId) {
         // Not a failure — the job is alive, and it is watched below so the image
@@ -243,7 +271,8 @@ export default function CreateScreen({ navigation }) {
   }, [])
 
   const save = useCallback(async () => {
-    if (!variations.length || saving) return
+    // No asset yet means the image is still being copied into storage (Save is disabled meanwhile).
+    if (!variations.length || saving || !variations[selectedIdx]?.assetId) return
     setSaving(true)
     try {
       const chosen = variations[selectedIdx]
@@ -317,13 +346,14 @@ export default function CreateScreen({ navigation }) {
                 onGenerate={generate}
                 error={error}
                 pending={!!pendingTaskId}
+                storing={storing}
               />
             )}
 
             <Actions
               step={step}
               canContinue={canContinue}
-              generating={generating}
+              generating={generating || storing}
               hasResults={variations.length > 0}
               saving={saving}
               onBack={() => setStep(s => Math.max(0, s - 1))}
@@ -414,7 +444,7 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
           <View style={styles.cardPad}>
             {data.referenceImage ? (
               <View style={{ gap: space.md }}>
-                <Image source={{ uri: data.referenceImage }} style={styles.reference} resizeMode="cover" />
+                <MediaImage uri={data.referenceImage} style={styles.reference} contentFit="cover" />
                 {uploading ? (
                   <View style={styles.uploadingRow}>
                     <ActivityIndicator size="small" color={colors.primary} />
@@ -477,8 +507,9 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
   )
 }
 
-function GenerateStep({ generating, progress, variations, selectedIdx, onSelect, onGenerate, error, pending }) {
+function GenerateStep({ generating, progress, variations, selectedIdx, onSelect, onGenerate, error, pending, storing }) {
   const { colors } = useTheme()
+  const [viewing, setViewing] = useState(null)
 
   if (generating) {
     return (
@@ -532,27 +563,38 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
         <View style={styles.cardPad}>
           {variations.map((variation, i) => (
             <Pressable
-              key={variation.assetId}
-              onPress={() => onSelect(i)}
+              // The url, not the asset: the picture is on screen before it has an asset, and
+              // keeping the same key when the asset arrives keeps the loaded picture.
+              key={variation.url}
+              onPress={() => { onSelect(i); setViewing(variation.url) }}
+              accessibilityRole="imagebutton"
+              accessibilityLabel="Generated image, open full screen"
               style={[
                 styles.variation,
                 { borderColor: i === selectedIdx ? colors.primary : 'transparent' },
               ]}
             >
-              <Image source={{ uri: variation.url }} style={styles.variationImage} resizeMode="cover" />
+              <MediaImage uri={variation.url} style={styles.variationImage} contentFit="cover" loadingIndicator />
             </Pressable>
           ))}
         </View>
       </GlassCard>
+      <ImageViewer uri={viewing} title="Preview" onClose={() => setViewing(null)} />
 
       <View style={styles.afterCard}>
         {error ? <Notice tone="error">{error}</Notice> : null}
+        {storing ? (
+          <View style={styles.uploadingRow}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={[styles.uploadingText, { color: colors.textSecondary }]}>Saving the image to your library…</Text>
+          </View>
+        ) : null}
         {pending ? (
           <Text style={[styles.sub, { color: colors.textSecondary, textAlign: 'center' }]}>
             A new image is being generated and will replace this one when it is ready.
           </Text>
         ) : (
-          <Button title="Regenerate" variant="soft" onPress={onGenerate} />
+          <Button title="Regenerate" variant="soft" onPress={onGenerate} disabled={storing} />
         )}
       </View>
     </>
