@@ -34,7 +34,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 
 import { one } from './_lib/db.js'
 import { collect } from './_lib/collect.js'
-import { applyKieStatus, creditsFrom } from './_lib/kieStatus.js'
+import { applyKieStatus, creditsFrom, resultUrlsFrom } from './_lib/kieStatus.js'
 import { ownerOf } from './_lib/taskOwners.js'
 import { createRateLimiter } from '../lib/rateLimit.js'
 
@@ -116,13 +116,8 @@ export function statusFromCallback(body) {
   const data = body?.data || {}
   const state = data.state || (body?.code === 200 ? 'success' : 'fail')
 
-  let resultUrls = []
-  if (data.resultJson) {
-    try {
-      const parsed = typeof data.resultJson === 'string' ? JSON.parse(data.resultJson) : data.resultJson
-      resultUrls = urlsFrom(parsed?.resultUrls)
-    } catch { /* malformed — treat as none, the worker will ask KIE directly */ }
-  }
+  // Malformed or unfamiliar: none, and the worker will ask KIE directly. Veo's own wrapping is read too.
+  let resultUrls = data.resultJson ? resultUrlsFrom(data.resultJson) : []
   if (!resultUrls.length) resultUrls = urlsFrom(data.info?.resultUrls ?? data.resultUrls)
 
   return {

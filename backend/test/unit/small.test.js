@@ -9,7 +9,7 @@ import { sniffMedia } from '../../api/_lib/moderation/sniff.js'
 import { isSealed, sealedKeyFor } from '../../api/_lib/moderation/seal.js'
 import { UPLOAD_TTL_SECONDS } from '../../api/_lib/s3.js'
 import { moderationConfig, describeModeration } from '../../api/_lib/moderation/config.js'
-import { creditsFrom } from '../../api/_lib/kieStatus.js'
+import { creditsFrom, resultUrlsFrom } from '../../api/_lib/kieStatus.js'
 import { statusFromCallback } from '../../api/kie-callback.js'
 import { likeTerm, pageOf } from '../../api/_lib/admin.js'
 import { sampleTimes } from '../../api/_lib/moderation/frames.js'
@@ -203,6 +203,34 @@ test('creditsFrom: a plain non-negative number, or null — never a guess', () =
   assert.equal(creditsFrom(12.5), 12.5)
   assert.equal(creditsFrom('42'), 42)
   for (const bad of [undefined, null, '', '  ', 'abc', NaN, Infinity, -1, '-5', {}, [], true]) assert.equal(creditsFrom(bad), null, String(bad))
+})
+
+// ── Where a task's result links are ──────────────────────────────────────────
+
+const VEO_RESULT_JSON = JSON.stringify({
+  code: 200, message: 'success', message_type: 'success', task_id: 't',
+  data: { origin_urls: ['https://tempfile.aiquickdraw.com/o.mp4'], result_urls: ['https://tempfile.aiquickdraw.com/r.mp4'], resolution: '1080p' },
+})
+
+test('result links are found in the usual shape and in Veo\'s own wrapping', () => {
+  assert.deepEqual(resultUrlsFrom(JSON.stringify({ resultUrls: ['https://tempfile.aiquickdraw.com/a.mp4'] })), ['https://tempfile.aiquickdraw.com/a.mp4'])
+  assert.deepEqual(resultUrlsFrom(VEO_RESULT_JSON), ['https://tempfile.aiquickdraw.com/r.mp4'], 'Veo: result_urls, the resolution asked for')
+  assert.deepEqual(resultUrlsFrom(JSON.stringify({ data: { origin_urls: ['https://tempfile.aiquickdraw.com/o.mp4'] } })), ['https://tempfile.aiquickdraw.com/o.mp4'], 'the 720p original when that is all there is')
+  assert.deepEqual(resultUrlsFrom({ resultUrls: ['https://tempfile.aiquickdraw.com/obj.mp4'] }), ['https://tempfile.aiquickdraw.com/obj.mp4'], 'an object as well as a string')
+})
+
+test('the usual shape wins when both are present, links are trimmed, and nothing usable is an empty list', () => {
+  assert.deepEqual(resultUrlsFrom(JSON.stringify({ resultUrls: ['https://tempfile.aiquickdraw.com/first.mp4'], data: { result_urls: ['https://tempfile.aiquickdraw.com/second.mp4'] } })), ['https://tempfile.aiquickdraw.com/first.mp4'])
+  assert.deepEqual(resultUrlsFrom(JSON.stringify({ resultUrls: ['  https://tempfile.aiquickdraw.com/padded.mp4 '] })), ['https://tempfile.aiquickdraw.com/padded.mp4'])
+  for (const none of [undefined, null, '', '{', '[]', '{}', JSON.stringify({ resultUrls: [] }), JSON.stringify({ resultUrls: [1, null, {}] }), JSON.stringify({ data: { result_urls: 'not a list' } })]) {
+    assert.deepEqual(resultUrlsFrom(none), [], String(none))
+  }
+})
+
+test('a callback for a Veo job yields its video too', () => {
+  const out = statusFromCallback({ code: 200, data: { taskId: 't', state: 'success', resultJson: VEO_RESULT_JSON, creditsConsumed: 65 } })
+  assert.deepEqual(out.resultUrls, ['https://tempfile.aiquickdraw.com/r.mp4'])
+  assert.equal(out.credits, 65)
 })
 
 test('the callback carries creditsConsumed in both of KIE\'s shapes', () => {

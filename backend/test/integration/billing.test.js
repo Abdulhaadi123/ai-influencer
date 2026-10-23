@@ -222,6 +222,30 @@ test('a job that succeeds keeps its charge', async () => {
   assert.equal(await balance(u), 82)
 })
 
+test('a Veo job, which answers in its own wrapping, is found when it finishes — and keeps its charge', async () => {
+  const u = await stack.createUser()
+  await stack.sql(PRICES)
+  await give(u.id, 100)
+  enforce()
+  const taskId = (await createTask(u.token)).body.data.taskId
+  await register(u, taskId)
+  // The shape KIE really returned for veo3_fast and veo-3-1 on 23 October 2026 (links replaced): no `resultUrls`,
+  // the links are inside `data`. Before this was read, such a job finished, was charged, and was never collected.
+  const RESULT = 'https://tempfile.aiquickdraw.com/veo/out-1080p.mp4'
+  stack.kie.tasks.set(taskId, {
+    taskId, state: 'success', completeTime: Date.now(), creditsConsumed: 18,
+    resultJson: JSON.stringify({
+      code: 200, message: 'success', task_id: taskId, message_type: 'success',
+      data: { origin_urls: ['https://tempfile.aiquickdraw.com/veo/out-720p.mp4'], result_urls: [RESULT], resolution: '1080p', aspect_ratio: '9:16', has_audio_list: [true] },
+    }),
+  })
+  const answer = await sync(u, taskId)
+  assert.equal(answer.body.status.state, 'success')
+  assert.deepEqual(answer.body.status.resultUrls, [RESULT], 'the 1080p link, not the 720p original')
+  assert.equal((await stack.one('select result_url from generation_jobs where kie_task_id = $1', [taskId])).result_url, RESULT, 'and it is on the job, so it can be collected')
+  assert.equal(await balance(u), 82)
+})
+
 test('a refusal by KIE\'s own filter is free for the user, and is on record for an admin', async () => {
   const u = await stack.createUser()
   await stack.sql(PRICES)

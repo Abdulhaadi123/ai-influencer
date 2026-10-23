@@ -44,6 +44,30 @@ export class EngineKeyRejectedError extends Error {
 }
 
 /**
+ * The result links inside a task's `resultJson`, whichever shape the model answers in.
+ *
+ *   • `{ resultUrls: [...] }` — nearly every model (Kling, Wan, Seedance, Hailuo, MiniMax, Grok, ...).
+ *   • `{ data: { result_urls: [...], origin_urls: [...] } }` — Veo, which wraps its own answer. `result_urls` holds
+ *     the video at the resolution asked for (1080p/4k); `origin_urls` is the 720p original, kept as a fallback.
+ *
+ * Reading only the first shape meant a Veo job finished on KIE, was charged, and was never found: the app waited,
+ * the worker's sweep found nothing, and the person paid for a video they never received. Found by running every
+ * model the app offers once for real (23 October 2026); both Veo models answered in the second shape.
+ *
+ * @param {unknown} resultJson  the JSON string KIE sends (or the object itself)
+ * @returns {string[]}  trimmed links, possibly none
+ */
+export function resultUrlsFrom(resultJson) {
+  let parsed = resultJson
+  if (typeof resultJson === 'string') {
+    try { parsed = JSON.parse(resultJson) } catch { return [] /* malformed — treat as none */ }
+  }
+  const clean = value => (Array.isArray(value) ? value.filter(u => typeof u === 'string').map(u => u.trim()).filter(Boolean) : [])
+  return [parsed?.resultUrls, parsed?.data?.result_urls, parsed?.result_urls, parsed?.data?.origin_urls]
+    .map(clean).find(list => list.length) || []
+}
+
+/**
  * Ask KIE about one task, normalised.
  *
  * @returns {Promise<{state: string, resultUrls: string[], failMsg: string|null,
@@ -77,16 +101,11 @@ export async function fetchKieTaskStatus(taskId) {
   if (json.code !== 200) return { state: 'unknown', ...none }
 
   const d = json.data || {}
-  let resultUrls = []
-  if (d.resultJson) {
-    try { resultUrls = JSON.parse(d.resultJson).resultUrls || [] } catch { /* malformed — treat as none */ }
-  }
-
   return {
     state: d.state || 'unknown',
-    // Trimmed: the address check refuses padding (api/_lib/results.js), and a result KIE has paid for must not be
-    // lost because of a space around its link.
-    resultUrls: resultUrls.filter(u => typeof u === 'string').map(u => u.trim()),
+    // Trimmed (inside resultUrlsFrom): the address check refuses padding (api/_lib/results.js), and a result KIE has
+    // paid for must not be lost because of a space around its link.
+    resultUrls: resultUrlsFrom(d.resultJson),
     failMsg: d.failMsg || null,
     completeTime: d.completeTime || null,
     // Only some models report one. Clamped rather than trusted, and 0 means
