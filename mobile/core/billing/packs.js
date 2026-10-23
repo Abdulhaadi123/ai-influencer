@@ -86,6 +86,30 @@ export function priceRow(prices, model, mode = null) {
 }
 
 /**
+ * The models a picker should offer: the ones the server will accept.
+ *
+ * With charging on, the server refuses a model that has no price ("This model is not
+ * available right now"), so a picker that lists every model the app knows about lets a person
+ * choose one that can only fail — which is what happened after a video failed and they tried
+ * another model. A model is on sale when the price list has a row for it, or for one of its
+ * modes (`kling-3.0/motion-control:720p`).
+ *
+ * Nothing is hidden while charging is off, or while the list has not arrived (hiding
+ * everything because a request failed would be worse), and the picker is never left empty.
+ *
+ * @template {{id: string}} M
+ * @param {M[]} models   in the order they are offered (the default first)
+ * @param {Array<{model: string}>|null|undefined} prices  the server's price list
+ * @param {boolean} enforced  whether the server is charging yet
+ * @returns {M[]}
+ */
+export function modelsOnSale(models, prices, enforced) {
+  if (!enforced || !Array.isArray(prices) || prices.length === 0) return models
+  const onSale = models.filter(m => prices.some(p => p.model === m.id || String(p.model).startsWith(`${m.id}:`)))
+  return onSale.length ? onSale : models
+}
+
+/**
  * What the server will charge for one generation, so the screen can say so before
  * anyone taps. The same rule as the server's (backend/api/_lib/billing.js priceOf):
  * `credits` per video or image, or per second.

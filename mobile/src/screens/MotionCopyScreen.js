@@ -23,7 +23,7 @@ import { useVideoPlayer, VideoView } from 'expo-video'
 import { generateMotionCopy, STILL_RUNNING } from '@core/services/generation'
 import { uploadLocal, resolveUrl } from '@core/data/assets'
 import { MOTION_MODELS, DEFAULT_MOTION_MODEL, getMotionModel, motionResolution } from '@core/config/videoModels'
-import { billedSeconds } from '@core/billing/packs'
+import { billedSeconds, modelsOnSale } from '@core/billing/packs'
 import { userMessage } from '@core/errors'
 import { isOutOfCredits } from '@core/billing/outOfCredits'
 import { persistGenerated } from '@core/platform/persistMedia'
@@ -35,6 +35,7 @@ import { Section, Button, Segmented, Collapsible, Field, Chip, PillInput, Notice
 import { pickImageWithPrompt, pickVideo } from '../lib/picker'
 import ModelPicker from '../components/ModelPicker'
 import MediaImage from '../components/MediaImage'
+import { useCredits } from '../hooks/useCredits'
 import { shareMedia } from '../lib/share'
 
 export default function MotionCopyScreen({ influencer }) {
@@ -57,7 +58,12 @@ export default function MotionCopyScreen({ influencer }) {
   const [uploadingVideo, setUploadingVideo] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [mode, setMode] = useState('pro') // 'std' = 720p, 'pro' = 1080p
-  const [model, setModel] = useState(DEFAULT_MOTION_MODEL)
+  const [wantedModel, setModel] = useState(DEFAULT_MOTION_MODEL)
+  // Only models the server will accept are offered: with charging on, an unpriced model is
+  // refused ("This model is not available right now").
+  const { prices, enforced } = useCredits()
+  const motionModels = useMemo(() => modelsOnSale(MOTION_MODELS, prices, enforced), [prices, enforced])
+  const model = motionModels.some(m => m.id === wantedModel) ? wantedModel : motionModels[0].id
 
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -249,10 +255,10 @@ export default function MotionCopyScreen({ influencer }) {
         </View>
       </Section>
 
-      <Section title="Model" footer="Kling 3.0 is recommended. Select another model to compare results.">
+      <Section title="Model" footer={motionModels.length > 1 ? 'Kling 3.0 is recommended. Select another model to compare results.' : undefined}>
         <View style={styles.padded}>
           <ModelPicker
-            models={MOTION_MODELS}
+            models={motionModels}
             value={model}
             defaultId={DEFAULT_MOTION_MODEL}
             onChange={setModel}

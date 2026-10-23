@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { normalizeProductId, joinPacks, formatCredits, costOf, describePrice, costLine, creditsVisible, billedSeconds, priceRow, purchaseNotice } from './packs.js'
+import { normalizeProductId, joinPacks, formatCredits, costOf, describePrice, costLine, creditsVisible, billedSeconds, priceRow, purchaseNotice, modelsOnSale } from './packs.js'
 
 const store = [
   { id: 'credits_5000', productId: 'credits_5000', price: '$19.99', native: { n: 5000 } },
@@ -17,6 +17,29 @@ const server = [
   { productId: 'credits_1500', credits: 1500, label: null },
   { productId: 'credits_5000', credits: 5000, label: '5,000 credits' },
 ]
+
+const VIDEO = [{ id: 'kling-3.0/video' }, { id: 'kling/v3-turbo-image-to-video' }, { id: 'wan/2-6-image-to-video' }]
+const MOTION = [{ id: 'kling-3.0/motion-control' }, { id: 'kling-2.6/motion-control' }, { id: 'wan/2-2-animate-move' }]
+
+test('with charging on, a picker offers only the models the server prices — the rest could only be refused', () => {
+  const prices = [{ model: 'kling-3.0/video' }, { model: 'nano-banana-pro' }]
+  assert.deepEqual(modelsOnSale(VIDEO, prices, true).map(m => m.id), ['kling-3.0/video'])
+  // The default stays first, whatever order the prices arrive in.
+  assert.deepEqual(modelsOnSale(VIDEO, [{ model: 'wan/2-6-image-to-video' }, { model: 'kling-3.0/video' }], true).map(m => m.id), ['kling-3.0/video', 'wan/2-6-image-to-video'])
+})
+
+test('a model priced only per mode is on sale; a model whose name merely starts the same is not', () => {
+  const prices = [{ model: 'kling-3.0/motion-control:720p' }, { model: 'kling-3.0/motion-control:1080p' }, { model: 'wan/2-2-animate-move-extra' }]
+  assert.deepEqual(modelsOnSale(MOTION, prices, true).map(m => m.id), ['kling-3.0/motion-control'])
+})
+
+test('nothing is hidden while charging is off, or while the price list has not arrived, and a picker is never empty', () => {
+  const prices = [{ model: 'kling-3.0/video' }]
+  assert.equal(modelsOnSale(VIDEO, prices, false), VIDEO)
+  for (const none of [[], null, undefined]) assert.equal(modelsOnSale(VIDEO, none, true), VIDEO)
+  // Prices exist but none is for these models: offering nothing would be worse than offering all.
+  assert.equal(modelsOnSale(MOTION, [{ model: 'nano-banana-pro' }], true), MOTION)
+})
 
 test('a product id is the part before any colon, and nothing else is accepted', () => {
   assert.equal(normalizeProductId('credits_500'), 'credits_500')

@@ -33,6 +33,7 @@ import {
 } from '@core/config/videoModels'
 import { selectVideoReferences, describeDroppedReferences } from '@core/videoRefs'
 import { hasActiveJobs } from '@core/data/jobs'
+import { modelsOnSale } from '@core/billing/packs'
 import { userMessage } from '@core/errors'
 import { isOutOfCredits } from '@core/billing/outOfCredits'
 import { persistGenerated } from '@core/platform/persistMedia'
@@ -46,6 +47,7 @@ import {
 import { pickImageWithPrompt } from '../lib/picker'
 import PromptSuggestion from '../components/PromptSuggestion'
 import { usePromptSuggestion } from '../hooks/usePromptSuggestion'
+import { useCredits } from '../hooks/useCredits'
 import ModelPicker from '../components/ModelPicker'
 import MediaImage from '../components/MediaImage'
 import { shareMedia } from '../lib/share'
@@ -169,7 +171,15 @@ export default function VideosTab({ influencer }) {
   // What will ACTUALLY be sent, given the chosen model's image limit. Computed
   // here so the warning below and the request itself come from one calculation
   // and cannot drift apart.
-  const chosenModel = getVideoModel(settings.videoModel || DEFAULT_VIDEO_MODEL)
+  //
+  // Only models the server will accept are offered: with charging on, an unpriced model is
+  // refused ("This model is not available right now"), and a model remembered from before it
+  // was taken off the list falls back to the first one that is offered.
+  const { prices, enforced } = useCredits()
+  const videoModels = useMemo(() => modelsOnSale(VIDEO_MODELS, prices, enforced), [prices, enforced])
+  const wanted = settings.videoModel || DEFAULT_VIDEO_MODEL
+  const modelId = videoModels.some(m => m.id === wanted) ? wanted : videoModels[0].id
+  const chosenModel = getVideoModel(modelId)
   const selection = useMemo(
     () => selectVideoReferences(influencer, products.map(p => p.url), chosenModel.maxImages),
     [influencer, products, chosenModel.maxImages],
@@ -251,7 +261,7 @@ export default function VideosTab({ influencer }) {
         prompt,
         aspectRatio: settings.aspect,
         duration,
-        model: settings.videoModel || DEFAULT_VIDEO_MODEL,
+        model: modelId,
         count: 1,
         referenceImages,
         referenceRoles: selection.roles,
@@ -282,7 +292,7 @@ export default function VideosTab({ influencer }) {
     } finally {
       if (!cancelRef.current) { setGenerating(false); setProgress(0) }
     }
-  }, [canGenerate, influencer, settings, duration, products, selection, storeResults])
+  }, [canGenerate, influencer, settings, duration, products, selection, storeResults, modelId])
 
   const voicePresets = influencer.gender === 'Male' ? VOICE_PRESETS.male : VOICE_PRESETS.female
 
@@ -388,11 +398,11 @@ export default function VideosTab({ influencer }) {
         </View>
       </Section>
 
-      <Section title="Model" footer="Kling 3.0 is recommended. Select another model to compare results.">
+      <Section title="Model" footer={videoModels.length > 1 ? 'Kling 3.0 is recommended. Select another model to compare results.' : undefined}>
         <View style={styles.padded}>
           <ModelPicker
-            models={VIDEO_MODELS}
-            value={settings.videoModel || DEFAULT_VIDEO_MODEL}
+            models={videoModels}
+            value={modelId}
             defaultId={DEFAULT_VIDEO_MODEL}
             onChange={v => set('videoModel', v)}
           />
@@ -465,9 +475,9 @@ export default function VideosTab({ influencer }) {
 
         <Field
           label="Voice"
-          hint={getVideoModel(settings.videoModel).supportsSound
+          hint={chosenModel.supportsSound
             ? 'Sets how the script sounds. Videos with a script or a selected voice include audio.'
-            : `${getVideoModel(settings.videoModel).label} does not support audio. Videos will be silent.`}
+            : `${chosenModel.label} does not support audio. Videos will be silent.`}
         >
           <View style={styles.chipWrap}>
             <Chip label="None" active={!settings.voicePreset} onPress={() => set('voicePreset', '')} />
