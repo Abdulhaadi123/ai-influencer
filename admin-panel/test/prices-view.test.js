@@ -128,10 +128,28 @@ test('the page says whether prices are being charged: on, off, or (if that canno
   assert.ok(rowFor(unknown.root, 'kling-3.0/video'))
 })
 
-test('the page says a model with no price is free, and models are named before their ids', async () => {
+test('the page says what a missing price means: free while charging is off, refused once it is on — and never claims "free" when it is on or unknown', async () => {
+  const off = open({ routes: { 'GET /api/admin/config': { billing: { enforced: false } } } })
+  await settle()
+  assert.match(text(off.root), /Until then a model with no price is free to use/)
+  assert.match(text(byText(off.root, '.card', 'In use, but not priced')), /so they cost nothing/)
+
+  reset()
+  const on = open({ routes: { 'GET /api/admin/config': { billing: { enforced: true } } } })
+  await settle()
+  assert.match(text(on.root), /A model with no price here is refused and the app does not offer it/)
+  assert.match(text(byText(on.root, '.card', 'In use, but not priced')), /they are refused now/)
+  assert.doesNotMatch(text(on.root), /free to use|cost nothing/, 'charging is on: a missing price is not free')
+
+  reset()
+  const unknown = open({ routes: { 'GET /api/admin/config': () => { throw apiError('nope', 500, 'X') } } })
+  await settle()
+  assert.doesNotMatch(text(unknown.root.querySelector('.page-header') ?? unknown.root), /free to use/)
+})
+
+test('models are named before their ids', async () => {
   const { root } = open()
   await settle()
-  assert.match(text(root), /A model that has no price here is free to use/)
   const kling = rowFor(root, 'kling-3.0/video')
   assert.equal(text(kling.querySelector('.cell-main')), 'Kling video', 'the name an admin gave it')
   const nano = rowFor(root, 'nano-banana-pro')
@@ -179,6 +197,12 @@ test('with nothing priced the page invites the first price instead of showing an
   assert.equal(root.querySelector('table'), null)
   assert.match(text(root), /No prices yet/)
   assert.match(text(root), /every model is allowed and unpriced/)
+
+  reset()
+  const on = open({ payload: data({ prices: [], unpriced: [] }), routes: { 'GET /api/admin/config': { billing: { enforced: true } } } })
+  await settle()
+  assert.match(text(on.root), /cannot be used while charging is on/)
+  assert.doesNotMatch(text(on.root), /every model is allowed/)
 })
 
 test('a failed load shows the error and Try again loads again', async () => {
@@ -471,6 +495,15 @@ test('deleting asks first, explains that the model stays allowed, and sends only
   assert.deepEqual(api.of('POST', '/api/admin/prices/delete')[0].input, { model: 'nano-banana-pro' })
   assert.match(text(document.querySelector('.toast-success')), /Deleted the price for nano-banana-pro/)
   assert.equal(api.of('GET', '/api/admin/prices').length, 2)
+})
+
+test('deleting a price while charging is on warns that the model will be refused, not that it "stays allowed"', async () => {
+  const { root } = open({ routes: { 'GET /api/admin/config': { billing: { enforced: true } } } })
+  await settle()
+  click(byText(rowFor(root, 'nano-banana-pro'), 'button', 'Delete'))
+  await settle()
+  assert.match(text(dialog()), /refused and the app stops offering it/)
+  assert.doesNotMatch(text(dialog()), /stays allowed/)
 })
 
 test('saying no to a deletion, or a failed deletion, changes nothing', async () => {

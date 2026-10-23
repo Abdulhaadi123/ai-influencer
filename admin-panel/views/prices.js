@@ -61,12 +61,15 @@ export function renderPrices(ctx) {
 
   mount(container,
     pageHeader({
-      title: 'Pricing', subtitle: 'What each model costs a person, in credits — and whether it may be used at all. A model that has no price here is free to use.',
+      title: 'Pricing', subtitle: 'What each model costs a person, in credits — and whether it may be used at all.',
       actions: [button({ label: 'Add a price', iconName: 'plus', tone: 'primary', onClick: () => edit({}) })],
     }),
     body)
 
   let units = UNITS
+  // Whether prices are charged, which decides what a missing price means: with charging on the server refuses a
+  // model that has none (and the app does not offer it); with charging off it is free. null = could not be read.
+  let enforced = null
 
   function load() {
     return loadInto(body, {
@@ -77,18 +80,19 @@ export function renderPrices(ctx) {
         // Whether these prices are being charged is the first thing to know about them; if it cannot be read, say less.
         api.get('/api/admin/config', null, { signal }).then(c => c.billing?.enforced ?? null).catch(e => { if (e?.name === 'AbortError') throw e; return null }),
       ]),
-      render: ([data, enforced]) => {
+      render: ([data, isEnforced]) => {
         units = data.units
+        enforced = isEnforced
         mount(body,
           enforced === true
             ? callout({
               tone: 'success', title: 'Charging is on — these prices are charged now',
-              body: 'Every generation takes its price in credits. The Allowed switch is live as well: a model switched off is refused straight away.',
+              body: 'Every generation takes its price in credits. A model with no price here is refused and the app does not offer it (a free model needs a price of 0). The Allowed switch is live as well: a model switched off is refused straight away.',
             })
             : enforced === false
               ? callout({
                 tone: 'info', title: 'Charging is off — prices are recorded, nobody is charged yet',
-                body: 'Set them while charging is off, then turn it on with BILLING_ENFORCED=true. The Allowed switch is different: it is live, and a model switched off is refused straight away.',
+                body: 'Set them while charging is off, then turn it on with BILLING_ENFORCED=true. Until then a model with no price is free to use; once charging is on it is refused. The Allowed switch is different: it is live, and a model switched off is refused straight away.',
               })
               : callout({
                 tone: 'info', title: 'Prices apply once charging is switched on',
@@ -112,11 +116,11 @@ export function renderPrices(ctx) {
                     button({ label: 'Delete', small: true, tone: 'danger', onClick: () => remove(p) })) },
                 ],
               })
-              : emptyState({ iconName: 'prices', title: 'No prices yet', body: 'Add one to start pricing models. Until then every model is allowed and unpriced.', action: button({ label: 'Add a price', iconName: 'plus', tone: 'primary', onClick: () => edit({}) }) }),
+              : emptyState({ iconName: 'prices', title: 'No prices yet', body: enforced === true ? 'Add one to start pricing models. A model with no price cannot be used while charging is on.' : 'Add one to start pricing models. Until then every model is allowed and unpriced.', action: button({ label: 'Add a price', iconName: 'plus', tone: 'primary', onClick: () => edit({}) }) }),
           }),
           data.unpriced.length
             ? card({
-              title: 'In use, but not priced', subtitle: 'People have generated with these models and no price is set, so they cost nothing.', flush: true,
+              title: 'In use, but not priced', subtitle: enforced === true ? 'People have generated with these models, but no price is set, so they are refused now. Set a price to turn them back on.' : 'People have generated with these models and no price is set, so they cost nothing.', flush: true,
               body: dataTable({
                 label: 'Unpriced models', rows: data.unpriced, rowKey: m => m.model,
                 columns: [
@@ -188,7 +192,9 @@ export function renderPrices(ctx) {
   async function remove(price) {
     const yes = await confirmDialog({
       title: `Delete the price for ${price.model}?`, tone: 'danger', confirmLabel: 'Delete price',
-      description: 'The model stays allowed — it simply has no price. To refuse it, keep the price and switch it off instead.',
+      description: enforced === true
+        ? 'Charging is on, so a model with no price is refused and the app stops offering it. To pause it and keep the price, switch it off instead.'
+        : 'The model stays allowed — it simply has no price. To refuse it, keep the price and switch it off instead.',
     })
     if (!yes) return
     try {
