@@ -67,6 +67,15 @@ const tooLarge = value => Buffer.byteLength(JSON.stringify(value)) > MAX_JSON_BY
  */
 const GALLERY_PREVIEW = 12
 
+/** '' for no age; otherwise a whole number from 18 to 99, as text; anything else is a 400. */
+function ageOf(value) {
+  const text = value.trim()
+  if (!text) return ''
+  const n = /^\d{1,3}$/.test(text) ? Number(text) : NaN
+  if (!(n >= 18 && n <= 99)) throw badRequest('Age must be a whole number from 18 to 99.', 'BAD_AGE')
+  return String(n)
+}
+
 /** The request's patch, reduced to known columns with checked values. */
 function cleanRow(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw badRequest('Nothing to save.')
@@ -77,6 +86,8 @@ function cleanRow(input) {
       if (value === null) row[column] = NOT_NULL_DEFAULTS[column] ?? null
       // A name is shown as one line in lists and headings: line breaks and runs of spaces are tidied away.
       else if (typeof value === 'string' && column === 'name') row[column] = displayNameOf(value, TEXT_LIMITS.name) ?? ''
+      // An age is optional, and otherwise an adult's: 18 to 99 (mobile/core/config/inputLimits.js says the same).
+      else if (typeof value === 'string' && column === 'age') row[column] = ageOf(value)
       else if (typeof value === 'string') row[column] = value.slice(0, TEXT_LIMITS[column])
       else throw badRequest(`${column} must be text.`)
     } else if (INTEGER.includes(column)) {

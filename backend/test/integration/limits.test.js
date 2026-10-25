@@ -19,7 +19,6 @@ test('a name is tidied to one line, and every text field has its own ceiling', a
   const res = await create(u.token, {
     name: '  Ana\nMaria   Silva  ',
     gender: 'x'.repeat(100),
-    age: '1'.repeat(50),
     niche: 'n'.repeat(500),
     backstory: 'b'.repeat(10_000),
     physical_desc: 'p'.repeat(10_000),
@@ -30,7 +29,6 @@ test('a name is tidied to one line, and every text field has its own ceiling', a
   const i = res.body.influencer
   assert.equal(i.name, 'Ana Maria Silva', 'line breaks and runs of spaces are gone')
   assert.equal(i.gender.length, 40)
-  assert.equal(i.age.length, 10)
   assert.equal(i.niche.length, 100)
   assert.equal(i.backstory.length, 4_000)
   assert.equal(i.physical_desc.length, 4_000)
@@ -62,6 +60,23 @@ test('wardrobe slots must be objects: a null or a number would stop the roster o
   const fine = await create(u.token, { name: 'Ana', wardrobe_slots: [{ id: 1, name: 'Casual', asset_id: null }] })
   assert.equal(fine.status, 201)
   assert.equal((await create(u.token, { name: 'Bo', wardrobe_slots: [] })).status, 201)
+})
+
+test('an age is optional, and otherwise a whole number from 18 to 99', async () => {
+  const u = await stack.createUser()
+  for (const [age, stored] of [['25', '25'], [' 18 ', '18'], ['99', '99'], ['', ''], ['   ', ''], [null, null]]) {
+    const res = await create(u.token, { name: 'Ana', age })
+    assert.equal(res.status, 201, JSON.stringify(age))
+    assert.equal(res.body.influencer.age, stored, JSON.stringify(age))
+  }
+  for (const age of ['17', '5', '0', '100', '269', 'abc', '2.5', '-20', '1'.repeat(50)]) {
+    const res = await create(u.token, { name: 'Ana', age })
+    assert.equal(res.status, 400, age)
+    assert.equal(res.body.code, 'BAD_AGE', age)
+  }
+  const id = (await create(u.token, { name: 'Bo', age: '30' })).body.influencer.id
+  assert.equal((await update(u.token, id, { age: '12' })).status, 400, 'an edit is checked too')
+  assert.equal((await update(u.token, id, { backstory: 'x' })).status, 200, 'an edit that does not touch the age is not')
 })
 
 test('ordinary values pass through untouched', async () => {
