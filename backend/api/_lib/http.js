@@ -13,6 +13,7 @@
 
 import { requireUser } from './auth.js'
 import { sendServerError } from './errors.js'
+import { createRateLimiter } from '../../lib/rateLimit.js'
 
 export class HttpError extends Error {
   constructor(status, message, code = 'BAD_REQUEST', headers = null) {
@@ -48,6 +49,17 @@ export function publicRoute(handler, opts) {
 }
 
 /**
+ * How fast one signed-in account may call the API in all. Only the generation proxy, the status check, the
+ * prompt assistant and reports had a limit of their own, so a script holding any account could write rows
+ * (uploads, influencers, jobs) as fast as the database allowed. These numbers are several times what the
+ * app does on its busiest screen (a Queue poll every few seconds), so a person never meets them.
+ */
+const requestsByUser = createRateLimiter([
+  { windowMs: 10_000, max: Number(process.env.USER_REQUESTS_PER_10S) || 150 },
+  { windowMs: 60_000, max: Number(process.env.USER_REQUESTS_PER_MINUTE) || 600 },
+])
+
+/**
  * @param {(req, res, user) => Promise<void>} handler
  * @param {{audience?: 'app'|'shared'|'admin', tag?: string, message?: string}} [opts]
  *        `audience` says which sessions may call (auth.js requireUser); the rest is
@@ -59,6 +71,7 @@ export function userRoute(handler, opts = {}) {
     const user = await requireUser(req, res, { audience })
     if (!user) return
     try {
+      enforceLimit(requestsByUser, `user:${user.id}`, 'Too many requests. Please wait a moment and try again.')
       await handler(req, res, user)
     } catch (e) {
       fail(res, e, failure)

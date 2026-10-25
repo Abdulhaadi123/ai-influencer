@@ -403,7 +403,13 @@ letting an attacker lock the real owner out: by caller address, by address and
 account together, and by account alone at a high ceiling. Sign-up, the emails the
 API sends, refreshes, password checks (change password, delete account), the pages
 the email links open, the two webhooks and the generation proxy have their own
-limits. Several API containers would each count separately; at that point move the
+limits. On top of those, every signed-in route shares one ceiling per account: 150
+calls in ten seconds and 600 in a minute (`USER_REQUESTS_PER_10S`,
+`USER_REQUESTS_PER_MINUTE`), several times what the app does on its busiest screen,
+so that a script holding an account cannot write rows as fast as the database
+allows. An account may hold 100 influencers (`MAX_INFLUENCERS_PER_USER`), and each
+text field of an influencer has its own length ceiling (`TEXT_LIMITS` in
+`api/influencers/index.js`). Several API containers would each count separately; at that point move the
 store to Postgres or Redis.
 
 **What a request may carry** (`server/index.js`, `api/_lib/requestInput.js`). Body size

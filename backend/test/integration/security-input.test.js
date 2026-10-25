@@ -27,7 +27,9 @@ const outbound = []
 const KIE_HOST = /(^|\.)(aiquickdraw\.com|redpandaai\.co|kie\.ai)$/
 
 before(async () => {
-  stack = await startStack()
+  // This file sends thousands of requests as one account on purpose, far past the per-account call limit
+  // (api/_lib/http.js), so that limit is lifted here; test/integration/limits.test.js tests it.
+  stack = await startStack({ env: { USER_REQUESTS_PER_10S: '1000000', USER_REQUESTS_PER_MINUTE: '1000000' } })
   globalThis.fetch = async (input, init) => {
     const url = String(input?.url ?? input)
     let host = ''

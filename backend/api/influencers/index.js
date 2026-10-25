@@ -13,8 +13,8 @@
  */
 
 import { one, many, query, transaction } from '../_lib/db.js'
-import { userRoute, badRequest, forbidden, notFound, noStore } from '../_lib/http.js'
-import { isUuid } from '../_lib/validate.js'
+import { userRoute, badRequest, forbidden, notFound, noStore, HttpError } from '../_lib/http.js'
+import { isUuid, displayNameOf } from '../_lib/validate.js'
 
 export const INFLUENCER_COLUMNS = `
   id, name, gender, age, type,
@@ -25,10 +25,18 @@ export const INFLUENCER_COLUMNS = `
   wardrobe_slots, created_at, updated_at
 `
 
-const TEXT = [
-  'name', 'gender', 'age', 'type', 'niche', 'niche_custom', 'backstory', 'physical_desc', 'prompt',
-  'audience', 'clothing_style', 'hobbies', 'location', 'voice', 'dream_brands',
-]
+/**
+ * The longest each text column may be; anything past it is cut off. Every one used to take 20,000
+ * characters, so a name, a gender or an age could be a page long — and the roster, which carries every
+ * influencer in one answer, was as heavy as the longest thing anyone had pasted into a short field.
+ * The numbers are well above what the app lets a person type (mobile/core/config/inputLimits.js).
+ */
+const TEXT_LIMITS = {
+  name: 100, gender: 40, age: 10, type: 60, niche: 100, niche_custom: 200,
+  backstory: 4_000, physical_desc: 4_000, prompt: 12_000,
+  audience: 500, clothing_style: 500, hobbies: 500, location: 200, voice: 200, dream_brands: 500,
+}
+const TEXT = Object.keys(TEXT_LIMITS)
 const INTEGER = ['intro_extrovert']
 const TEXT_ARRAY = ['niches', 'vibe_words', 'copy_attributes', 'palette', 'content_pillars']
 const ASSET_ID = ['main_asset_id', 'reference_asset_id', 'character_sheet_asset_id', 'closeup1_asset_id', 'closeup2_asset_id']
@@ -37,8 +45,14 @@ const JSON_COLUMNS = ['wardrobe_slots']
 /** Columns that may not be null — a null is replaced by the column's default. */
 const NOT_NULL_DEFAULTS = { name: '', type: 'Influencer', intro_extrovert: 50 }
 
-const MAX_TEXT = 20_000
 const MAX_ARRAY = 100
+
+/**
+ * How many influencers one account may hold. The roster is read whole, every time the app opens, so an
+ * account with thousands would make its own app slow; and each influencer is a person who costs money
+ * to generate, so nobody making a real roster comes near this. Read when used, so a test can change it.
+ */
+const maxInfluencers = () => Number(process.env.MAX_INFLUENCERS_PER_USER) || 100
 
 /** A JSON document stored on an influencer (wardrobe slots, the creation parameters): as large as studio settings may be. */
 const MAX_JSON_BYTES = 64 * 1024
@@ -61,7 +75,9 @@ function cleanRow(input) {
   for (const [column, value] of Object.entries(input)) {
     if (TEXT.includes(column)) {
       if (value === null) row[column] = NOT_NULL_DEFAULTS[column] ?? null
-      else if (typeof value === 'string') row[column] = value.slice(0, MAX_TEXT)
+      // A name is shown as one line in lists and headings: line breaks and runs of spaces are tidied away.
+      else if (typeof value === 'string' && column === 'name') row[column] = displayNameOf(value, TEXT_LIMITS.name) ?? ''
+      else if (typeof value === 'string') row[column] = value.slice(0, TEXT_LIMITS[column])
       else throw badRequest(`${column} must be text.`)
     } else if (INTEGER.includes(column)) {
       // A number, or text that is one. (Number() alone also takes true, [] and "" for 1, 0 and 0 — and
@@ -79,6 +95,11 @@ function cleanRow(input) {
       row[column] = value
     } else if (JSON_COLUMNS.includes(column)) {
       if (!Array.isArray(value) || value.length > 20) throw badRequest(`${column} must be a short list.`)
+      // Each entry is a slot (an object). The app reads `slot.asset_id` of every one when it loads the roster, so a
+      // `null` or a number saved here would stop the whole roster from opening.
+      if (value.some(slot => slot === null || typeof slot !== 'object' || Array.isArray(slot))) {
+        throw badRequest(`${column} must be a list of objects.`)
+      }
       if (tooLarge(value)) throw badRequest(`${column} is too large.`, 'TOO_LARGE')
       row[column] = value
     }
@@ -189,6 +210,10 @@ export const create = userRoute(async (req, res, user) => {
 
   const influencer = await transaction(async client => {
     const run = (text, params) => client.query(text, params)
+    const { rows: [held] } = await client.query('select count(*)::int as n from influencers where user_id = $1', [user.id])
+    if (held.n >= maxInfluencers()) {
+      throw new HttpError(409, `You have reached the limit of ${maxInfluencers()} influencers. Delete one to add another.`, 'INFLUENCER_LIMIT')
+    }
     await assertAssetsOwned(run, user.id, [...assetIdsIn(row), ...toLink])
 
     const columns = Object.keys(row)

@@ -20,7 +20,9 @@ const realFetch = globalThis.fetch
 const outbound = []
 
 before(async () => {
-  stack = await startStack({ env: { KIE_WEBHOOK_SECRET: KIE_SECRET, REVENUECAT_WEBHOOK_AUTH: RC_AUTH, PUBLIC_BASE_URL: 'https://api.test.example' } })
+  // The per-account call limit (api/_lib/http.js) is lifted: the sweeps below register hundreds of jobs as one
+  // account on purpose. test/integration/limits.test.js tests the limit itself.
+  stack = await startStack({ env: { KIE_WEBHOOK_SECRET: KIE_SECRET, REVENUECAT_WEBHOOK_AUTH: RC_AUTH, PUBLIC_BASE_URL: 'https://api.test.example', USER_REQUESTS_PER_10S: '1000000', USER_REQUESTS_PER_MINUTE: '1000000' } })
   ;({ signPayload } = await stack.load('api/kie-callback.js'))
   globalThis.fetch = async (input, init) => {
     const url = String(input?.url ?? input)
