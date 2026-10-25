@@ -202,6 +202,23 @@ export function thumbUrlFor(assetId) {
   return hit && hit.expiresAt - EXPIRY_MARGIN_MS > Date.now() ? hit.thumbUrl ?? null : null
 }
 
+/**
+ * Ask the server again for a file's preview, past the cache — for a file stored moments ago. The
+ * server makes a preview just after it answers (backend api/_lib/thumbnails.js), so the link signed
+ * when the file was first shown came without one.
+ *
+ * @param {string} assetId
+ * @returns {Promise<string|null>} the preview's URL, or null when there is still none
+ */
+export async function fetchPreview(assetId) {
+  if (!assetId) return null
+  const known = thumbUrlFor(assetId)
+  if (known) return known
+  // A remaining life no link has: the cached entry is passed over and the file signed afresh.
+  await resolveUrls([assetId], { minRemainingMs: Number.POSITIVE_INFINITY })
+  return thumbUrlFor(assetId)
+}
+
 /** Whether a URL this session was handed is a preview rather than the file itself. */
 export function isThumbUrl(url) {
   return typeof url === 'string' && thumbUrls.has(url)

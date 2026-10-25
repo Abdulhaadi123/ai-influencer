@@ -35,12 +35,19 @@ import { createContext, useContext, useCallback, useEffect, useMemo, useRef, use
 
 import * as influencerRepo from './data/influencers'
 import * as generationRepo from './data/generations'
-import { clearUrlCache, resolveUrls, URL_REFRESH_WINDOW_MS } from './data/assets'
+import { clearUrlCache, resolveUrls, fetchPreview, URL_REFRESH_WINDOW_MS } from './data/assets'
 import { useAuth } from './auth/AuthContext'
 import { userMessage } from './errors'
 
 const InfluencersCtx = createContext(null)
 const BrandDealsCtx = createContext(null)
+
+/**
+ * When to ask again for the preview of a file stored moments ago, counted from when it is shown. The
+ * server makes one a second or two after storing the file; three tries cover a slow one, and a file
+ * that never gets one (an unreadable picture) costs three small requests and no more.
+ */
+const PREVIEW_ASK_AFTER_MS = [2500, 6000, 15000]
 
 /**
  * Local ids for things that have not been saved yet.
@@ -80,6 +87,60 @@ export function StoreProvider({ children }) {
   // without this, adopting it put the entry just deleted back on screen.
   const removedAssets = useRef(new Set())
 
+  // New files being watched for their preview, and the timers doing it.
+  const previewWatch = useRef({ assets: new Set(), timers: new Set() })
+  const stopPreviewWatch = useCallback(() => {
+    for (const t of previewWatch.current.timers) clearTimeout(t)
+    previewWatch.current = { assets: new Set(), timers: new Set() }
+  }, [])
+  useEffect(() => stopPreviewWatch, [stopPreviewWatch])
+
+  /**
+   * A file stored moments ago is shown before its preview exists — the server makes the preview just
+   * after storing it (backend api/_lib/thumbnails.js). Ask again a few times, so the new gallery square
+   * or avatar switches to the preview within seconds, not at the next link refresh minutes later.
+   *
+   * @param {string} assetId
+   * @param {(thumbUrl: string) => void} apply  puts the preview where the file is shown
+   */
+  const watchForPreview = useCallback((assetId, apply) => {
+    const watch = previewWatch.current
+    if (!assetId || watch.assets.has(String(assetId))) return
+    watch.assets.add(String(assetId))
+
+    let attempt = 0
+    const schedule = () => {
+      const timer = setTimeout(async () => {
+        watch.timers.delete(timer)
+        if (!alive.current || previewWatch.current !== watch) return
+        let thumbUrl = null
+        try {
+          thumbUrl = await fetchPreview(assetId)
+        } catch (e) {
+          console.warn('[store] could not ask for a preview:', e?.message ?? e)
+        }
+        if (!alive.current || previewWatch.current !== watch) return
+        if (thumbUrl) {
+          watch.assets.delete(String(assetId))
+          apply(thumbUrl)
+        } else if (++attempt < PREVIEW_ASK_AFTER_MS.length) {
+          schedule()
+        } else {
+          // Left to the next link refresh, which picks a late preview up.
+          watch.assets.delete(String(assetId))
+        }
+      }, PREVIEW_ASK_AFTER_MS[attempt])
+      watch.timers.add(timer)
+    }
+    schedule()
+  }, [])
+
+  /** Watch a new main image for its preview, for the lists and the header avatar. */
+  const watchMainPreview = useCallback((influencerId, assetId) => {
+    watchForPreview(assetId, thumbUrl => setInfluencersState(prev => prev.map(i =>
+      i.id === influencerId && String(i.mainAssetId) === String(assetId) && !i.mainThumb ? { ...i, mainThumb: thumbUrl } : i)))
+  }, [watchForPreview])
+
   /** Reload the roster from the server. */
   const refresh = useCallback(async () => {
     if (!isSignedIn) { setInfluencersState([]); return }
@@ -104,13 +165,14 @@ export function StoreProvider({ children }) {
   // the cached signed URLs would still resolve for a few minutes.
   useEffect(() => {
     removedAssets.current.clear()
+    stopPreviewWatch()
     if (!userId) {
       setInfluencersState([])
       clearUrlCache()
       return
     }
     refresh()
-  }, [userId, refresh])
+  }, [userId, refresh, stopPreviewWatch])
 
   /**
    * Re-sign URLs that are close to expiring.
@@ -144,9 +206,12 @@ export function StoreProvider({ children }) {
 
   const addInfluencer = useCallback(async (record, options) => {
     const created = await influencerRepo.create(record, options)
-    if (alive.current) setInfluencersState(prev => [created, ...prev])
+    if (alive.current) {
+      setInfluencersState(prev => [created, ...prev])
+      if (created.mainAssetId && !created.mainThumb) watchMainPreview(created.id, created.mainAssetId)
+    }
     return created
-  }, [])
+  }, [watchMainPreview])
 
   const updateInfluencer = useCallback(async (id, patch) => {
     const previous = influencersRef.current.find(i => i.id === id)
@@ -172,6 +237,7 @@ export function StoreProvider({ children }) {
       setInfluencersState(prev => prev.map(i => (i.id === id
         ? { ...i, ...saved, generationHistory: i.generationHistory, galleryCounts: i.galleryCounts }
         : i)))
+      if (saved.mainAssetId && !saved.mainThumb && Object.hasOwn(patch, 'mainAssetId')) watchMainPreview(id, saved.mainAssetId)
       return saved
     } catch (e) {
       if (alive.current && previous && isNewest()) {
@@ -179,7 +245,7 @@ export function StoreProvider({ children }) {
       }
       throw e
     }
-  }, [])
+  }, [watchMainPreview])
 
   const removeInfluencer = useCallback(async id => {
     const snapshot = influencers
@@ -195,6 +261,14 @@ export function StoreProvider({ children }) {
   /** Put an entry at the front of an influencer's gallery, at most once. */
   const showInGallery = useCallback((influencerId, entry) => {
     if (entry?.assetId && removedAssets.current.has(String(entry.assetId))) return
+    // A result stored moments ago: its square switches to the preview as soon as the server has one.
+    if (entry?.assetId && !entry.thumbUrl) {
+      watchForPreview(entry.assetId, thumbUrl => setInfluencersState(prev => prev.map(i => (i.id !== influencerId ? i : {
+        ...i,
+        generationHistory: (i.generationHistory || []).map(g =>
+          String(g.assetId) === String(entry.assetId) && !g.thumbUrl ? { ...g, thumbUrl } : g),
+      }))))
+    }
     setInfluencersState(prev => prev.map(i => {
       if (i.id !== influencerId) return i
       if ((i.generationHistory || []).some(g => g.id === entry.id)) return i
@@ -212,7 +286,7 @@ export function StoreProvider({ children }) {
         },
       }
     }))
-  }, [])
+  }, [watchForPreview])
 
   /**
    * Append the next page of an influencer's gallery.
