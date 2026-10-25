@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { INPUT_LIMITS, ASSIST_MAX, cleanAge } from './inputLimits.js'
+import { INPUT_LIMITS, ASSIST_MAX, cleanAge, ageProblem } from './inputLimits.js'
 import { IMAGE_PROMPT_MAX } from './promptLimits.js'
 import { VIDEO_MODELS, MOTION_MODELS, getVideoModel } from './videoModels.js'
 import { buildVideoPrompt } from '../prompts/videoPrompt.js'
@@ -9,7 +9,7 @@ import { fitPrompt } from '../prompts/fitPrompt.js'
 import { buildImagePrompts } from '../prompts/influencerPrompts.js'
 import { buildInfluencerSheetPrompt, buildFeatureSheetPrompt, buildCloseUpPrompt } from '../prompts/charSheetPrompt.js'
 
-test('cleanAge keeps digits only, drops leading zeros and stops at three digits', () => {
+test('cleanAge keeps digits only, drops leading zeros and stops at two digits', () => {
   assert.equal(cleanAge('27'), '27')
   assert.equal(cleanAge('2a7'), '27')
   assert.equal(cleanAge('007'), '7')
@@ -17,9 +17,24 @@ test('cleanAge keeps digits only, drops leading zeros and stops at three digits'
   assert.equal(cleanAge(''), '')
   assert.equal(cleanAge(null), '')
   assert.equal(cleanAge(undefined), '')
-  assert.equal(cleanAge('12345'), '123')
+  assert.equal(cleanAge('12345'), '12')
   assert.equal(cleanAge(' 3 5 '), '35')
   assert.equal(cleanAge(42), '42')
+})
+
+test('an age is optional, and otherwise 18 to 99', () => {
+  for (const ok of ['', '  ', null, undefined, '18', '25', '99', 30]) assert.equal(ageProblem(ok), null, String(ok))
+  for (const bad of ['17', '5', '0', '100', '269', 'abc', '2.5', '-20']) assert.match(ageProblem(bad), /between 18 and 99/, bad)
+})
+
+test('the name may be as long as the server keeps it, so editing an existing name never cuts it', () => {
+  assert.equal(INPUT_LIMITS.name, 100)
+})
+
+test('the backstory field takes exactly what is used: the first 300 characters', () => {
+  assert.equal(INPUT_LIMITS.backstory, 300)
+  const sheet = buildInfluencerSheetPrompt({ name: 'A', gender: 'Female', physicalDesc: 'x', backstory: `START ${'b'.repeat(288)} END` })
+  assert.match(sheet, /START b+ END/, 'a backstory at the limit reaches the character sheet whole')
 })
 
 test('every field limit is a positive whole number', () => {
@@ -29,7 +44,7 @@ test('every field limit is a positive whole number', () => {
 })
 
 test('the app never offers more than the server keeps (backend/api/influencers/index.js TEXT_LIMITS)', () => {
-  const server = { name: 100, age: 10, appearance: 4000, backstory: 4000, prompt: 12000 }
+  const server = { name: 100, age: 10, appearance: 4000, backstory: 4000 }
   for (const [field, ceiling] of Object.entries(server)) {
     assert.ok(INPUT_LIMITS[field] <= ceiling, `${field}: app ${INPUT_LIMITS[field]} vs server ${ceiling}`)
   }

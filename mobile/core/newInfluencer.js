@@ -77,6 +77,30 @@ export function buildNewInfluencer({ data, mainAssetId, referenceAssetId = null,
  * base64 image inside this blob, which meant every regeneration carried a
  * multi-megabyte payload through storage that already held the same bytes.
  */
+/**
+ * What Regenerate builds its prompt from: how the influencer was made (the reference image, the aspect
+ * ratio, the copied attributes), with what the profile says NOW for the things a person can edit there —
+ * the appearance, gender, age and backstory.
+ *
+ * It used the creation-time copy of those, so editing the Appearance on the profile and tapping
+ * Regenerate sent the old description, though the field said it was what Regenerate used. An appearance
+ * left empty on the profile falls back to the one the influencer was made from, rather than to a stranger.
+ *
+ * @param {object} influencer  the app-shaped record (data/influencers.js)
+ * @param {object} params      its creation params (buildCreationParams)
+ */
+export function regenerateInputs(influencer, params) {
+  const edited = value => (typeof value === 'string' && value.trim() ? value.trim() : null)
+  return {
+    ...params,
+    name: influencer?.name || params?.name || '',
+    physicalDesc: edited(influencer?.physicalDesc) ?? params?.physicalDesc ?? '',
+    gender: influencer?.gender || params?.gender,
+    age: edited(influencer?.age != null ? String(influencer.age) : null) ?? params?.age ?? '',
+    backstory: typeof influencer?.backstory === 'string' ? influencer.backstory.trim() : (params?.backstory ?? ''),
+  }
+}
+
 export function buildCreationParams({ data, aspectRatio, referenceAssetId = null }) {
   return {
     faceAssetId: referenceAssetId,

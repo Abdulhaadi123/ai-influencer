@@ -23,7 +23,7 @@ import { IMAGE_MODEL_ID } from '@core/config/generation'
 import { uploadLocal, resolveUrl, remove as removeAsset } from '@core/data/assets'
 import { COPY_ATTRIBUTES, buildImagePrompts } from '@core/prompts/influencerPrompts'
 import { buildNewInfluencer, buildCreationParams } from '@core/newInfluencer'
-import { INPUT_LIMITS, MAX_INFLUENCERS, cleanAge } from '@core/config/inputLimits'
+import { INPUT_LIMITS, MAX_INFLUENCERS, MIN_AGE, MAX_AGE, cleanAge, ageProblem } from '@core/config/inputLimits'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { userMessage } from '@core/errors'
 import { isOutOfCredits } from '@core/billing/outOfCredits'
@@ -103,7 +103,7 @@ export default function CreateScreen({ navigation }) {
 
   const canContinue = useMemo(() => {
     if (atLimit) return false
-    if (step === 0) return data.name.trim().length > 0
+    if (step === 0) return data.name.trim().length > 0 && !ageProblem(data.age)
     // Step 2 needs SOMETHING to generate from — a description or a reference.
     if (step === 1) {
       if (uploadingRef) return false
@@ -392,6 +392,11 @@ function Heading({ title, sub }) {
 }
 
 function BasicsStep({ data, set }) {
+  const { colors } = useTheme()
+  // Said once the age is complete or the field is left — not while the first digit is still being typed.
+  const [ageLeft, setAgeLeft] = useState(false)
+  const problem = ageProblem(data.age)
+  const shownAgeProblem = problem && (ageLeft || data.age.length >= INPUT_LIMITS.age) ? problem : null
   return (
     <>
       <Heading title="Basic details" sub="Enter a name and select a gender." />
@@ -418,16 +423,19 @@ function BasicsStep({ data, set }) {
         </View>
       </Block>
 
-      <Block title="Age" footer="Optional">
+      <Block title="Age" footer={`Optional. ${MIN_AGE} to ${MAX_AGE}.`}>
         <PillInput
           value={data.age}
           onChangeText={v => set('age', cleanAge(v))}
+          onBlur={() => setAgeLeft(true)}
           placeholder="Enter age"
           keyboardType="number-pad"
           maxLength={INPUT_LIMITS.age}
           autoComplete="off"
           returnKeyType="done"
+          error={!!shownAgeProblem}
         />
+        {shownAgeProblem ? <Text style={[styles.fieldError, { color: colors.danger }]}>{shownAgeProblem}</Text> : null}
       </Block>
     </>
   )
@@ -693,6 +701,7 @@ const styles = StyleSheet.create({
   stepLabel: { fontSize: 13 },
 
   choiceRow: { flexDirection: 'row', gap: space.md },
+  fieldError: { fontSize: 12.5, marginTop: 6, marginLeft: space.sm },
   cardPad: { padding: space.md + 2 },
   reference: { width: '100%', aspectRatio: 3 / 4, borderRadius: radius.md },
 

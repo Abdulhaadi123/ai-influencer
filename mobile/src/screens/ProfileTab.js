@@ -26,7 +26,7 @@ import ImageViewer from '../components/ImageViewer'
 
 import { useInfluencers } from '@core/store'
 import { getNiches } from '@core/niches'
-import { INPUT_LIMITS, cleanAge } from '@core/config/inputLimits'
+import { INPUT_LIMITS, cleanAge, ageProblem } from '@core/config/inputLimits'
 import { regenerateMainImage, NO_CREATION_PARAMS } from '@core/regenerate'
 import { STILL_RUNNING } from '@core/services/generation'
 import { uploadLocal, remove as removeAsset } from '@core/data/assets'
@@ -319,6 +319,7 @@ export default function ProfileTab({ influencer, navigation }) {
               value={String(influencer.age ?? '')}
               onCommit={v => update({ age: v })}
               transform={cleanAge}
+              validate={ageProblem}
               placeholder="—"
               placeholderTextColor={colors.textTertiary}
               keyboardType="number-pad"
@@ -353,8 +354,10 @@ export default function ProfileTab({ influencer, navigation }) {
         </Section>
       ) : null}
 
-      <Collapsible title="Details" subtitle="Appearance, backstory and prompt">
-        <Field label="Appearance" hint="Used as the description when regenerating the image.">
+      {/* No "Prompt" field: it showed the prompt the image was made from as if it could be edited, but nothing
+          ever read it back — Regenerate builds its own prompt from the fields below. */}
+      <Collapsible title="Details" subtitle="Appearance and backstory">
+        <Field label="Appearance" hint="Used when regenerating the image and making the reference sheets.">
           <DraftInput
             field
             value={influencer.physicalDesc ?? ''}
@@ -365,7 +368,7 @@ export default function ProfileTab({ influencer, navigation }) {
           />
         </Field>
 
-        <Field label="Backstory" hint="Optional. Adds personality to scripts.">
+        <Field label="Backstory" hint="Optional. Who they are, in a line or two. Shapes outfits and settings when regenerating, and the character sheet.">
           <DraftInput
             field
             value={influencer.backstory ?? ''}
@@ -373,17 +376,6 @@ export default function ProfileTab({ influencer, navigation }) {
             placeholder="Background, interests and values"
             multiline
             maxLength={INPUT_LIMITS.backstory}
-          />
-        </Field>
-
-        <Field label="Prompt" hint="The prompt used to generate this influencer's image.">
-          <DraftInput
-            field
-            value={influencer.prompt ?? ''}
-            onCommit={v => update({ prompt: v })}
-            placeholder="Enter a prompt"
-            multiline
-            maxLength={INPUT_LIMITS.prompt}
           />
         </Field>
       </Collapsible>
@@ -409,7 +401,7 @@ export default function ProfileTab({ influencer, navigation }) {
  * typed past. While the field is being edited the draft is local; the stored
  * value replaces it only when it is not.
  */
-function DraftInput({ value, onCommit, transform, field, ...props }) {
+function DraftInput({ value, onCommit, transform, validate, field, ...props }) {
   const [draft, setDraft] = useState(value ?? '')
   const draftRef = useRef(draft)
   const editing = useRef(false)
@@ -424,7 +416,17 @@ function DraftInput({ value, onCommit, transform, field, ...props }) {
   const commit = () => {
     if (!editing.current) return
     editing.current = false
-    if (draftRef.current !== (value ?? '')) onCommit(draftRef.current)
+    if (draftRef.current === (value ?? '')) return
+    // `validate` says what is wrong with a draft, or null. A wrong one is not saved: the stored value
+    // comes back and the person is told why.
+    const problem = validate ? validate(draftRef.current) : null
+    if (problem) {
+      draftRef.current = value ?? ''
+      setDraft(value ?? '')
+      Alert.alert('Not saved', problem)
+      return
+    }
+    onCommit(draftRef.current)
   }
   const commitRef = useRef(commit)
   commitRef.current = commit

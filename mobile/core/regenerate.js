@@ -4,8 +4,9 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *
  * Reuses the params captured when the influencer was created (reference image,
- * description, aspect ratio) so a regenerated image still looks like the same
- * person. Shared by the web studio and the mobile one.
+ * aspect ratio) so a regenerated image still looks like the same person, with the
+ * profile's current appearance, gender, age and backstory (regenerateInputs).
+ * Shared by the web studio and the mobile one.
  *
  * Throws NO_CREATION_PARAMS when the influencer predates creation-param
  * tracking, so each platform can present that in its own way — an alert on the
@@ -16,6 +17,7 @@ import { getCreationParams } from './data/settings'
 import { resolveUrl } from './data/assets'
 import { buildThreeVariationPrompts } from './prompts/systemPrompt'
 import { generateThreeImages } from './services/generation'
+import { regenerateInputs } from './newInfluencer'
 
 export const NO_CREATION_PARAMS = 'NO_CREATION_PARAMS'
 
@@ -32,13 +34,11 @@ export async function regenerateMainImage(influencer, onProgress, queueMeta = nu
   if (!params) throw new Error(NO_CREATION_PARAMS)
 
   const aspectRatio = params.aspectRatio || '9:16'
+  const inputs = regenerateInputs(influencer, params)
 
   // Three variation prompts are built, then one is picked at random, so
   // repeated regenerations don't all come back with the same pose.
-  const prompts = buildThreeVariationPrompts(
-    { ...params, name: influencer.name },
-    aspectRatio
-  )
+  const prompts = buildThreeVariationPrompts(inputs, aspectRatio)
   const prompt = prompts[Math.floor(Math.random() * prompts.length)]
 
   const urls = await generateThreeImages({
@@ -49,7 +49,7 @@ export async function regenerateMainImage(influencer, onProgress, queueMeta = nu
     // it with a lifetime long enough to survive KIE's queue.
     faceRef: params.faceAssetId ? await resolveUrl(params.faceAssetId) : null,
     styleRef: params.styleAssetId ? await resolveUrl(params.styleAssetId) : null,
-    physicalDesc: params.physicalDesc || '',
+    physicalDesc: inputs.physicalDesc,
     faceRefNote: params.faceRefNote || '',
     styleRefNote: params.styleRefNote || '',
     onProgress: onProgress || (() => {}),
