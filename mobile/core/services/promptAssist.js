@@ -23,6 +23,7 @@
  */
 
 import { apiFetch, ApiError } from '../api/client'
+import { ASSIST_MAX } from '../config/inputLimits'
 
 /** Below this, there is not enough intent to improve on. */
 export const MIN_LENGTH = 12
@@ -57,6 +58,8 @@ export function isAvailable() {
 export async function improvePrompt(text, { kind = 'appearance', signal } = {}) {
   const input = (text || '').trim()
   if (input.length < MIN_LENGTH) return null
+  // The server refuses more than this (413). Asking would only cost a request and a rate-limit slot.
+  if (input.length > ASSIST_MAX) return null
   if (!available) return null
 
   try {

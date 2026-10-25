@@ -6,6 +6,7 @@ import { registerJobs, syncJob } from '../../../data/jobs'
 import { urlForGeneration } from '../../../data/assets'
 import { replaceImageTags } from '../../../prompts/videoPrompt'
 import { fitPrompt } from '../../../prompts/fitPrompt'
+import { IMAGE_PROMPT_MAX, DEFAULT_VIDEO_PROMPT_MAX } from '../../../config/promptLimits'
 import { createProgress } from '../progress'
 import { OUT_OF_CREDITS, notifyOutOfCredits } from '../../../billing/outOfCredits'
 import { AppError, ERROR_CODES, generatorMessage, isSessionEnded } from '../../../errors'
@@ -152,19 +153,19 @@ export async function refreshJobs(taskIds) {
   return updated
 }
 
-// KIE.AI enforces a 3000-character prompt limit — trim with a small safety margin
-const KIE_PROMPT_MAX = 2900
+// Nano Banana Pro takes 20,000 characters (core/config/promptLimits.js). This used to cut at 2,900 on the
+// strength of a comment that KIE stops at 3,000, which lost the end of the longer character-sheet prompts.
 function capPrompt(p) {
-  if (!p || p.length <= KIE_PROMPT_MAX) return p
-  return p.slice(0, KIE_PROMPT_MAX - 3) + '...'
+  if (!p || p.length <= IMAGE_PROMPT_MAX) return p
+  return p.slice(0, IMAGE_PROMPT_MAX - 3) + '...'
 }
 
-// What most video models accept (Kling 3.0's own limit is 2,500). A model with a
-// smaller one says so as `maxPromptChars` in videoModels.js — Wan 2.5 takes 800.
-const KIE_VIDEO_PROMPT_MAX = 2450
-
-/** Fit the prompt to the chosen model's limit, giving up the boilerplate before the person's own words. */
-function capVideoPrompt(p, limit = KIE_VIDEO_PROMPT_MAX) {
+/**
+ * Fit the prompt to the chosen model's limit (`maxPromptChars` in videoModels.js, from its docs page;
+ * a model that states none gets DEFAULT_VIDEO_PROMPT_MAX), giving up the boilerplate before the
+ * person's own words.
+ */
+function capVideoPrompt(p, limit = DEFAULT_VIDEO_PROMPT_MAX) {
   if (!p || p.length <= limit) return p
   return fitPrompt(p, limit)
 }
@@ -747,7 +748,7 @@ export async function generateMotionCopy({ characterImage, drivingVideo, prompt 
   const body = {
     model: chosenMotion.id,
     input: chosenMotion.buildInput({
-      prompt: capVideoPrompt(prompt || ''),
+      prompt: capVideoPrompt(prompt || '', chosenMotion.maxPromptChars),
       imageUrl,
       videoUrl,
       mode,

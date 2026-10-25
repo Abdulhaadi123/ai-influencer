@@ -38,6 +38,7 @@ import { userMessage } from '@core/errors'
 import { isOutOfCredits } from '@core/billing/outOfCredits'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { useInfluencers } from '@core/store'
+import { INPUT_LIMITS } from '@core/config/inputLimits'
 
 import { useTheme, space, radius, font, layout } from '../theme'
 import CostNote from '../components/CostNote'
@@ -322,6 +323,7 @@ export default function VideosTab({ influencer }) {
           onChangeText={v => set('dialogue', v)}
           placeholder={'e.g. I have been using this for a month and honestly…'}
           multiline
+          maxLength={INPUT_LIMITS.script}
         />
         <PromptSuggestion
           suggestion={assist.suggestion}
@@ -341,6 +343,7 @@ export default function VideosTab({ influencer }) {
           onChangeText={v => set('scene', v)}
           placeholder={'e.g. Walking down a wet city street at night, neon signs behind. Holds the bottle up at 3s.'}
           multiline
+          maxLength={INPUT_LIMITS.scene}
         />
         <PromptSuggestion
           suggestion={sceneAssist.suggestion}

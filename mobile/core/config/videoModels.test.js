@@ -49,6 +49,35 @@ test('the length sent is always one the model offers, whatever length was asked 
   }
 })
 
+test('each model carries the prompt limit its docs page states on docs.kie.ai (read 25 October 2026)', () => {
+  const documented = {
+    'kling-3.0/video': 2500,
+    'kling/v3-turbo-image-to-video': 2500,
+    'kling/v2-5-turbo-image-to-video-pro': 2500,
+    'kling/v2-1-master-image-to-video': 5000,
+    'wan/2-6-image-to-video': 5000,
+    'wan/2-5-image-to-video': 800,
+    'hailuo/2-3-image-to-video-pro': 5000,
+    'minimax-h3/image-to-video': 7000,
+    'minimax-h3/text-to-video': 7000,
+    'pixverse-v6/image-to-video': 5000,
+    'bytedance/seedance-2-5': 20480,
+    'bytedance/seedance-2-mini': 20000,
+    'bytedance/seedance-2-fast': 20000,
+    'grok-imagine/image-to-video': 5000,
+    'kling-3.0/motion-control': 2500,
+    'kling-2.6/motion-control': 2500,
+  }
+  for (const [id, limit] of Object.entries(documented)) {
+    const m = [...VIDEO_MODELS, ...MOTION_MODELS].find(x => x.id === id)
+    assert.ok(m, `${id} is not offered any more`)
+    assert.equal(m.maxPromptChars, limit, id)
+  }
+  // Veo's page states no limit, so those two take the default; Wan 2.2 Animate takes no prompt at all.
+  for (const id of ['veo3_fast', 'veo-3-1']) assert.equal(VIDEO_MODELS.find(m => m.id === id).maxPromptChars, undefined, id)
+  assert.equal(MOTION_MODELS.find(m => m.id === 'wan/2-2-animate-move').maxPromptChars, undefined)
+})
+
 test('every model has an id, a label, a note and a request builder', () => {
   const ids = new Set()
   for (const m of [...VIDEO_MODELS, ...MOTION_MODELS]) {

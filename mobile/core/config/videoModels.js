@@ -49,14 +49,18 @@ function nearest(requested, allowed) {
 //   { prompt, imageUrls[], duration, aspectRatio, hasVoice, audioUrl }
 // and returns the `input` object for POST /api/v1/jobs/createTask.
 //
-// `maxPromptChars` (optional) is the model's own prompt limit when it is smaller than
-// the default the provider applies (2,450). Only Wan 2.5 has one so far; the others'
-// documented limits are 2,500 (Kling 3.0) or 5,000 and more.
+// `maxPromptChars` is the model's own prompt limit, from its docs page on docs.kie.ai
+// (read 25 October 2026; Kling 3.0's and the Motion Control models' were also confirmed against the
+// live API, which refuses one character more). The prompt is fitted to it (core/prompts/fitPrompt.js),
+// giving up boilerplate before the person's own words. Veo's page states no limit, so the two Veo
+// models have none here and take DEFAULT_VIDEO_PROMPT_MAX (core/config/promptLimits.js). Before this
+// every model but Wan 2.5 was held to 2,450, though most take 5,000 or far more.
 
 export const VIDEO_MODELS = [
   {
     id: 'kling-3.0/video',
     label: 'Kling 3.0',
+    maxPromptChars: 2500,
     note: 'Default. Sound effects, up to 2 reference images. 3–15s.',
     supportsSound: true,
     maxImages: 2,
@@ -74,6 +78,7 @@ export const VIDEO_MODELS = [
   {
     id: 'kling/v3-turbo-image-to-video',
     label: 'Kling 3.0 Turbo',
+    maxPromptChars: 2500,
     note: 'Faster Kling 3. One image. No audio track. 3–15s.',
     supportsSound: false,
     // KIE answers "image_urls supports at most 1 files" to a second image (found by sending this
@@ -90,6 +95,7 @@ export const VIDEO_MODELS = [
   {
     id: 'kling/v2-5-turbo-image-to-video-pro',
     label: 'Kling 2.5 Turbo Pro',
+    maxPromptChars: 2500,
     note: 'Single reference image. 5 or 10s only.',
     supportsSound: false,
     maxImages: 1,
@@ -103,6 +109,7 @@ export const VIDEO_MODELS = [
   {
     id: 'kling/v2-1-master-image-to-video',
     label: 'Kling 2.1 Master',
+    maxPromptChars: 5000,
     note: 'Single reference image. 5 or 10s only.',
     supportsSound: false,
     maxImages: 1,
@@ -116,6 +123,7 @@ export const VIDEO_MODELS = [
   {
     id: 'wan/2-6-image-to-video',
     label: 'Wan 2.6',
+    maxPromptChars: 5000,
     // image_urls is an array but the docs cap it at one image per request.
     note: 'Alibaba Wan, latest. One reference image. 5, 10 or 15s.',
     supportsSound: false,
@@ -149,6 +157,7 @@ export const VIDEO_MODELS = [
   {
     id: 'hailuo/2-3-image-to-video-pro',
     label: 'Hailuo 2.3 Pro',
+    maxPromptChars: 5000,
     // Capital P in the resolution is not a typo — this vendor rejects '1080p'.
     //
     // 6 seconds only. KIE bills a 6 s clip at 1080P for 80 credits and a 10 s clip (768P, the
@@ -170,6 +179,7 @@ export const VIDEO_MODELS = [
   {
     id: 'minimax-h3/image-to-video',
     label: 'MiniMax H3',
+    maxPromptChars: 7000,
     // The image field is first_frame_url, NOT image_url/image_urls, and at
     // least one of first_frame_url / last_frame_url is required.
     note: 'Uses your image as the first frame. 4–15s.',
@@ -189,6 +199,7 @@ export const VIDEO_MODELS = [
   {
     id: 'pixverse-v6/image-to-video',
     label: 'PixVerse v6',
+    maxPromptChars: 5000,
     // Audio is a switch here, not a `sound` boolean like Kling.
     note: 'Stylised output. Can generate audio. One image, 1–15s.',
     supportsSound: true,
@@ -212,6 +223,7 @@ export const VIDEO_MODELS = [
     // product and the product appearing as the final frame.
     id: 'bytedance/seedance-2-5',
     label: 'Seedance 2.5',
+    maxPromptChars: 20480,
     note: 'Up to 9 true reference images, audio, 1080p. 4–30s.',
     supportsSound: true,
     // The model accepts 30; nine covers everything this app can offer (a main
@@ -230,6 +242,7 @@ export const VIDEO_MODELS = [
   {
     id: 'bytedance/seedance-2-mini',
     label: 'Seedance 2.0 Mini',
+    maxPromptChars: 20000,
     note: 'Cheaper Seedance. True references, audio, 720p. 4–15s.',
     supportsSound: true,
     maxImages: 9,
@@ -247,6 +260,7 @@ export const VIDEO_MODELS = [
   {
     id: 'bytedance/seedance-2-fast',
     label: 'Seedance 2.0 Fast',
+    maxPromptChars: 20000,
     note: 'Fastest Seedance. True references, audio, 720p. 4–15s.',
     supportsSound: true,
     maxImages: 9,
@@ -312,6 +326,7 @@ export const VIDEO_MODELS = [
     // plainly before anyone spends credits on it.
     id: 'minimax-h3/text-to-video',
     label: 'MiniMax H3 (text only)',
+    maxPromptChars: 7000,
     // Kept short: the picker truncates a note to one line, and the part that
     // matters is that this model cannot see the influencer.
     note: 'Text only — does NOT use the influencer\'s face. 4–15s.',
@@ -329,6 +344,7 @@ export const VIDEO_MODELS = [
   {
     id: 'grok-imagine/image-to-video',
     label: 'Grok Imagine',
+    maxPromptChars: 5000,
     // Minimum is 6s — a 5s request would be rejected, so it snaps up.
     // Only one image is allowed at 1080p.
     note: 'xAI Grok. Single image at 1080p. 6s minimum.',
@@ -360,6 +376,7 @@ export const MOTION_MODELS = [
   {
     id: 'kling-3.0/motion-control',
     label: 'Kling 3.0 Motion Control',
+    maxPromptChars: 2500,
     note: 'Default. Best identity retention.',
     // Modes are named by resolution here, NOT std/pro — despite what the docs
     // page says. Confirmed against the live API: both 'std' and 'pro' come
@@ -377,6 +394,7 @@ export const MOTION_MODELS = [
   {
     id: 'kling-2.6/motion-control',
     label: 'Kling 2.6 Motion Control',
+    maxPromptChars: 2500,
     note: 'Previous generation.',
     // This generation names its modes by resolution, not std/pro. Confirmed
     // against the live API: mode:'std' is rejected outright with "mode is not

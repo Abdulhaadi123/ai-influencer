@@ -26,6 +26,7 @@ import ImageViewer from '../components/ImageViewer'
 
 import { useInfluencers } from '@core/store'
 import { getNiches } from '@core/niches'
+import { INPUT_LIMITS, cleanAge } from '@core/config/inputLimits'
 import { regenerateMainImage, NO_CREATION_PARAMS } from '@core/regenerate'
 import { STILL_RUNNING } from '@core/services/generation'
 import { uploadLocal, remove as removeAsset } from '@core/data/assets'
@@ -184,6 +185,12 @@ export default function ProfileTab({ influencer, navigation }) {
 
   const commitName = useCallback(() => {
     const trimmed = name.trim()
+    // A name cannot be emptied: the create wizard will not go on without one, and a nameless influencer
+    // is "Unnamed" in the list and a gap in every sentence the app writes about them. Put the old name back.
+    if (!trimmed) {
+      setName(influencer.name || '')
+      return
+    }
     if (trimmed === (influencer.name || '')) return
     update({ name: trimmed })
   }, [name, influencer.name, update])
@@ -287,6 +294,10 @@ export default function ProfileTab({ influencer, navigation }) {
               placeholder="Unnamed"
               placeholderTextColor={colors.textTertiary}
               returnKeyType="done"
+              maxLength={INPUT_LIMITS.name}
+              autoCapitalize="words"
+              autoCorrect={false}
+              autoComplete="off"
               style={[styles.inlineInput, styles.nameInput, font('regular'), { color: colors.textSecondary }]}
             />
           }
@@ -307,10 +318,13 @@ export default function ProfileTab({ influencer, navigation }) {
             <DraftInput
               value={String(influencer.age ?? '')}
               onCommit={v => update({ age: v })}
-              transform={v => v.replace(/[^0-9]/g, '')}
+              transform={cleanAge}
               placeholder="—"
               placeholderTextColor={colors.textTertiary}
               keyboardType="number-pad"
+              maxLength={INPUT_LIMITS.age}
+              autoComplete="off"
+              returnKeyType="done"
               style={[styles.inlineInput, font('regular'), { color: colors.textSecondary }]}
             />
           }
@@ -347,6 +361,7 @@ export default function ProfileTab({ influencer, navigation }) {
             onCommit={v => update({ physicalDesc: v })}
             placeholder="e.g. Mid-20s, long dark curly hair, warm smile"
             multiline
+            maxLength={INPUT_LIMITS.appearance}
           />
         </Field>
 
@@ -357,6 +372,7 @@ export default function ProfileTab({ influencer, navigation }) {
             onCommit={v => update({ backstory: v })}
             placeholder="Background, interests and values"
             multiline
+            maxLength={INPUT_LIMITS.backstory}
           />
         </Field>
 
@@ -367,6 +383,7 @@ export default function ProfileTab({ influencer, navigation }) {
             onCommit={v => update({ prompt: v })}
             placeholder="Enter a prompt"
             multiline
+            maxLength={INPUT_LIMITS.prompt}
           />
         </Field>
       </Collapsible>

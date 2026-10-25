@@ -28,6 +28,7 @@ import { userMessage } from '@core/errors'
 import { isOutOfCredits } from '@core/billing/outOfCredits'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { useInfluencers } from '@core/store'
+import { INPUT_LIMITS } from '@core/config/inputLimits'
 
 import { useTheme, space, radius, font, layout } from '../theme'
 import CostNote from '../components/CostNote'
@@ -275,6 +276,7 @@ export default function MotionCopyScreen({ influencer }) {
             value={prompt}
             onChangeText={setPrompt}
             placeholder="e.g. Bright studio background, soft lighting"
+            maxLength={INPUT_LIMITS.sceneDirection}
           />
         </Field>
 

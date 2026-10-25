@@ -23,6 +23,7 @@ import { IMAGE_MODEL_ID } from '@core/config/generation'
 import { uploadLocal, resolveUrl, remove as removeAsset } from '@core/data/assets'
 import { COPY_ATTRIBUTES, buildImagePrompts } from '@core/prompts/influencerPrompts'
 import { buildNewInfluencer, buildCreationParams } from '@core/newInfluencer'
+import { INPUT_LIMITS, MAX_INFLUENCERS, cleanAge } from '@core/config/inputLimits'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { userMessage } from '@core/errors'
 import { isOutOfCredits } from '@core/billing/outOfCredits'
@@ -68,7 +69,11 @@ function discardAsset(assetId) {
 
 export default function CreateScreen({ navigation }) {
   const bottomInset = useBottomInset()
-  const { addInfluencer } = useInfluencers()
+  const roster = useInfluencers()
+  const { addInfluencer } = roster
+  // At the limit the server refuses the save — after the image had been generated and paid for. Say so
+  // before anything is spent, and do not let the wizard go on.
+  const atLimit = (roster[0]?.length ?? 0) >= MAX_INFLUENCERS
 
   const [step, setStep] = useState(0)
   const [data, setData] = useState(initialData)
@@ -97,6 +102,7 @@ export default function CreateScreen({ navigation }) {
   const set = useCallback((key, value) => setData(d => ({ ...d, [key]: value })), [])
 
   const canContinue = useMemo(() => {
+    if (atLimit) return false
     if (step === 0) return data.name.trim().length > 0
     // Step 2 needs SOMETHING to generate from — a description or a reference.
     if (step === 1) {
@@ -104,7 +110,7 @@ export default function CreateScreen({ navigation }) {
       return !!data.referenceAssetId || data.description.trim().length > 0
     }
     return true
-  }, [step, data, uploadingRef])
+  }, [step, data, uploadingRef, atLimit])
 
   /**
    * Put `next` on screen as the image. The wizard shows a single variation, so
@@ -325,6 +331,12 @@ export default function CreateScreen({ navigation }) {
           <View style={styles.body}>
             <StepBar step={step} />
 
+            {atLimit ? (
+              <Notice tone="error">
+                {`You have ${MAX_INFLUENCERS} influencers, the most one account can hold. Delete one to create another.`}
+              </Notice>
+            ) : null}
+
             {step === 0 && <BasicsStep data={data} set={set} />}
             {step === 1 && (
               <ReferenceStep
@@ -390,6 +402,11 @@ function BasicsStep({ data, set }) {
           onChangeText={v => set('name', v)}
           placeholder="Enter name"
           autoFocus
+          maxLength={INPUT_LIMITS.name}
+          autoCapitalize="words"
+          autoCorrect={false}
+          autoComplete="off"
+          returnKeyType="done"
         />
       </Block>
 
@@ -404,9 +421,12 @@ function BasicsStep({ data, set }) {
       <Block title="Age" footer="Optional">
         <PillInput
           value={data.age}
-          onChangeText={v => set('age', v.replace(/[^0-9]/g, ''))}
+          onChangeText={v => set('age', cleanAge(v))}
           placeholder="Enter age"
           keyboardType="number-pad"
+          maxLength={INPUT_LIMITS.age}
+          autoComplete="off"
+          returnKeyType="done"
         />
       </Block>
     </>
@@ -429,6 +449,7 @@ function ReferenceStep({ data, set, onAddReference, onRemoveReference, onToggleA
           onChangeText={v => set('description', v)}
           placeholder="e.g. Mid-20s, long dark curly hair, warm smile"
           multiline
+          maxLength={INPUT_LIMITS.appearance}
         />
         <PromptSuggestion
           suggestion={assist.suggestion}
