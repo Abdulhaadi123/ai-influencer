@@ -19,14 +19,19 @@ import { useState } from 'react'
 import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import { Image } from 'expo-image'
 
-import { assetIdForUrl } from '@core/data/assets'
+import { assetIdForUrl, isThumbUrl } from '@core/data/assets'
 import { isServable } from '../lib/seedMedia'
 
-/** expo-image's source for a media URL, or null when it cannot be shown. */
+/**
+ * expo-image's source for a media URL, or null when it cannot be shown. A file's small preview has a
+ * key of its own (`asset:<id>:thumb`), so a grid's preview and the full picture opened from it are
+ * never mistaken for each other in the cache.
+ */
 export function mediaImageSource(uri) {
   if (!isServable(uri)) return null
   const assetId = assetIdForUrl(uri)
-  return assetId ? { uri, cacheKey: `asset:${assetId}` } : { uri }
+  if (!assetId) return { uri }
+  return { uri, cacheKey: isThumbUrl(uri) ? `asset:${assetId}:thumb` : `asset:${assetId}` }
 }
 
 /**

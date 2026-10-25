@@ -95,7 +95,8 @@ export default function InfluencersScreen({ navigation }) {
 function InfluencerCard({ influencer, onPress }) {
   // Resolve rather than trust the string: seed avatars are web-origin paths
   // that render blank, and must fall through to the letter placeholder.
-  const image = influencer.mainImage || influencer.image
+  // The main image's small preview when the server has one: a 58-point square needs no 2K picture.
+  const image = influencer.mainThumb || influencer.mainImage || influencer.image
   const showImage = isServable(image)
   const subtitle = influencer.niche || influencer.gender || '—'
 

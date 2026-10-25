@@ -19,7 +19,7 @@
  */
 
 import { apiFetch } from '../api/client'
-import { resolveUrls } from './assets'
+import { resolveUrls, thumbUrlFor } from './assets'
 
 /**
  * API row → the object screens consume.
@@ -49,6 +49,8 @@ function toApp(row, urls, history = [], counts = null) {
 
     // Displayable URLs…
     mainImage: url(row.main_asset_id),
+    // …the main image's small preview, for lists and avatars (null until the server has one)…
+    mainThumb: row.main_asset_id ? thumbUrlFor(row.main_asset_id) : null,
     referenceImage: url(row.reference_asset_id),
     characterSheetImage: url(row.character_sheet_asset_id),
     closeUpImage1: url(row.closeup1_asset_id),
@@ -94,13 +96,17 @@ function toApp(row, urls, history = [], counts = null) {
   }
 }
 
-/** A gallery row → the entry shape the gallery renders. */
-export function toGalleryEntry(row, url) {
+/**
+ * A gallery row → the entry shape the gallery renders. `thumbUrl` is the file's small preview, what
+ * the grid draws (null until the server has made one: the grid then draws the file itself).
+ */
+export function toGalleryEntry(row, url, thumbUrl = thumbUrlFor(row.asset_id)) {
   return {
     id: row.id,
     type: row.kind === 'video' ? 'video' : 'image',
     label: row.label,
     url: url ?? null,
+    thumbUrl: thumbUrl ?? null,
     assetId: row.asset_id,
     date: new Date(row.created_at).getTime(),
     // The timestamp exactly as Postgres wrote it, for the paging cursor. `date`
@@ -190,6 +196,7 @@ export function withoutAsset(record, assetId) {
   }
   next.wardrobeSlots = (next.wardrobeSlots || []).map(s =>
     s?.asset_id && String(s.asset_id) === id ? { ...s, asset_id: null, image: null } : s)
+  if (!next.mainAssetId) next.mainThumb = null
   return next
 }
 
@@ -219,9 +226,16 @@ export function withUrls(record, urls) {
     if (next !== current) changed = true
     return next
   }
+  // A preview re-signed with its file, or one the server has made since the record was loaded.
+  const swapThumb = (id, current) => {
+    const next = (id && urls.has(String(id)) ? thumbUrlFor(id) : null) ?? current ?? null
+    if (next !== (current ?? null)) changed = true
+    return next
+  }
 
   const fields = {
     mainImage: swap(record.mainAssetId, record.mainImage),
+    mainThumb: swapThumb(record.mainAssetId, record.mainThumb),
     referenceImage: swap(record.referenceAssetId, record.referenceImage),
     characterSheetImage: swap(record.characterSheetAssetId, record.characterSheetImage),
     closeUpImage1: swap(record.closeUpImage1AssetId, record.closeUpImage1),
@@ -233,7 +247,8 @@ export function withUrls(record, urls) {
   })
   const generationHistory = (record.generationHistory || []).map(entry => {
     const url = swap(entry?.assetId, entry?.url)
-    return url === entry?.url ? entry : { ...entry, url }
+    const thumbUrl = swapThumb(entry?.assetId, entry?.thumbUrl)
+    return url === entry?.url && thumbUrl === (entry?.thumbUrl ?? null) ? entry : { ...entry, url, thumbUrl }
   })
 
   if (!changed) return record

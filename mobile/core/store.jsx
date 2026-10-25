@@ -156,8 +156,10 @@ export function StoreProvider({ children }) {
     // edit put back text the user had already changed, mid-typing.
     const isNewest = () => editSeq.current.get(id) === seq
 
-    // Optimistic: the UI moves now, the server catches up.
-    setInfluencersState(prev => prev.map(i => (i.id === id ? { ...i, ...patch } : i)))
+    // Optimistic: the UI moves now, the server catches up. A new main image has no preview yet: the
+    // old one must not stand in for it in the lists (they draw the full image until it exists).
+    const optimistic = Object.hasOwn(patch, 'mainAssetId') ? { ...patch, mainThumb: null } : patch
+    setInfluencersState(prev => prev.map(i => (i.id === id ? { ...i, ...optimistic } : i)))
 
     try {
       const saved = await influencerRepo.update(id, patch)

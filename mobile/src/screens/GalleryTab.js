@@ -280,13 +280,19 @@ const Tile = memo(function Tile({ entry, onPress }) {
       style={({ pressed }) => [styles.tile, { opacity: pressed ? 0.75 : 1 }]}
     >
       <View style={styles.thumbWrap}>
-        {isVideo
-          ? <TilePreview uri={entry.url} />
-          : <MediaImage uri={entry.url} style={styles.thumb} contentFit="cover" />}
+        {/* The server's small preview when there is one: tens of kilobytes, and for a video a still
+            picture instead of a player. A file without one yet is drawn from itself, as before. */}
+        {entry.thumbUrl
+          ? <MediaImage uri={entry.thumbUrl} style={styles.thumb} contentFit="cover" />
+          : isVideo
+            ? <TilePreview uri={entry.url} />
+            : <MediaImage uri={entry.url} style={styles.thumb} contentFit="cover" />}
 
+        {/* On a dark disc: a still preview looks like a photo, and a bare white mark vanished on a
+            light picture, so a video could not be told from an image. */}
         {isVideo ? (
-          <View style={styles.playBadge}>
-            <Icon name="play" size={20} color="#FFFFFF" />
+          <View style={styles.playBadge} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <Icon name="play" size={18} color="#FFFFFF" />
           </View>
         ) : null}
       </View>
@@ -299,7 +305,7 @@ const Tile = memo(function Tile({ entry, onPress }) {
       </Text>
     </Pressable>
   )
-}, (a, b) => a.entry.id === b.entry.id && a.entry.url === b.entry.url)
+}, (a, b) => a.entry.id === b.entry.id && a.entry.url === b.entry.url && a.entry.thumbUrl === b.entry.thumbUrl)
 
 /**
  * Muted, paused, no controls — this is a poster frame, not a player. Playback
@@ -399,7 +405,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden', backgroundColor: 'rgba(8,3,83,0.25)',
   },
   thumb: { width: '100%', height: '100%' },
-  playBadge: { position: 'absolute', left: 12, top: 12, opacity: 0.9 },
+  playBadge: {
+    position: 'absolute', left: 10, top: 10, width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(8,3,40,0.55)',
+  },
   tileLabel: { fontSize: 16, marginTop: space.sm, marginLeft: space.xs + 2 },
   tileDate: { fontSize: 11, marginTop: 1, marginLeft: space.xs + 2 },
 

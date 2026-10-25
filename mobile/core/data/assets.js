@@ -41,9 +41,16 @@ const MAX_IDS_PER_REQUEST = 100
  * every render. The margin means a URL is never handed to an <Image> with two
  * seconds of life left, which would show a broken tile for no good reason.
  *
- * @type {Map<string, {url: string, expiresAt: number}>}
+ * `thumbUrl` is the file's small preview (backend api/_lib/thumbnails.js), signed in the same answer
+ * when the server has one: what grids and lists draw, so a square a few hundred pixels wide does not
+ * cost a multi-megabyte download — or, for a video, a player.
+ *
+ * @type {Map<string, {url: string, thumbUrl: string|null, expiresAt: number}>}
  */
 const urlCache = new Map()
+
+/** Every preview URL this session was handed — so the image cache keeps a preview apart from its file. */
+const thumbUrls = new Set()
 
 /** Refresh this far before actual expiry. */
 const EXPIRY_MARGIN_MS = 60_000
@@ -116,8 +123,13 @@ export async function resolveUrls(assetIds, { minRemainingMs = EXPIRY_MARGIN_MS 
       for (const [id, entry] of Object.entries(json?.urls || {})) {
         if (!entry?.url) continue
         const expiresAt = now + (entry.expiresIn ?? 600) * 1000
-        urlCache.set(id, { url: entry.url, expiresAt })
+        const thumbUrl = typeof entry.thumbUrl === 'string' && entry.thumbUrl ? entry.thumbUrl : null
+        urlCache.set(id, { url: entry.url, thumbUrl, expiresAt })
         assetIdByUrl.set(entry.url, id)
+        if (thumbUrl) {
+          assetIdByUrl.set(thumbUrl, id)
+          thumbUrls.add(thumbUrl)
+        }
         out.set(id, entry.url)
       }
     } catch (e) {
@@ -175,6 +187,24 @@ export async function urlForGeneration(source) {
  */
 export function assetIdForUrl(url) {
   return typeof url === 'string' ? assetIdByUrl.get(url) ?? null : null
+}
+
+/**
+ * The small preview of a file, signed with it by the last resolveUrls that fetched it — or null when
+ * the server has none for it (yet) or the link has run out. Callers fall back to the full file.
+ *
+ * @param {string} assetId
+ * @returns {string|null}
+ */
+export function thumbUrlFor(assetId) {
+  if (!assetId) return null
+  const hit = urlCache.get(String(assetId))
+  return hit && hit.expiresAt - EXPIRY_MARGIN_MS > Date.now() ? hit.thumbUrl ?? null : null
+}
+
+/** Whether a URL this session was handed is a preview rather than the file itself. */
+export function isThumbUrl(url) {
+  return typeof url === 'string' && thumbUrls.has(url)
 }
 
 /** Convenience for a single asset. */
@@ -261,4 +291,5 @@ export async function remove(assetId) {
 export function clearUrlCache() {
   urlCache.clear()
   assetIdByUrl.clear()
+  thumbUrls.clear()
 }

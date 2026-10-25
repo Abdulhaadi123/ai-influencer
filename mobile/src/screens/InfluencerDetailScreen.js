@@ -55,7 +55,8 @@ export default function InfluencerDetailScreen({ route, navigation }) {
     )
   }
 
-  const avatar = isServable(influencer.mainImage) ? influencer.mainImage : null
+  // A small header avatar: the main image's preview when the server has one.
+  const avatar = [influencer.mainThumb, influencer.mainImage].find(isServable) ?? null
 
   return (
     <Screen>
