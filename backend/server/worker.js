@@ -46,6 +46,7 @@ import { fetchKieTaskStatus, applyKieStatus, ACTIVE_STATES } from '../api/_lib/k
 import { refundTask, sweepUnsettledSpends } from '../api/_lib/billing.js'
 import { moderationConfig } from '../api/_lib/moderation/config.js'
 import { listUncheckedResults, moderateGeneratedResult } from '../api/_lib/moderation/service.js'
+import { listWithoutThumbnail, makeThumbnail } from '../api/_lib/thumbnails.js'
 
 /** How often to sweep for work. */
 const CYCLE_MS = Number(process.env.WORKER_CYCLE_MS || 15_000)
@@ -221,6 +222,44 @@ export async function sweepUnchecked(now = Date.now()) {
   }
 }
 
+/**
+ * Files without a gallery preview yet (api/_lib/thumbnails.js): everything stored before previews
+ * existed, and any file whose preview could not be made when it was stored. Newest first, so the
+ * galleries people are looking at now are done first; a few per cycle, because each one reads the
+ * whole file from storage.
+ *
+ * A failure that may pass (storage down, no ffmpeg on this machine) waits longer each time, like the
+ * checks above; a file that cannot have a preview is recorded as such and never asked about again.
+ */
+const thumbFailures = new Map()
+const THUMB_POOL = 50
+const THUMBS_PER_CYCLE = 10
+
+export async function sweepThumbnails(now = Date.now()) {
+  let assets
+  try {
+    assets = await listWithoutThumbnail({ limit: THUMB_POOL })
+  } catch (e) {
+    console.error('[worker] could not read files waiting for a preview:', e.message)
+    return
+  }
+
+  const waiting = new Set(assets.map(a => a.id))
+  for (const id of thumbFailures.keys()) if (!waiting.has(id)) thumbFailures.delete(id)
+
+  const due = assets.filter(a => !(thumbFailures.get(a.id)?.retryAt > now)).slice(0, THUMBS_PER_CYCLE)
+  for (const asset of due) {
+    try {
+      await makeThumbnail(asset)
+      thumbFailures.delete(asset.id)
+    } catch (e) {
+      const attempts = (thumbFailures.get(asset.id)?.attempts ?? 0) + 1
+      thumbFailures.set(asset.id, { attempts, retryAt: now + collectRetryDelay(attempts) })
+      console.warn(`[worker] no preview for ${asset.id} yet (attempt ${attempts}):`, e?.message ?? e)
+    }
+  }
+}
+
 /** Credits taken for a request that never got an answer from KIE are given back (_lib/billing.js). */
 export async function sweepSpends() {
   try {
@@ -235,6 +274,7 @@ export async function cycle() {
   await sweepUncollected()
   await sweepUnchecked()
   await sweepSpends()
+  await sweepThumbnails()
 
   const jobs = await many(
     `select id, user_id, influencer_id, kie_task_id, kind, label, state, result_url, created_at

@@ -27,6 +27,7 @@
  */
 
 import { newKey, putObject, deleteObject, kindFor, ALLOWED_CONTENT_TYPES, MAX_UPLOAD_BYTES } from './s3.js'
+import { thumbnailInBackground } from './thumbnails.js'
 import { wouldExceedQuota, QUOTA_EXCEEDED_RESPONSE } from './quota.js'
 import { one, query } from './db.js'
 
@@ -230,5 +231,7 @@ export async function storeGeneratedResult({ userId, influencerId = null, source
   }
 
   await markJobsCollected(userId, sourceUrl, assetId)
+  // The gallery's preview, from the bytes already in memory — after the answer, so nobody waits for it.
+  thumbnailInBackground({ id: assetId, s3_key: key, kind: kindFor(contentType), content_type: contentType }, { bytes: buffer })
   return { assetId, kind: kindFor(contentType), reused: false }
 }

@@ -13,6 +13,7 @@ import { one, many, query } from '../_lib/db.js'
 import { userRoute, badRequest, notFound } from '../_lib/http.js'
 import { deleteObjects } from '../_lib/s3.js'
 import { isUuid } from '../_lib/validate.js'
+import { objectKeysOf } from '../_lib/thumbnails.js'
 
 export default userRoute(async (req, res, user) => {
   const { influencerId } = req.body || {}
@@ -22,8 +23,9 @@ export default userRoute(async (req, res, user) => {
   if (!owned) throw notFound('This influencer could not be found.')
 
   // Both filters: influencer_id finds the files, user_id keeps the sweep to this caller.
-  const assets = await many('select s3_key from assets where influencer_id = $1 and user_id = $2', [influencerId, user.id])
-  const keys = assets.map(a => a.s3_key)
+  const assets = await many('select s3_key, thumb_key from assets where influencer_id = $1 and user_id = $2', [influencerId, user.id])
+  // Each file and its preview (api/_lib/thumbnails.js).
+  const keys = assets.flatMap(objectKeysOf)
   if (keys.length) await deleteObjects(keys)
 
   // Rows go last. If the sweep above threw, nothing is deleted and the user can

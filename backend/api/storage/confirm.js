@@ -29,13 +29,14 @@ import { s3, BUCKET, MAX_UPLOAD_BYTES, deleteObject } from '../_lib/s3.js'
 import { isUuid } from '../_lib/validate.js'
 import { checkUploadInBackground } from '../_lib/moderation/service.js'
 import { sealAsset } from '../_lib/moderation/seal.js'
+import { thumbnailInBackground } from '../_lib/thumbnails.js'
 
 export default userRoute(async (req, res, user) => {
   const { assetId } = req.body || {}
   if (!isUuid(assetId)) throw badRequest('assetId is required.')
 
   const asset = await one(
-    'select id, s3_key, origin, sealed_at, created_at from assets where id = $1 and user_id = $2',
+    'select id, s3_key, origin, sealed_at, created_at, kind, content_type, thumb_key from assets where id = $1 and user_id = $2',
     [assetId, user.id],
   )
   if (!asset) throw notFound('This file could not be found.')
@@ -59,7 +60,7 @@ export default userRoute(async (req, res, user) => {
   }
 
   // Before the size is recorded and before the answer: see the header.
-  await sealAsset(asset)
+  const sealed = await sealAsset(asset)
 
   await query('update assets set byte_size = $2 where id = $1', [asset.id, byteSize])
   res.json({ assetId: asset.id, byteSize })
@@ -67,4 +68,7 @@ export default userRoute(async (req, res, user) => {
   // Checked now, after the answer has gone, so the verdict is waiting when the
   // file is first used and the app is never made to wait for it.
   void checkUploadInBackground(asset.id, user.id)
+  // Its preview too, from the sealed copy: the bytes can no longer change under it (api/_lib/thumbnails.js).
+  // Confirming twice makes it once.
+  if (!asset.thumb_key) void thumbnailInBackground({ ...asset, s3_key: sealed.s3_key })
 }, { tag: '[storage/confirm]', message: 'Unable to confirm the upload. Please try again.' })

@@ -23,6 +23,7 @@ import { adminRoute, audit, pageOf, optionalText } from '../_lib/admin.js'
 import { badRequest, notFound, noStore, HttpError } from '../_lib/http.js'
 import { isUuid } from '../_lib/validate.js'
 import { presignGet, deleteObject } from '../_lib/s3.js'
+import { objectKeysOf } from '../_lib/thumbnails.js'
 import { forgetSource } from '../_lib/results.js'
 import { suspendUser } from '../_lib/suspension.js'
 import { releaseAsset, quarantineAsset } from '../_lib/moderation/service.js'
@@ -142,9 +143,10 @@ export const media = adminRoute(async (req, res, admin) => {
 
 /** Delete a file for good: the object first, so a failure leaves a row that can be retried. */
 async function destroyAsset(assetId) {
-  const asset = await one('select id, user_id, s3_key from assets where id = $1', [assetId])
+  const asset = await one('select id, user_id, s3_key, thumb_key from assets where id = $1', [assetId])
   if (!asset) return false
-  await deleteObject(asset.s3_key)
+  // The file and its preview (api/_lib/thumbnails.js).
+  for (const key of objectKeysOf(asset)) await deleteObject(key)
   await transaction(async client => {
     await forgetSource(asset.user_id, asset.id, client)
     await client.query('delete from assets where id = $1', [asset.id])

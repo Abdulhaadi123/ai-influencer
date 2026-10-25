@@ -1,6 +1,8 @@
 /**
  * POST /api/storage/download-url  { assetIds: string[], downloadName?, purpose?: 'display' | 'generation' }
- * → { urls: { [assetId]: { url, expiresIn } } }
+ * → { urls: { [assetId]: { url, expiresIn, thumbUrl? } } }
+ *
+ * `thumbUrl` is the small preview (api/_lib/thumbnails.js), when the file has one and the purpose is display.
  *
  * Mint short-lived presigned GET URLs for files the caller owns. This is the
  * authorisation gate for every image and video in the app: the query below only
@@ -35,15 +37,22 @@ export default userRoute(async (req, res, user) => {
   const ids = [...new Set(assetIds.filter(isUuid))]
   const rows = ids.length
     ? await many(
-      `select id, s3_key from assets
+      `select id, s3_key, thumb_key from assets
         where user_id = $1 and id = any($2::uuid[]) and moderation_status <> 'blocked'`,
       [user.id, ids],
     )
     : []
 
+  // A file with a preview (api/_lib/thumbnails.js) gets a link to that too, for the app's grids and
+  // lists — the same check, the same lifetime. Not for the generator, which needs the file itself.
+  const withThumb = purpose !== 'generation'
   const urls = {}
   await Promise.all(rows.map(async row => {
-    urls[row.id] = { url: await presignGet({ key: row.s3_key, downloadName, expiresIn: ttl }), expiresIn: ttl }
+    urls[row.id] = {
+      url: await presignGet({ key: row.s3_key, downloadName, expiresIn: ttl }),
+      expiresIn: ttl,
+      ...(withThumb && row.thumb_key ? { thumbUrl: await presignGet({ key: row.thumb_key, expiresIn: ttl }) } : {}),
+    }
   }))
 
   // A shared cache holding these would hand one user's signed URLs to the next.

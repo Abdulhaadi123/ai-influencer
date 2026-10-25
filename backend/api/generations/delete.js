@@ -13,6 +13,7 @@ import { one, transaction } from '../_lib/db.js'
 import { userRoute, badRequest } from '../_lib/http.js'
 import { deleteObject } from '../_lib/s3.js'
 import { forgetSource } from '../_lib/results.js'
+import { objectKeysOf } from '../_lib/thumbnails.js'
 import { isUuid } from '../_lib/validate.js'
 
 export default userRoute(async (req, res, user) => {
@@ -21,7 +22,7 @@ export default userRoute(async (req, res, user) => {
 
   // The join repeats the owner, so the file deleted is certainly this caller's.
   const row = await one(
-    `select g.id, g.asset_id, a.s3_key
+    `select g.id, g.asset_id, a.s3_key, a.thumb_key
        from generations g
        join assets a on a.id = g.asset_id and a.user_id = g.user_id
       where g.id = $1 and g.user_id = $2`,
@@ -29,7 +30,8 @@ export default userRoute(async (req, res, user) => {
   )
   if (!row) return res.status(204).end()   // already gone
 
-  await deleteObject(row.s3_key)
+  // The file and its preview (api/_lib/thumbnails.js).
+  for (const key of objectKeysOf(row)) await deleteObject(key)
 
   await transaction(async client => {
     // Otherwise the job that produced it could be collected again by the worker.

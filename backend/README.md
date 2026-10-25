@@ -58,6 +58,25 @@ them in the gallery, so the user opens the app and the video is simply there.
 a restart, a dropped connection — and nothing else would ever notice. The
 worker is the safety net; keep it running.
 
+### Gallery previews
+
+Every image and video also gets a small JPEG preview (`api/_lib/thumbnails.js`): the
+picture scaled to 512 pixels wide, or a frame from the start of a clip — tens of
+kilobytes instead of megabytes. The app draws its gallery squares, list rows and
+avatars from it, and fetches the full file only when one is opened. Measured on the
+emulator with real KIE files: the influencer list went from 3.4 MB to 0.14 MB, and
+opening a gallery from 9.1 MB of images plus three video players to 0.46 MB.
+
+A preview is made when a result is stored and when an upload is confirmed, after the
+answer has gone; the worker makes the ones still missing — everything stored before
+previews existed, newest first, ten per cycle. It needs ffmpeg, which the image
+installs (it is also what moderation uses); without it files are stored as before and
+the app draws them from the full file. A preview sits beside its file under the
+user's prefix (`<asset>.thumb.jpg`, recorded in `assets.thumb_key`), is handed out by
+`download-url` (`thumbUrl`) with the same ownership and moderation checks, and is
+deleted with its file. Previews are not counted against the storage quota (about 1%
+of the files).
+
 ---
 
 ## Generation callbacks (webhook)
