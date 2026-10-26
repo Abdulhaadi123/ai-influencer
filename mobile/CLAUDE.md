@@ -276,6 +276,27 @@ Every failure a person sees is a sentence from `core/errors.js`, never a raw
 - **"Save or share" goes through `shareMedia`** (`src/lib/share.js`).
 - `src/components/ErrorBoundary.js` wraps the app.
 
+## Message boxes, the cost note and "Saved to Gallery"
+
+- **Never use React Native's own `Alert`.** `import { Alert } from '../lib/dialog'` — the same
+  `Alert.alert(title, message, buttons, options)` call, drawn by `DialogHost` as the app's own
+  card (icon by tone, stacked buttons, Light and Dark). `showDialog({...})` is for one that wants
+  more (an icon of its own, a table of `facts`). One at a time, the same words twice shown once;
+  the system alert is only the fallback when no host is mounted. The pure rules are
+  `core/ui/dialogModel.js`.
+- **"Not enough credits"** is `showDialog` with `outOfCreditsDialog` (`core/billing/shortfall.js`):
+  what it needs, what you have, how short. `CostNote` uses the same `creditShortfall`, so the card
+  above Generate and the dialog never disagree.
+- **A result filed in a gallery announces itself.** The store emits `emitGalleryAdded` for every
+  entry newly added (`core/store.jsx` `showInGallery`: a screen's own result, one collected from
+  the Queue, one the worker saved); `GalleryToastHost` shows "Video saved to Gallery" with the
+  picture and a View button, and the influencer's Gallery tab carries a pulsing count until opened
+  (`PulseBadge`). Nothing is announced about the gallery the person is looking at. Rules and tests:
+  `core/notices/galleryNotice.js`. A screen that files results must go through `addGeneration`
+  (never write `generationHistory`) or none of this happens.
+- **Test tooling:** `uiautomator dump` returns nothing while anything animates forever (the badge's
+  pulse), so a script driving the emulator taps by position while a badge is showing.
+
 ## Running it
 
 ```bash

@@ -33,13 +33,14 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, FlatList, Pressable, StyleSheet, Alert, Modal,
+  View, Text, FlatList, Pressable, StyleSheet, Modal,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useVideoPlayer, VideoView } from 'expo-video'
 
 import { shareMedia } from '../lib/share'
 import { showError } from '../lib/alerts'
+import { Alert } from '../lib/dialog'
 import { useInfluencers } from '@core/store'
 import { assetUses } from '@core/data/influencers'
 import { galleryEntries, galleryTotal, galleryHasMore, findGalleryEntry } from '@core/data/paging'

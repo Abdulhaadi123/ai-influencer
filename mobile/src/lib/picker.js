@@ -12,7 +12,7 @@
 
 import * as ImagePicker from 'expo-image-picker'
 import { File } from 'expo-file-system'
-import { Alert } from 'react-native'
+import { Alert } from './dialog'
 import { compressImage } from '@core/platform/media'
 
 import { showError } from './alerts'

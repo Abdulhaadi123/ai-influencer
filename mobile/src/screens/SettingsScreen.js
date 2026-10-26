@@ -18,7 +18,7 @@
 
 import { useCallback, useState } from 'react'
 import {
-  View, Text, ScrollView, ActivityIndicator, StyleSheet, Alert,
+  View, Text, ScrollView, ActivityIndicator, StyleSheet,
   Modal, KeyboardAvoidingView, Platform,
 } from 'react-native'
 
@@ -28,6 +28,7 @@ import { userMessage } from '@core/errors'
 
 import { useBottomInset } from '../hooks/useBottomInset'
 import { useCredits } from '../hooks/useCredits'
+import { Alert } from '../lib/dialog'
 import { formatCredits } from '@core/billing/packs'
 import { useTheme, space, radius, font, layout } from '../theme'
 import Screen, { ScreenHeader } from '../components/Screen'

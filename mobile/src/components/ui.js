@@ -24,6 +24,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 
 import { useTheme, space, radius, layout, font } from '../theme'
 import Icon from './icons'
+import PulseBadge from './PulseBadge'
 
 // LayoutAnimation needs opting in on Android for the collapse to animate.
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -142,6 +143,8 @@ export function Segmented({ options, value, onChange }) {
             >
               {opt.label}
             </Text>
+            {/* A count of what is new in this tab since it was last opened (the Gallery's results). */}
+            {opt.badge > 0 ? <PulseBadge count={opt.badge} style={styles.segmentBadge} /> : null}
           </Pressable>
         )
       })}
@@ -439,6 +442,7 @@ const styles = StyleSheet.create({
   segment: { flexDirection: 'row', borderRadius: 22, padding: 10, gap: 10, borderWidth: 1 },
   segmentItem: { flex: 1, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', borderWidth: 1, paddingHorizontal: 4 },
   segmentLabel: { fontSize: 13 },
+  segmentBadge: { top: -9, right: -3 },
 
   chip: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: radius.pill, borderWidth: 1 },
   chipLabel: { fontSize: 12.5 },

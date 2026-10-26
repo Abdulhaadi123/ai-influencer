@@ -60,6 +60,8 @@ import FloatingTabBar from './FloatingTabBar'
 import Screen from '../components/Screen'
 import SplashOverlay from '../components/SplashOverlay'
 import PurchaseNoticeHost from '../components/PurchaseNotice'
+import GalleryToastHost from '../components/GalleryToastHost'
+import DialogHost from '../components/DialogHost'
 import { clearMediaImageCache } from '../components/MediaImage'
 import { navigationRef } from './ref'
 import { useTheme, space, font } from '../theme'
@@ -233,6 +235,9 @@ export default function RootNavigator() {
         </NavigationContainer>
       )}
       {isSignedIn ? <PurchaseNoticeHost /> : null}
+      {isSignedIn ? <GalleryToastHost /> : null}
+      {/* Every message box in the app, drawn by the app (lib/dialog.js). Mounted for signed-out screens too. */}
+      <DialogHost />
       {splashGone ? null : <SplashOverlay ready={!initialising} onGone={endSplash} />}
     </View>
   )

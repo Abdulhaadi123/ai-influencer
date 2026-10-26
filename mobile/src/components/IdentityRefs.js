@@ -13,7 +13,9 @@
  */
 
 import { useCallback, useState } from 'react'
-import { View, Text, Pressable, ActivityIndicator, StyleSheet, Alert } from 'react-native'
+import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
+
+import { Alert } from '../lib/dialog'
 
 import { IDENTITY_SLOTS, generateIdentityRef, NO_MAIN_IMAGE } from '@core/identityRefs'
 import { STILL_RUNNING } from '@core/services/generation'

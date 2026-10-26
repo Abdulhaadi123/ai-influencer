@@ -36,6 +36,7 @@ import { createContext, useContext, useCallback, useEffect, useMemo, useRef, use
 import * as influencerRepo from './data/influencers'
 import * as generationRepo from './data/generations'
 import { galleryRequest, applyGalleryPage, galleryHasMore, findGalleryEntry, withoutGalleryEntry } from './data/paging'
+import { emitGalleryAdded } from './notices/galleryEvents'
 import { clearUrlCache, resolveUrls, fetchPreview, URL_REFRESH_WINDOW_MS } from './data/assets'
 import { useAuth } from './auth/AuthContext'
 import { userMessage } from './errors'
@@ -264,9 +265,15 @@ export function StoreProvider({ children }) {
     }
   }, [influencers])
 
-  /** Put an entry at the front of an influencer's gallery, at most once. */
+  /**
+   * Put an entry at the front of an influencer's gallery, at most once — and say so (galleryEvents.js),
+   * so the interface can tell the person where their result went. Every route into a gallery passes
+   * here: a video or image a screen filed, one collected from the Queue, one the server's worker saved.
+   */
   const showInGallery = useCallback((influencerId, entry) => {
     if (entry?.assetId && removedAssets.current.has(String(entry.assetId))) return
+    const held = influencersRef.current.find(i => i.id === influencerId)
+    const isNew = !!held && !(held.generationHistory || []).some(g => g.id === entry?.id)
     // A result stored moments ago: its square switches to the preview as soon as the server has one.
     if (entry?.assetId && !entry.thumbUrl) {
       watchForPreview(entry.assetId, thumbUrl => setInfluencersState(prev => prev.map(i => (i.id !== influencerId ? i : {
@@ -292,6 +299,7 @@ export function StoreProvider({ children }) {
         },
       }
     }))
+    if (isNew) emitGalleryAdded({ influencerId, entry })
   }, [watchForPreview])
 
   /**

@@ -12,7 +12,7 @@
  *     sign-in screen explains; an alert on top would say it twice.
  */
 
-import { Alert } from 'react-native'
+import { Alert } from './dialog'
 
 import { userMessage, isSessionEnded } from '@core/errors'
 import { isOutOfCredits } from '@core/billing/outOfCredits'

@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   View, Text, TextInput, ScrollView, Pressable,
-  ActivityIndicator, StyleSheet, Alert,
+  ActivityIndicator, StyleSheet,
 } from 'react-native'
 
 import { useBottomInset } from '../hooks/useBottomInset'
@@ -35,6 +35,7 @@ import { hasActiveJobs } from '@core/data/jobs'
 import { isInGallery } from '@core/data/generations'
 import { shareMedia } from '../lib/share'
 import { showError } from '../lib/alerts'
+import { Alert } from '../lib/dialog'
 import { persistGenerated } from '@core/platform/persistMedia'
 
 import { useTheme, space, radius, font, layout } from '../theme'

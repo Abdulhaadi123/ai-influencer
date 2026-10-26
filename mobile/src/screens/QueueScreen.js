@@ -27,7 +27,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
   View, Text, FlatList, Pressable, RefreshControl,
-  ActivityIndicator, StyleSheet, Alert,
+  ActivityIndicator, StyleSheet,
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 
@@ -43,6 +43,7 @@ import { failureMessage } from '@core/services/generation/transient'
 import { syncActiveJobs } from '../lib/queueSync'
 import { shareMedia } from '../lib/share'
 import { showError } from '../lib/alerts'
+import { Alert } from '../lib/dialog'
 import { useBottomInset } from '../hooks/useBottomInset'
 import { useQueuePages } from '../hooks/useQueuePages'
 import LoadMoreFooter from '../components/LoadMoreFooter'
@@ -113,12 +114,9 @@ export default function QueueScreen() {
       }
 
       await refreshHead()
-      Alert.alert(
-        'Saved',
-        job.influencerId
-          ? 'Added to the gallery.'
-          : 'Saved to your library. Use Share to export it.',
-      )
+      // A result filed in a gallery is announced by the "Saved to Gallery" card (components/
+      // GalleryToastHost.js), with a button that opens it; only a result with no gallery needs a box.
+      if (!job.influencerId) Alert.alert('Saved', 'Saved to your library. Use Share to export it.')
     } catch (e) {
       showError('Unable to save', e, 'The result could not be saved. Please try again.')
     } finally {

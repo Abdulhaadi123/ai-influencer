@@ -14,3 +14,15 @@ export const navigationRef = createNavigationContainerRef()
 export function openCredits() {
   if (navigationRef.isReady()) navigationRef.navigate('Credits')
 }
+
+/**
+ * Open an influencer's Gallery from anywhere — the "Saved to Gallery" toast's button. `at` makes
+ * each request a new one, so asking twice for the same gallery still switches the tab back to it.
+ */
+export function openGallery(influencerId) {
+  if (!navigationRef.isReady() || !influencerId) return
+  navigationRef.navigate('Influencers', {
+    screen: 'InfluencerDetail',
+    params: { id: influencerId, tab: 'gallery', at: Date.now() },
+  })
+}

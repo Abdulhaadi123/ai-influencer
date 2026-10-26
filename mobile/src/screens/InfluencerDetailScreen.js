@@ -6,12 +6,14 @@
  * Videos and Motion Copy write, so results outlive the screen that made them.
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
+import { useFocusEffect } from '@react-navigation/native'
 
 import { useInfluencers } from '@core/store'
 
 import { isServable } from '../lib/seedMedia'
+import { galleryNotices, useUnseenInGallery } from '../lib/galleryNotice'
 import MediaImage from '../components/MediaImage'
 import { useTheme, space, layout } from '../theme'
 import Screen, { ScreenHeader } from '../components/Screen'
@@ -42,6 +44,27 @@ export default function InfluencerDetailScreen({ route, navigation }) {
   )
   const goBack = () => navigation.goBack()
 
+  // Asked to open a tab: the "Saved to Gallery" toast's View button opens the Gallery (navigation/ref.js).
+  const wantedTab = route?.params?.tab
+  const askedAt = route?.params?.at
+  useEffect(() => {
+    if (wantedTab && TABS.some(t => t.value === wantedTab)) setTab(wantedTab)
+  }, [wantedTab, askedAt])
+
+  // While this influencer's Gallery is on screen a new result simply appears there, so nothing is
+  // announced about it; and opening it counts everything in it as seen (lib/galleryNotice.js).
+  useFocusEffect(useCallback(() => {
+    galleryNotices.setViewing(id && tab === 'gallery' ? id : null)
+    return () => galleryNotices.setViewing(null)
+  }, [id, tab]))
+
+  // Results filed here since the Gallery was last open, as a pulsing count on its tab.
+  const unseen = useUnseenInGallery(id)
+  const tabs = useMemo(
+    () => TABS.map(t => (t.value === 'gallery' && tab !== 'gallery' ? { ...t, badge: unseen } : t)),
+    [unseen, tab],
+  )
+
   if (!influencer) {
     return (
       <Screen>
@@ -68,7 +91,7 @@ export default function InfluencerDetailScreen({ route, navigation }) {
       />
 
       <View style={styles.tabs}>
-        <Segmented options={TABS} value={tab} onChange={setTab} />
+        <Segmented options={tabs} value={tab} onChange={setTab} />
       </View>
 
       <View style={styles.flex}>
