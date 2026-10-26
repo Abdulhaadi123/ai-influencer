@@ -80,9 +80,10 @@ other session, which is the case it existed for.
 - Emails: SMTP from the backend (`SMTP_HOST` / `SMTP_USER` / `SMTP_PASS`). Links
   open small web pages on the backend (`backend/api/auth/pages.js`), not screens
   in the app — mail clients strip custom-scheme links.
-- Sign-in never says which half was wrong, and forgot-password / resend always answer "sent".
-  Sign-up does say when the address is taken (`409 EMAIL_TAKEN`, shown on the form) — it must not
-  go back to "check your email" and an email to the owner.
+- Sign-in never says which half was wrong, and resend always answers "sent". Sign-up says when the
+  address is taken (`409 EMAIL_TAKEN`) and forgot-password when no account has it (`404
+  ACCOUNT_NOT_FOUND`), both shown on the form — the owner's decision; neither must go back to
+  "check your email".
 
 ## Generation stack
 

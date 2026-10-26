@@ -405,7 +405,11 @@ working (reviewers, staff) credits from the panel.
   database on every call, and changing it ends the sessions of the place the
   account can no longer use.
 - **Sign-in never says which half was wrong.** Failures are identical and take
-  the same time either way; forgot-password and resend always answer "sent".
+  the same time either way; resend always answers "sent". **Forgot-password says
+  when no account has the address** (`404 ACCOUNT_NOT_FOUND`), so a mistyped
+  address is caught on the screen instead of waiting for a link that never comes;
+  its two limits (30 an hour per caller, one a minute per address) count before
+  the lookup.
   **Sign-up does say when the address is taken** (`409 EMAIL_TAKEN`, "An account
   with this email already exists. Please sign in instead.") and the app shows it
   on the form — answering "check your email" and mailing the owner instead left
@@ -697,12 +701,14 @@ edit shows on reload.
 | Influencers | `GET /api/influencers`; `POST /api/influencers/create` `update` `delete` |
 | Gallery | `GET /api/generations/by-asset` `by-influencer`; `POST /api/generations/add` `delete` |
 | Queue | `GET /api/jobs` `by-task` `active-count` `changes` `sync`; `POST /api/jobs/register` `remove` `clear-settled` |
-
-`GET /api/jobs?active=1` returns only the running jobs (the app's half-minute sync asks for exactly those). `GET /api/jobs/changes` is what every open app polls: quick (5 s) while a job is running or just changed, 30 s when idle, and not at all while the app is in the background — the pacing is the app's (`mobile/core/data/pollPacer.js`); the server's part is keeping each answer to two queries.
 | Settings | `GET/POST /api/studio-settings`; `GET /api/creation-params` |
 | Files | `POST /api/storage/upload-url` `confirm` `download-url` `ingest` `delete` |
 | Generation | `/api/kie/*` (proxy), `POST /api/prompt-assist` |
 | Reporting | `POST /api/reports` |
+
+`GET /api/jobs?active=1` returns only the running jobs (the app's half-minute sync asks for exactly those). `GET /api/jobs/changes` is what every open app polls: quick (5 s) while a job is running or just changed, 30 s when idle, and not at all while the app is in the background — the pacing is the app's (`mobile/core/data/pollPacer.js`); the server's part is keeping each answer to two queries.
+
+**The gallery and the queue come in pages** (`api/_lib/paging.js`), newest first, by keyset — never OFFSET, which skips or repeats a row whenever one is added mid-scroll. Every row carries a `cursor` (its `created_at` to the microsecond, `|`, its id) and every page says `hasMore` and `nextCursor`; pass a cursor back as `?cursor=` to continue after that row. The cursor is not the row's `created_at`: that leaves as a JavaScript Date, milliseconds only, and rows written by one statement (a job batch) share a moment to the microsecond — a cursor cut short skipped all but the first of them. `GET /api/generations/by-influencer?kind=image|video` pages one kind (the gallery's filters); `GET /api/jobs?summary=1` adds the account's totals (`active`, `ready`, `settled`), which a screen holding one page cannot count. `beforeAt` + `beforeId` on `by-influencer` is the older, millisecond form, still answered for app builds that send it. No new index: the existing `(…, created_at desc)` ones serve both lists, and the cursor condition is written so they bound the scan.
 | Admin | `/admin` (the page and its files); `GET /api/admin/stats` `usage?days=` `audit?action=&admin=` `config` `users?q=&status=&sort=&dir=` `users/detail?userId=` `jobs` `moderation?status=&source=&action=&userId=` `moderation/item?eventId=` `moderation/media?eventId=` `prices` `billing/summary?days=` `billing/activity?kind=&q=&userId=` `billing/store-events?outcome=&problems=` `billing/ledger?userId=`; `POST /api/admin/users/suspend` `unsuspend` `set-role` `delete`, `moderation/resolve`, `prices/upsert` `delete`, `billing/grant` |
 | Callbacks | `POST /webhooks/kie` (signed by KIE, no session), `POST /webhooks/revenuecat` (shared secret, no session) |
 

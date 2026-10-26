@@ -15,6 +15,7 @@
 import { one, many, query, transaction } from '../_lib/db.js'
 import { userRoute, badRequest, forbidden, notFound, noStore, HttpError } from '../_lib/http.js'
 import { isUuid, displayNameOf } from '../_lib/validate.js'
+import { cursorSql } from '../_lib/paging.js'
 
 export const INFLUENCER_COLUMNS = `
   id, name, gender, age, type,
@@ -163,12 +164,14 @@ export const list = userRoute(async (req, res, user) => {
   // client then asked storage to sign a URL for every one of them — an
   // account with a few hundred clips paid that cost on every launch, and again
   // every three minutes when the URLs were refreshed. The rest of a gallery is
-  // fetched by the Gallery tab as it is scrolled (generations/index.js).
+  // fetched by the Gallery tab as it is scrolled (generations/index.js), from
+  // the `cursor` of the oldest one here.
   const generations = ids.length
     ? await many(
-        `select id, influencer_id, asset_id, kind, label, created_at
+        `select id, influencer_id, asset_id, kind, label, created_at, cursor
            from (
              select g.id, g.influencer_id, g.asset_id, g.kind, g.label, g.created_at,
+                    ${cursorSql('g.')} as cursor,
                     row_number() over (
                       partition by g.influencer_id order by g.created_at desc, g.id desc
                     ) as rn
@@ -176,7 +179,7 @@ export const list = userRoute(async (req, res, user) => {
               where g.user_id = $1 and g.influencer_id = any($2::uuid[])
            ) t
           where t.rn <= $3
-          order by t.created_at desc`,
+          order by t.created_at desc, t.id desc`,
         [user.id, ids, GALLERY_PREVIEW],
       )
     : []

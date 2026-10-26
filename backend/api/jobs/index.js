@@ -18,6 +18,7 @@ import { userRoute, badRequest, forbidden, noStore, enforceLimit } from '../_lib
 import { isUuid, text, momentOf, wholeNumber, ASSET_KINDS } from '../_lib/validate.js'
 import { fetchKieTaskStatus, applyKieStatus, ACTIVE_STATES, JOB_COLUMNS } from '../_lib/kieStatus.js'
 import { assertTasksAreYours } from '../_lib/taskOwners.js'
+import { cursorSql, cursorOf, olderThan, pageFrom } from '../_lib/paging.js'
 import { rateLimit } from '../../lib/rateLimit.js'
 
 const RESULT_TTL_HOURS = 24
@@ -26,31 +27,67 @@ const MAX_TASK_ID = 200
 const taskIdFrom = value => (typeof value === 'string' && value && value.length <= MAX_TASK_ID ? value : null)
 
 /**
- * GET /api/jobs?limit=&active=1 → { jobs } newest first
+ * GET /api/jobs?limit=&active=1&cursor=&summary=1
+ * → { jobs, hasMore, nextCursor, summary? } newest first
+ *
+ * In pages: pass back a row's `cursor` (or the answer's `nextCursor`) to continue
+ * after it (_lib/paging.js).
  *
  * `active=1` returns only the jobs still running. The app's background sync asks for
  * exactly those every half minute, and used to download the newest sixty jobs
  * (~20 KB) to throw nearly all of them away.
+ *
+ * `summary=1` adds the account's totals — running, finished and waiting to be saved,
+ * and the rest — which a screen showing one page cannot count for itself.
  */
 export const list = userRoute(async (req, res, user) => {
   const limit = wholeNumber(req.query?.limit, { min: 1, max: 200, fallback: 60 })
   const activeOnly = req.query?.active === '1' || req.query?.active === 'true'
+  const cursor = req.query?.cursor == null ? null : cursorOf(req.query.cursor)
+  if (req.query?.cursor != null && !cursor) throw badRequest('cursor is not valid.')
+  const page = [cursor !== null, cursor?.at ?? null, cursor?.id ?? null]
+
   // Two plain queries rather than one with an "or": the running-jobs one can then
   // use jobs_active_idx and never walks an account's whole history to find three rows.
-  const jobs = activeOnly
+  const rows = activeOnly
     ? await many(
-      `select ${JOB_COLUMNS} from generation_jobs
+      `select ${JOB_COLUMNS}, ${cursorSql()} as cursor from generation_jobs
         where user_id = $1 and state = any($3::text[])
-        order by created_at desc limit $2`,
-      [user.id, limit, ACTIVE_STATES],
+          and ($4::boolean is false or ${olderThan('$5', '$6')})
+        order by created_at desc, id desc limit $2`,
+      [user.id, limit + 1, ACTIVE_STATES, ...page],
     )
     : await many(
-      `select ${JOB_COLUMNS} from generation_jobs where user_id = $1 order by created_at desc limit $2`,
-      [user.id, limit],
+      `select ${JOB_COLUMNS}, ${cursorSql()} as cursor from generation_jobs
+        where user_id = $1
+          and ($3::boolean is false or ${olderThan('$4', '$5')})
+        order by created_at desc, id desc limit $2`,
+      [user.id, limit + 1, ...page],
     )
+  const { items: jobs, hasMore, nextCursor } = pageFrom(rows, limit)
+
+  const wantsSummary = req.query?.summary === '1' || req.query?.summary === 'true'
   noStore(res)
-  res.json({ jobs })
+  res.json({ jobs, hasMore, nextCursor, ...(wantsSummary ? { summary: await summaryOf(user.id) } : {}) })
 }, { tag: '[jobs/list]', message: 'Unable to load the queue. Please try again.' })
+
+/**
+ * How the account's jobs stand, in the app's three groups: still running; finished,
+ * not saved and still collectable (KIE keeps a result for 24 hours); and the rest,
+ * which "Clear completed" removes. The same tests as the app's isActive and
+ * isCollectable (mobile/core/data/jobs.js), so the totals agree with the rows.
+ */
+async function summaryOf(userId) {
+  const row = await one(
+    `select count(*) filter (where state = any($2::text[]))::int as active,
+            count(*) filter (where state = 'success' and asset_id is null and result_url is not null
+                               and coalesce(completed_at, created_at) >= now() - $3::int * interval '1 hour')::int as ready,
+            count(*)::int as total
+       from generation_jobs where user_id = $1`,
+    [userId, ACTIVE_STATES, RESULT_TTL_HOURS],
+  )
+  return { active: row.active, ready: row.ready, settled: row.total - row.active - row.ready }
+}
 
 /** GET /api/jobs/by-task?taskId= → { job | null } */
 export const byTask = userRoute(async (req, res, user) => {

@@ -11,9 +11,13 @@
 import { one, many } from '../_lib/db.js'
 import { userRoute, badRequest, forbidden, noStore } from '../_lib/http.js'
 import { isUuid, text, momentOf, wholeNumber, ASSET_KINDS } from '../_lib/validate.js'
+import { cursorSql, cursorOf, olderThan, pageFrom } from '../_lib/paging.js'
 import { OUTPUT_REMOVED_MESSAGE } from '../_lib/moderation/service.js'
 
-const COLUMNS = 'id, influencer_id, asset_id, kind, label, created_at'
+const COLUMNS = `id, influencer_id, asset_id, kind, label, created_at, ${cursorSql()} as cursor`
+
+/** What the gallery's filter can ask for. */
+const GALLERY_KINDS = ['image', 'video']
 
 /** Page size for the Gallery's own fetches. */
 const MAX_PAGE = 60
@@ -28,39 +32,54 @@ export const byAsset = userRoute(async (req, res, user) => {
 }, { tag: '[generations/by-asset]', message: 'Unable to load the gallery. Please try again.' })
 
 /**
- * GET /api/generations/by-influencer?influencerId=&limit=&beforeAt=&beforeId=
- * → { generations, hasMore }
+ * GET /api/generations/by-influencer?influencerId=&limit=&cursor=&kind=
+ * → { generations, hasMore, nextCursor }
  *
  * One influencer's gallery, newest first, in pages — because the roster only
- * carries the newest few (influencers/index.js).
+ * carries the newest few (influencers/index.js). `kind` (image or video) pages
+ * through that kind alone, so the gallery's filter never has to fetch a page of
+ * videos to find no images in it.
  *
- * Keyset pagination on (created_at, id), not OFFSET: a result collected while
- * the user is scrolling shifts every offset by one, which silently skips or
- * repeats an entry. Pass back the last row's `created_at` and `id`.
+ * Keyset pagination (_lib/paging.js): pass back a row's `cursor` to continue
+ * after it. `beforeAt` + `beforeId` (a row's created_at and id) is the older
+ * form, still answered for app builds that send it; it is only as exact as a
+ * millisecond, which is why it was replaced.
  */
 export const byInfluencer = userRoute(async (req, res, user) => {
-  const { influencerId, beforeAt = null, beforeId = null } = req.query || {}
+  const { influencerId, beforeAt = null, beforeId = null, cursor: cursorParam = null, kind = null } = req.query || {}
   if (!isUuid(influencerId)) throw badRequest('influencerId is required.')
   const limit = wholeNumber(req.query?.limit, { min: 1, max: MAX_PAGE, fallback: 30 })
+  if (kind !== null && !GALLERY_KINDS.includes(kind)) throw badRequest('kind must be image or video.')
+
+  const cursor = cursorParam === null ? null : cursorOf(cursorParam)
+  if (cursorParam !== null && !cursor) throw badRequest('cursor is not valid.')
 
   const at = beforeAt === null ? null : momentOf(beforeAt)
   if (beforeAt !== null && !at) throw badRequest('beforeAt is not a valid time.')
   if (beforeId !== null && !isUuid(beforeId)) throw badRequest('beforeId is not valid.')
-  // Both halves of the cursor or neither — one alone cannot order anything.
-  const cursor = at !== null && beforeId !== null
+  // Both halves of the old cursor or neither — one alone cannot order anything.
+  const legacy = !cursor && at !== null && beforeId !== null
 
   // One row more than asked for, to answer hasMore without a second count.
   const rows = await many(
     `select ${COLUMNS} from generations
       where user_id = $1 and influencer_id = $2
-        and ($3::boolean is false or (created_at, id) < ($4::timestamptz, $5::uuid))
+        and ($3::text is null or kind = $3::asset_kind)
+        and ($4::boolean is false or ${olderThan('$5', '$6')})
+        and ($7::boolean is false or (created_at, id) < ($8::timestamptz, $9::uuid))
       order by created_at desc, id desc
-      limit $6`,
-    [user.id, influencerId, cursor, cursor ? at : null, cursor ? beforeId : null, limit + 1],
+      limit $10`,
+    [
+      user.id, influencerId, kind,
+      cursor !== null, cursor?.at ?? null, cursor?.id ?? null,
+      legacy, legacy ? at : null, legacy ? beforeId : null,
+      limit + 1,
+    ],
   )
 
+  const page = pageFrom(rows, limit)
   noStore(res)
-  res.json({ generations: rows.slice(0, limit), hasMore: rows.length > limit })
+  res.json({ generations: page.items, hasMore: page.hasMore, nextCursor: page.nextCursor })
 }, { tag: '[generations/by-influencer]', message: 'Unable to load the gallery. Please try again.' })
 
 /** POST /api/generations/add  { assetId, influencerId?, kind?, label? } → { generation } */

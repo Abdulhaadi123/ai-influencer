@@ -261,13 +261,19 @@ test('sign-in says the same thing for a missing account and a wrong password, an
   assert.equal((await login(suspended.email, PASSWORD)).body.code, 'ACCOUNT_SUSPENDED')
 })
 
-test('forgot-password and resend answer identically whether or not the address is registered', async () => {
+test('forgot-password says when no account has the address; resend answers identically either way', async () => {
   const strip = r => [r.status, JSON.stringify(r.body)]
 
   const real = await stack.createUser({ email: 'real@test.example' })
   const f1 = await api('POST', '/api/auth/forgot-password', { body: { email: real.email } })
+  assert.deepEqual([f1.status, f1.body], [200, { sent: true }])
   const f2 = await api('POST', '/api/auth/forgot-password', { body: { email: 'ghost@test.example' } })
-  assert.deepEqual(strip(f1), strip(f2), 'forgot-password')
+  assert.equal(f2.status, 404)
+  assert.equal(f2.body.code, 'ACCOUNT_NOT_FOUND')
+  assert.match(f2.body.error, /No account was found/)
+  // Any capitalisation is the same address, and a registered one is never told it is missing.
+  assert.equal((await api('POST', '/api/auth/forgot-password', { body: { email: 'REAL@Test.Example' } })).status, 429, 'the per-address limit counts before the lookup')
+
   const r1 = await api('POST', '/api/auth/resend-confirmation', { body: { email: real.email } })
   const r2 = await api('POST', '/api/auth/resend-confirmation', { body: { email: 'ghost@test.example' } })
   assert.deepEqual(strip(r1), strip(r2), 'resend-confirmation')

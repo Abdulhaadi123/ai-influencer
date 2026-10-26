@@ -9,15 +9,16 @@
  *    A failed sign-in says "that email and password combination is not right"
  *    whichever half it was, and takes as long either way (passwords.js hashes
  *    even for a missing account). Guessing a password is the attack; telling a
- *    guesser the address is right would halve it. Forgot-password and resend
- *    answer "sent" whether or not the address is registered.
+ *    guesser the address is right would halve it. Resend answers "sent" whether
+ *    or not the address is registered.
  *
- *    Sign-up is the exception: it says "an account with this email already
- *    exists". It used to answer like a new sign-up and email the owner instead,
- *    which left the person looking at "check your email" for a message that
- *    explained nothing the screen could have said. A sign-up form has to say the
- *    address is taken; the rate limits below (per caller) keep it from being a
- *    cheap way to list registered addresses.
+ *    Sign-up and forgot-password say when the address is the problem: "an
+ *    account with this email already exists", "no account was found with this
+ *    email". They used to answer as if all was well — "check your email" — and
+ *    leave the person waiting for a message that never came (signed up twice;
+ *    mistyped the address). A sign-up form has to say the address is taken, so
+ *    the fact is no secret; the rate limits below, per caller and per address,
+ *    keep these from being a cheap way to list registered addresses.
  *
  * 2. PASSWORDS ARE HASHED AND DROPPED. See passwords.js.
  *
@@ -103,6 +104,7 @@ function sendPasswordReset(user) {
 }
 
 const EMAIL_TAKEN = 'An account with this email already exists. Please sign in instead.'
+const NO_ACCOUNT = 'No account was found with this email address. Check the spelling, or sign up for a new account.'
 
 function readEmail(body) {
   const email = normalizeEmail(body?.email)
@@ -305,14 +307,24 @@ export const changePassword = userRoute(async (req, res, user) => {
   res.json({ ok: true })
 }, { audience: 'shared' })
 
-/** POST /api/auth/forgot-password  { email } → { sent: true }, whether or not the account exists */
+/**
+ * POST /api/auth/forgot-password  { email } → { sent: true }
+ * → 404 ACCOUNT_NOT_FOUND when no account has this address
+ *
+ * The owner asked for this to say so (26 October 2026). It used to answer "sent" either way, so a
+ * person who mistyped their address was told a link was on its way and waited for one that would never
+ * come. Sign-up already says when an address is taken, so the fact is no secret; what keeps this from
+ * being a cheap way to list registered addresses is the two limits below, which count before the
+ * lookup — 30 an hour per caller, and one a minute (five an hour) per address.
+ */
 export const forgotPassword = publicRoute(async (req, res) => {
   const email = readEmail(req.body)
   enforceLimit(emailsByIp, `ip:${clientIp(req)}`)
   enforceLimit(emailsByAddress, `email:${email}`)
 
   const user = await findUserByEmail(email)
-  if (user) sendPasswordReset(user)
+  if (!user) throw new HttpError(404, NO_ACCOUNT, 'ACCOUNT_NOT_FOUND')
+  sendPasswordReset(user)
   res.json({ sent: true })
 })
 

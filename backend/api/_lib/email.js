@@ -165,10 +165,10 @@ export async function sendEmail({ to, subject, text, html }) {
 /**
  * Send without making the request wait, and without letting a failure escape.
  *
- * Forgot-password and resend must answer identically whether or not the account
- * exists; waiting for the mail server only when it does would make "exists"
- * measurably slower. The failure still goes to the log, where someone can act
- * on it.
+ * Resend must answer identically whether or not the account exists; waiting for
+ * the mail server only when it does would make "exists" measurably slower. And
+ * nobody should wait on a mail server to be told a link is on its way. The
+ * failure still goes to the log, where someone can act on it.
  */
 export function sendInBackground(promiseFactory, what) {
   Promise.resolve()
