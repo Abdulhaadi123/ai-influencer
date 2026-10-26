@@ -77,6 +77,20 @@ user's prefix (`<asset>.thumb.jpg`, recorded in `assets.thumb_key`), is handed o
 deleted with its file. Previews are not counted against the storage quota (about 1%
 of the files).
 
+**The quick preview** (`POST /api/storage/quick-preview { sourceUrl, taskId? }`,
+`api/storage/quick-preview.js`) is the same small picture for an image that has only
+just finished, for the screen that started it (the create wizard, a regenerated main
+image, a reference sheet). Those screens show the result from KIE's link while the
+server stores it, and the full file is megabytes: on a phone connection the frame sat
+empty for ten seconds or more. The answer is the stored file's preview link when the
+result is already stored with one (KIE's callback usually gets there first), otherwise
+a preview made there and then from KIE's file and returned as a `data:` URL — nothing
+is written; storing stays `ingest`'s job. Only for an image result of the caller's own:
+a file stored from that link, a job whose recorded result it is, or the caller's own
+image job `taskId` that KIE confirms it belongs to (the answer is then recorded on the
+job, as a sync would). Anything else is 404, so it is no proxy for KIE's hosts; the link
+passes the same allow-list on every redirect as every other fetch of a result.
+
 ---
 
 ## Generation callbacks (webhook)
@@ -727,7 +741,7 @@ edit shows on reload.
 | Gallery | `GET /api/generations/by-asset` `by-influencer`; `POST /api/generations/add` `delete` |
 | Queue | `GET /api/jobs` `by-task` `active-count` `changes` `sync`; `POST /api/jobs/register` `remove` `clear-settled` |
 | Settings | `GET/POST /api/studio-settings`; `GET /api/creation-params` |
-| Files | `POST /api/storage/upload-url` `confirm` `download-url` `ingest` `delete` |
+| Files | `POST /api/storage/upload-url` `confirm` `download-url` `ingest` `quick-preview` `delete` |
 | Generation | `/api/kie/*` (proxy), `POST /api/prompt-assist` |
 | Reporting | `POST /api/reports` |
 

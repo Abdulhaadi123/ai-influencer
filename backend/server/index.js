@@ -37,6 +37,7 @@ import uploadUrl from '../api/storage/upload-url.js'
 import downloadUrl from '../api/storage/download-url.js'
 import confirmUpload from '../api/storage/confirm.js'
 import ingest from '../api/storage/ingest.js'
+import quickPreview from '../api/storage/quick-preview.js'
 import deleteAsset from '../api/storage/delete.js'
 import kie from '../api/kie.js'
 import kieCallback, { CALLBACK_PATH, webhooksConfigured } from '../api/kie-callback.js'
@@ -146,6 +147,7 @@ export function createApp() {
   app.post('/api/storage/download-url', downloadUrl)
   app.post('/api/storage/confirm', confirmUpload)
   app.post('/api/storage/ingest', ingest)
+  app.post('/api/storage/quick-preview', quickPreview)
   app.post('/api/storage/delete', deleteAsset)
 
   // ── Generation ───────────────────────────────────────────────────────────
