@@ -19,6 +19,7 @@ import { validatePassword, MIN_PASSWORD_LENGTH, EMAIL_TAKEN } from '@core/auth'
 import { userMessage } from '@core/errors'
 
 import { space } from '../../theme'
+import LegalNote from '../../components/LegalNote'
 import {
   AuthShell, Field, PrimaryButton, LinkButton, FormError,
   emailProps, passwordProps,
@@ -26,6 +27,7 @@ import {
 
 const styles = StyleSheet.create({
   takenActions: { marginTop: space.md, gap: space.xs },
+  legal: { marginTop: space.md },
 })
 
 export default function SignUpScreen({ navigation, route }) {
@@ -145,6 +147,9 @@ export default function SignUpScreen({ navigation, route }) {
       <View>
         <PrimaryButton title="Continue" onPress={submit} loading={busy} disabled={!canSubmit || taken} />
       </View>
+
+      {/* Creating the account is agreeing to these; both are readable before it is made. */}
+      <LegalNote style={styles.legal} />
 
       {taken ? (
         <View style={styles.takenActions}>

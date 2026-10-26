@@ -29,6 +29,8 @@ import { userMessage } from '@core/errors'
 import { useBottomInset } from '../hooks/useBottomInset'
 import { useCredits } from '../hooks/useCredits'
 import { Alert } from '../lib/dialog'
+import { openLegal } from '../lib/openLegal'
+import { LEGAL_PAGES } from '@core/config/legal'
 import { formatCredits } from '@core/billing/packs'
 import { useTheme, space, radius, font, layout } from '../theme'
 import Screen, { ScreenHeader } from '../components/Screen'
@@ -94,6 +96,19 @@ export default function SettingsScreen({ navigation }) {
                 ]}
               />
             </View>
+          </Section>
+
+          {/* Google Play wants the privacy policy reachable from inside the app; the rest are the
+              pages a person looks for here. They open on the website, in the phone's browser. */}
+          <Section title="About">
+            {['privacy', 'terms', 'support'].map(id => (
+              <Row
+                key={id}
+                label={LEGAL_PAGES.find(p => p.id === id).label}
+                right={<Icon name="chevron" size={16} color={colors.textSecondary} />}
+                onPress={() => openLegal(id)}
+              />
+            ))}
           </Section>
 
           <View style={styles.danger}>

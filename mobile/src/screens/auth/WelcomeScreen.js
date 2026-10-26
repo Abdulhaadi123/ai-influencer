@@ -15,6 +15,7 @@ import { useAuth } from '@core/auth/AuthContext'
 
 import { useTheme, space, font, layout } from '../../theme'
 import { Button } from '../../components/ui'
+import LegalNote from '../../components/LegalNote'
 import { LogoMark } from '../../components/brand'
 import { welcomeHero } from '../../assets/heroes'
 import { FormNotice } from './parts'
@@ -51,6 +52,9 @@ export default function WelcomeScreen({ navigation }) {
           <Button title="Sign in with email" variant="dark" onPress={() => navigation.navigate('SignIn')} />
           <Button title="Create an account" variant="neutral" onPress={() => navigation.navigate('SignUp')} />
         </View>
+
+        {/* The privacy policy and terms, reachable before anything is entered. */}
+        <LegalNote lead="By continuing you agree to the" style={styles.legal} />
       </View>
     </View>
   )
@@ -69,4 +73,5 @@ const styles = StyleSheet.create({
   brand: { fontSize: 31, letterSpacing: -0.6, marginTop: 2, marginBottom: space.xl },
   notice: { alignSelf: 'stretch' },
   buttons: { alignSelf: 'stretch', gap: space.md },
+  legal: { alignSelf: 'stretch', marginTop: space.lg },
 })

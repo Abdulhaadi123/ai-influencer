@@ -308,6 +308,22 @@ Every failure a person sees is a sentence from `core/errors.js`, never a raw
 - **Test tooling:** `uiautomator dump` returns nothing while anything animates forever (the badge's
   pulse), so a script driving the emulator taps by position while a badge is showing.
 
+## Legal pages inside the app
+
+Google Play's User Data policy asks for the privacy policy in Play Console **and** "a privacy policy link
+or text within the app itself". The pages live on the website (separate project, `influenza-site`:
+`/privacy/`, `/terms/`, `/support/`, `/delete-account/`); the app only links to them.
+
+- The address table is `core/config/legal.js` (`SITE_BASE`, `legalUrl(id)`), tested in `legal.test.js`.
+  If the site moves to its own domain, change `SITE_BASE` there and the URLs in Play Console.
+- `openLegal(id)` (`src/lib/openLegal.js`) hands the address to the phone's browser; with no browser it
+  shows the "Could not open the page" box with the address instead of doing nothing.
+- Where: Settings → About (Privacy Policy, Terms of Use, Help and support), and `LegalNote` ("By … you
+  agree to the Terms of Use and Privacy Policy") on the welcome and sign-up screens. Deleting an account is
+  in Settings and on the website (`/delete-account/`), as Play also requires.
+- The home-screen name comes from `app.json` `name` ("InfluenzaAi", the same as the Play listing); the
+  `android/` folder is gitignored and rebuilt from it by EAS. Do not change `slug` or the package.
+
 ## Running it
 
 ```bash
