@@ -155,4 +155,8 @@ log instead of sending them.
 - **Don't add UI that isn't actually wired.**
 - **Don't report a slow generation as an error.** See `STILL_RUNNING`.
 - **Don't store a bare KIE result URL or a presigned S3 URL** — both expire.
+- **Don't price a model 1:1 with KIE's credits.** Our credits earn less than KIE's cost (a pack credit is
+  $0.0035–$0.004, KIE's is $0.005, and the store keeps a commission), so 1:1 loses money on every generation.
+  Prices come from `db/reprice.js` / `backend/api/_lib/markup.js` (the owner's costing document); see
+  "Credits" in `backend/README.md`.
 - **Don't commit or push unless asked.**

@@ -333,6 +333,26 @@ app ──createTask──► /api/kie ──gate: take the price──► KIE �
 - **The price** of a request is the model's row in `model_prices` (admin panel → Prices):
   `credits` per video, per image, or per second of `input.duration`. A row with
   `credits = 0` is a free model.
+- **How a price is worked out** (the owner's costing document; `api/_lib/markup.js`). KIE sells its
+  credits at $0.005; ours earn $0.0035 in the two big packs ($0.004 in the 5,000 pack), and the store
+  keeps a commission (the document assumes 20%). Charging one of ours per KIE credit therefore loses
+  about 79 cents on every dollar earned. A price is
+  `KIE credits × 0.005 / (0.0035 × (1 − commission)) / (1 − margin)`, rounded **up** to whole credits:
+  ×1.79 to break even, ×2.55 for a 30% margin, ×2.98 for 40%. The margin is a share of revenue, and the
+  base is the worst-priced pack, so every pack earns at least the target. At 30% (the default) the five
+  models we sell cost: image 46, Kling video 52 a second, Motion Copy 52 (720p) and 69 (1080p) a second.
+- **Repricing** (`db/reprice.js`, on the server, from the backend folder):
+  `docker compose exec -T api node db/reprice.js` shows what would change and changes nothing;
+  add `--apply` to write it; `--margin 40` and `--commission 15` change the two assumptions. It works
+  from KIE's own prices (`KIE_COST` in `markup.js`, with where each came from), never from the price a row
+  holds, so running it twice changes nothing. Only the models listed there are touched; every other row,
+  and any row whose unit is not KIE's, is left alone and named. The change is live at once (the table is
+  read on every request), is written to the audit log as the server console with every old and new price,
+  and does not touch anyone's balance. A model KIE prices that is not in `KIE_COST` is added there (with its
+  source) before it can be repriced.
+- **Checking the margin in production**: the admin Credits page shows credits spent, credits refunded and what
+  KIE charged for the same days (`providerCost`). (Spent − refunded) ÷ KIE cost should be about 2.55 at a 30%
+  margin; at the old 1:1 prices it was 1.
 - **The gate** (`api/_lib/billing.js`, called by `api/kie.js` after moderation) takes the price
   *before* KIE is asked, under a per-account lock, so concurrent requests cannot spend the
   same credits twice. It is given back at once if KIE refuses or never answers, when the job
