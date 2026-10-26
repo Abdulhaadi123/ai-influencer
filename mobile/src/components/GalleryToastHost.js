@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '@core/auth/AuthContext'
 import { useInfluencers } from '@core/store'
 import { onGalleryAdded } from '@core/notices/galleryEvents'
+import { waitForPreview } from '@core/data/assets'
 import { TOAST_MS, toastTitle } from '@core/notices/galleryNotice'
 
 import { useTheme, space, font } from '../theme'
@@ -98,10 +99,22 @@ export default function GalleryToastHost() {
 
   const close = useCallback(() => { if (shown) galleryNotices.dismissToast(shown.id) }, [shown])
 
+  // An image filed moments ago usually has no preview yet. Ask for it (a few quick tries) rather than
+  // drawing the full file, megabytes, in a 52-point square: the violet tile stands in meanwhile.
+  const [late, setLate] = useState({ id: null, url: null })
+  const latestId = shown?.latest.id ?? null
+  const askFor = shown && !shown.latest.thumbUrl && shown.latest.type === 'image' ? shown.latest.assetId : null
+  useEffect(() => {
+    if (!askFor) return undefined
+    let off = false
+    waitForPreview(askFor, { isCancelled: () => off }).then(url => { if (url && !off) setLate({ id: latestId, url }) })
+    return () => { off = true }
+  }, [askFor, latestId])
+
   if (!shown) return null
 
   const owner = influencers.find(i => String(i.id) === shown.influencerId)
-  const picture = shown.latest.thumbUrl || (shown.latest.type === 'image' ? shown.latest.url : null)
+  const picture = shown.latest.thumbUrl || (late.id === shown.latest.id ? late.url : null)
   const title = toastTitle(shown)
   const where = owner?.name ? `${owner.name}'s Gallery` : 'Open your Gallery'
 

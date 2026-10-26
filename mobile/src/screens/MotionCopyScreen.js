@@ -21,7 +21,7 @@ import { useBottomInset } from '../hooks/useBottomInset'
 import { useVideoPlayer, VideoView } from 'expo-video'
 
 import { generateMotionCopy, STILL_RUNNING } from '@core/services/generation'
-import { uploadLocal, resolveUrl } from '@core/data/assets'
+import { uploadLocal, resolveUrl, thumbUrlFor } from '@core/data/assets'
 import { MOTION_MODELS, DEFAULT_MOTION_MODEL, getMotionModel, motionResolution } from '@core/config/videoModels'
 import { billedSeconds, modelsOnSale } from '@core/billing/packs'
 import { userMessage } from '@core/errors'
@@ -44,14 +44,21 @@ export default function MotionCopyScreen({ influencer }) {
   const bottomInset = useBottomInset()
   const { addGeneration } = useInfluencers()
 
-  // Same character sources the web studio offers.
+  // Same character sources the web studio offers. `url` is the file itself, what KIE is sent; `thumb`
+  // its small preview, what the 84-point square shows — the file is megabytes (a main image PNG was
+  // 9.7 MB) and the square stayed blank while it came down.
   const characterOptions = useMemo(() => [
-    influencer?.mainImage && { key: 'main', label: 'Main image', url: influencer.mainImage },
-    influencer?.characterSheetImage && { key: 'sheet', label: 'Character sheet', url: influencer.characterSheetImage },
-    influencer?.closeUpImage1 && { key: 'close', label: 'Close-up', url: influencer.closeUpImage1 },
+    influencer?.mainImage && { key: 'main', label: 'Main image', url: influencer.mainImage, thumb: influencer.mainThumb ?? thumbUrlFor(influencer.mainAssetId) },
+    influencer?.characterSheetImage && { key: 'sheet', label: 'Character sheet', url: influencer.characterSheetImage, thumb: thumbUrlFor(influencer.characterSheetAssetId) },
+    influencer?.closeUpImage1 && { key: 'close', label: 'Close-up', url: influencer.closeUpImage1, thumb: thumbUrlFor(influencer.closeUpImage1AssetId) },
   ].filter(Boolean), [influencer])
 
   const [characterImage, setCharacterImage] = useState(() => characterOptions[0]?.url || null)
+  /** A character picked from the phone: its signed URL (for KIE) and the local file (for the square). */
+  const [uploadedCharacter, setUploadedCharacter] = useState(null)
+  const characterSquare = characterOptions.find(o => o.url === characterImage)?.thumb
+    ?? (uploadedCharacter?.url === characterImage ? uploadedCharacter.uri : null)
+    ?? characterImage
   // The uploaded driving video: a local URI for the preview, and the signed URL
   // KIE will fetch it from.
   const [drivingVideo, setDrivingVideo] = useState(null)     // { previewUri, fetchUrl, seconds }
@@ -89,7 +96,10 @@ export default function MotionCopyScreen({ influencer }) {
       const { assetId } = await uploadLocal({
         uri, kind: 'image', contentType: 'image/jpeg', influencerId: influencer?.id ?? null,
       })
-      setCharacterImage(await resolveUrl(assetId))
+      const url = await resolveUrl(assetId)
+      // Shown from the file already on the phone, not downloaded back from storage.
+      setUploadedCharacter({ url, uri })
+      setCharacterImage(url)
     } catch (e) {
       setError(userMessage(e, 'The image could not be uploaded. Please try again.'))
     }
@@ -204,7 +214,7 @@ export default function MotionCopyScreen({ influencer }) {
           {characterImage ? (
             <View style={{ gap: space.md }}>
               <View style={styles.characterRow}>
-                <MediaImage uri={characterImage} style={styles.characterThumb} contentFit="cover" />
+                <MediaImage uri={characterSquare} style={styles.characterThumb} contentFit="cover" />
                 <View style={styles.flex}>
                   {characterOptions.length > 1 ? (
                     <View style={styles.chipRow}>

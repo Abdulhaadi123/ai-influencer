@@ -140,7 +140,9 @@ export default function VideosTab({ influencer }) {
         uri, kind: 'image', contentType: 'image/jpeg', influencerId: influencer.id,
       })
       const url = await resolveUrl(assetId)
-      setProducts(p => [...p, { assetId, url }])
+      // `url` is what KIE is sent; the square shows the photo already on the phone (`local`) rather
+      // than downloading the same megabytes back from storage.
+      setProducts(p => [...p, { assetId, url, local: uri }])
     } catch (e) {
       showError('Upload failed', e, 'The product image could not be uploaded. Please try again.')
     } finally {
@@ -360,7 +362,7 @@ export default function VideosTab({ influencer }) {
             <View style={styles.productRow}>
               {products.map((product, i) => (
                 <View key={product.assetId}>
-                  <MediaImage uri={product.url} style={styles.product} contentFit="cover" />
+                  <MediaImage uri={product.local || product.url} style={styles.product} contentFit="cover" />
                   <Pressable
                     onPress={() => removeProduct(product)}
                     disabled={generating}

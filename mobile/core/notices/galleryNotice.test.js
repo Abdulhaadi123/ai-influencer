@@ -37,6 +37,15 @@ test('an image brings its preview into the toast', () => {
   assert.equal(snap().toast.latest.type, 'image')
 })
 
+test('an image filed before its preview exists keeps its file id, so the card can ask for the preview', () => {
+  const { notices, snap } = board()
+  notices.add({ influencerId: 'ashley', entry: image('g1', { thumbUrl: null, assetId: 'a-123' }) })
+  assert.equal(snap().toast.latest.thumbUrl, null)
+  assert.equal(snap().toast.latest.assetId, 'a-123')
+  notices.add({ influencerId: 'ashley', entry: video('g2') })
+  assert.equal(snap().toast.latest.assetId, null, 'an entry with no file id says so, rather than keeping the last one')
+})
+
 test('three results in a row become one toast that counts them, not three toasts', () => {
   const { notices, tick, snap } = board()
   notices.add({ influencerId: 'ashley', entry: image('g1') })

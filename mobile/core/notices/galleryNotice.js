@@ -31,7 +31,7 @@ const REMEMBER_MS = 60_000
  * @property {string} influencerId
  * @property {number} count          results in this toast
  * @property {{image: number, video: number}} kinds
- * @property {{id: string, type: 'image'|'video', thumbUrl: string|null, url: string|null, label: string|null}} latest
+ * @property {{id: string, assetId: string|null, type: 'image'|'video', thumbUrl: string|null, url: string|null, label: string|null}} latest
  * @property {number} at             when the newest one arrived
  */
 
@@ -39,6 +39,8 @@ const REMEMBER_MS = 60_000
 function summarise(entry) {
   return {
     id: String(entry.id),
+    // So the card can ask for a preview that did not exist yet when the result was filed.
+    assetId: entry.assetId ? String(entry.assetId) : null,
     type: entry.type === 'video' ? 'video' : 'image',
     thumbUrl: typeof entry.thumbUrl === 'string' && entry.thumbUrl ? entry.thumbUrl : null,
     url: typeof entry.url === 'string' && entry.url ? entry.url : null,

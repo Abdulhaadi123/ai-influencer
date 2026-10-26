@@ -45,11 +45,13 @@ const InfluencersCtx = createContext(null)
 const BrandDealsCtx = createContext(null)
 
 /**
- * When to ask again for the preview of a file stored moments ago, counted from when it is shown. The
- * server makes one a second or two after storing the file; three tries cover a slow one, and a file
- * that never gets one (an unreadable picture) costs three small requests and no more.
+ * How long to wait before each ask for the preview of a file stored moments ago (each gap counted
+ * from the ask before; the first from when it is shown). The server makes one a second or two after
+ * storing the file, and often before the phone hears of the file at all; until it is there the gallery
+ * square downloads the full file, megabytes, so the first ask comes soon (0.8 s, then 2.5 s in all).
+ * Four tries cover a slow one, and a file that never gets one costs four small requests and no more.
  */
-const PREVIEW_ASK_AFTER_MS = [2500, 6000, 15000]
+const PREVIEW_ASK_AFTER_MS = [800, 1700, 6000, 15000]
 
 /** The parts of a record that are its gallery, which a saved edit must not reset (data/paging.js). */
 const GALLERY_KEYS = ['generationHistory', 'galleryCounts', 'galleryExtra', 'galleryPaging']
