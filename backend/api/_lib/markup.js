@@ -120,8 +120,10 @@ export const KIE_COST = Object.freeze([
   // KIE: 1K/2K image (the app asks for 2K); two real jobs in KIE's logs cost 18.
   { model: 'nano-banana-pro', unit: 'per_image', kieCredits: 18 },
   // KIE Kling 3.0: Standard mode with sound, 20 a second (14 without sound — one price per model, so the higher).
+  // Real jobs on 26 October 2026: 3 s with sound cost 60 (20 a second); on 23 October 5 s without sound cost 70.
   { model: 'kling-3.0/video', unit: 'per_second', kieCredits: 20 },
-  // KIE Kling 3.0 Motion Control, billed per second of the clip; tested with a real 4 s job: 80 credits.
+  // KIE Kling 3.0 Motion Control, billed per second of the clip; real jobs: a 4 s clip cost 80 at 720p (16 October)
+  // and 108 at 1080p (26 October).
   { model: 'kling-3.0/motion-control:720p', unit: 'per_second', kieCredits: 20 },
   { model: 'kling-3.0/motion-control:1080p', unit: 'per_second', kieCredits: 27 },
   // The row a request with no mode is priced by: the higher rate, so it never undercharges.
@@ -131,14 +133,16 @@ export const KIE_COST = Object.freeze([
   // Each has one price whatever its resolution or length, so the row holds the higher rate and a price
   // built on it never undercharges. Where KIE prices a whole video, the row is that price per second.
   // These were set in the price list at KIE's own number (1:1) and are listed here with KIE's price
-  // page (kie.ai/pricing, read October 2026) as the source.
+  // page (kie.ai/pricing, read October 2026) as the source. Each was also run for real at its shortest
+  // length on 23 October 2026 and KIE charged exactly that rate, except where a note says otherwise;
+  // Kling 2.6 Motion Control at 1080p and Seedance 2.5 were run on 26 October 2026.
 
   // Kling
   { model: 'kling/v3-turbo-image-to-video', unit: 'per_second', kieCredits: 22.5 },           // Kling 3.0 Turbo, 1080P: 22.5 a second (720P is 18)
   { model: 'kling/v2-5-turbo-image-to-video-pro', unit: 'per_second', kieCredits: 8.4 },        // Turbo Pro: 42 for 5 s, 84 for 10 s
   { model: 'kling/v2-1-master-image-to-video', unit: 'per_second', kieCredits: 32 },            // Master: 160 for 5 s, 320 for 10 s
   { model: 'kling-2.6/motion-control:720p', unit: 'per_second', kieCredits: 11 },               // 2.6 Motion Control, billed per second of the clip
-  { model: 'kling-2.6/motion-control:1080p', unit: 'per_second', kieCredits: 18 },
+  { model: 'kling-2.6/motion-control:1080p', unit: 'per_second', kieCredits: 18 },              // real: a 4 s clip cost 72
   { model: 'kling-2.6/motion-control', unit: 'per_second', kieCredits: 18 },                    // no mode: the higher rate
 
   // Wan
@@ -150,7 +154,13 @@ export const KIE_COST = Object.freeze([
   { model: 'hailuo/2-3-image-to-video-pro', unit: 'per_second', kieCredits: 13.334 },           // Pro, 1080p: 80 for 6 s
   { model: 'minimax-h3/image-to-video', unit: 'per_second', kieCredits: 8 },                    // H3, 768p
   { model: 'minimax-h3/text-to-video', unit: 'per_second', kieCredits: 13 },                    // H3, 2K
-  { model: 'pixverse-v6/image-to-video', unit: 'per_second', kieCredits: 18.4 },                // v6, 1080p with audio
+  // v6, 1080p with audio. KIE answers a request WITH audio "No model found [pixverse-v6-i2v]" at every
+  // resolution (tested 26 October 2026) and charges nothing, so today it is billed 14.4 a second (1080p, no
+  // audio: a real 2 s job cost 28.8); the row keeps the audio rate so it stays safe if KIE turns that on.
+  { model: 'pixverse-v6/image-to-video', unit: 'per_second', kieCredits: 18.4 },
+  // Seedance. 2.5 at 1080p with images only ("no video input") is 158 a second: a real 4 s job cost 632 both
+  // without and with audio (26 October 2026), so sound is not a price factor. The app never sends a video.
+  { model: 'bytedance/seedance-2-5', unit: 'per_second', kieCredits: 158 },
   { model: 'bytedance/seedance-2-mini', unit: 'per_second', kieCredits: 8.2 },                  // 720P, no video input
   { model: 'bytedance/seedance-2-fast', unit: 'per_second', kieCredits: 24.8 },                 // 720p, no video input
   { model: 'grok-imagine/image-to-video', unit: 'per_second', kieCredits: 8 },                  // 1080p

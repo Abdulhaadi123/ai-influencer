@@ -208,9 +208,11 @@ const ALL_AT_DEFAULTS = {
   'pixverse-v6/image-to-video': 47, 'bytedance/seedance-2-mini': 21, 'bytedance/seedance-2-fast': 64, 'grok-imagine/image-to-video': 21,
   veo3_fast: 166, 'veo-3-1': 166,
 }
+/** Seedance 2.5 had no row on the live server: 158 a second × 2.551, rounded up. */
+const SEEDANCE_25 = 'bytedance/seedance-2-5'
 
-/** All 23 rows the live server listed in its preview, each at KIE's own number — the prices today. */
-const seedProduction = () => seedToday(markup.KIE_COST.map(c => [c.model, c.unit, c.kieCredits]))
+/** The 23 rows the live server listed in its preview, each at KIE's own number — the prices today. */
+const seedProduction = () => seedToday(markup.KIE_COST.filter(c => c.model !== SEEDANCE_25).map(c => [c.model, c.unit, c.kieCredits]))
 
 test('the live list: all 23 models are repriced in one go, to the credit, and a second run finds nothing to do', async () => {
   await seedProduction()
@@ -218,7 +220,8 @@ test('the live list: all 23 models are repriced in one go, to the credit, and a 
 
   const preview = await reprice({})
   assert.equal(preview.changes.length, 23)
-  assert.deepEqual([preview.same, preview.skipped, preview.missing, preview.others], [[], [], [], []])
+  assert.deepEqual([preview.same, preview.skipped, preview.others, preview.additions], [[], [], [], []])
+  assert.deepEqual(preview.missing, [SEEDANCE_25], 'Seedance 2.5 is named, not created')
   assert.deepEqual((await prices())['veo3_fast'], 65, 'a preview changes nothing')
 
   const done = await reprice({ apply: true })
@@ -240,9 +243,10 @@ test('the live list: not one model is left charging less than it costs', async (
   await seedProduction()
   await reprice({ apply: true })
   const now = await prices()
-  for (const c of markup.KIE_COST) {
+  for (const c of markup.KIE_COST.filter(x => x.model !== SEEDANCE_25)) {
     assert.ok(markup.marginOf(c.kieCredits, now[c.model]) >= 0.3, `${c.model} earns ${markup.marginOf(c.kieCredits, now[c.model])}`)
   }
+  assert.ok(!(SEEDANCE_25 in now), 'and nothing was put on sale that nobody asked for')
 })
 
 test('the live list, charged through the gate: a Veo video 166, 8 s of Seedance Mini 168, 5 s of Wan 2.5 260, 10 s of Kling 2.1 Master 820', async () => {
@@ -262,6 +266,107 @@ test('the live list, charged through the gate: a Veo video 166, 8 s of Seedance 
   assert.equal(await charge('bytedance/seedance-2-mini', { prompt: 'a friendly person in a park', duration: 8 }), 168)
   assert.equal(await charge('wan/2-5-image-to-video', { prompt: 'a friendly person in a park', duration: '5' }), 260)
   assert.equal(await charge('kling/v2-1-master-image-to-video', { prompt: 'a friendly person in a park', duration: 10 }), 820)
+})
+
+// ── Putting a model with no row on sale: --add ───────────────────────────────
+
+test('--add in a preview shows the row that would be created and creates nothing', async () => {
+  await seedProduction()
+  const preview = await reprice({ add: true })
+  assert.deepEqual(preview.additions.map(a => [a.model, a.unit, a.kieCredits, a.from, a.to]), [[SEEDANCE_25, 'per_second', 158, null, 404]])
+  assert.ok(preview.additions[0].marginNew >= 0.3)
+  assert.equal((await stack.sql('select 1 from model_prices')).length, 23, 'nothing was inserted')
+  const text = describe(preview).join('\n')
+  assert.match(text, /bytedance\/seedance-2-5\s+per_second\s+158\s+-\s+404\s+-\s+→ 30%\s+\(no row yet: will be added, switched on\)/)
+  assert.ok(!/No price row/.test(text), 'it is planned, so it is not also reported as unavailable')
+})
+
+test('--add --apply creates the row, switched on, at 404 a second, reprices the rest, and writes one audit entry that says so', async () => {
+  await seedProduction()
+  const done = await reprice({ add: true, apply: true })
+  assert.equal(done.changes.length, 23)
+  assert.deepEqual(done.added.map(a => a.model), [SEEDANCE_25])
+
+  const row = await stack.one(`select model, unit, credits::float8 as credits, enabled, updated_by from model_prices where model = $1`, [SEEDANCE_25])
+  assert.deepEqual({ ...row }, { model: SEEDANCE_25, unit: 'per_second', credits: 404, enabled: true, updated_by: null })
+  assert.deepEqual(await prices(), { ...ALL_AT_DEFAULTS, [SEEDANCE_25]: 404 })
+
+  const log = await auditRows()
+  assert.equal(log.length, 1)
+  assert.deepEqual(log[0].details.added, { [SEEDANCE_25]: { kieCredits: 158, to: 404 } })
+  assert.equal(Object.keys(log[0].details.prices).length, 23)
+
+  const again = await reprice({ add: true, apply: true })
+  assert.deepEqual([again.changes, again.added, again.additions], [[], [], []])
+  assert.equal(again.same.length, 24)
+  assert.equal((await auditRows()).length, 1, 'a second run writes nothing')
+})
+
+test('--add on its own, with the rest already priced, only creates the missing row', async () => {
+  await seedProduction()
+  await reprice({ apply: true })
+  const before = await prices()
+  const done = await reprice({ add: true, apply: true })
+  assert.deepEqual(done.changes, [])
+  assert.deepEqual(done.added.map(a => a.model), [SEEDANCE_25])
+  assert.deepEqual(await prices(), { ...before, [SEEDANCE_25]: 404 })
+})
+
+test('--add never touches a model that has a row: a switched-off one stays off, a hand-set price is only replaced as before', async () => {
+  await seedProduction()
+  await stack.sql(`insert into model_prices (model, unit, credits, enabled) values ($1, 'per_second', 999, false)`, [SEEDANCE_25])
+  const done = await reprice({ add: true, apply: true })
+  assert.deepEqual([done.additions, done.added], [[], []])
+  const row = await stack.one(`select credits::float8 as credits, enabled from model_prices where model = $1`, [SEEDANCE_25])
+  assert.deepEqual({ ...row }, { credits: 404, enabled: false }, 'repriced like any listed row, and still off')
+})
+
+test('--add with a row of another unit for the model is left alone and named, not duplicated', async () => {
+  await seedProduction()
+  await stack.sql(`insert into model_prices (model, unit, credits) values ($1, 'per_video', 77)`, [SEEDANCE_25])
+  const done = await reprice({ add: true, apply: true })
+  assert.deepEqual(done.added, [])
+  assert.equal(done.skipped.length, 1)
+  assert.equal((await prices())[SEEDANCE_25], 77)
+})
+
+test('three --add runs at once leave one Seedance 2.5 row and one audit entry', async () => {
+  await seedProduction()
+  await Promise.all([1, 2, 3].map(() => reprice({ add: true, apply: true })))
+  assert.equal((await stack.sql(`select 1 from model_prices where model = $1`, [SEEDANCE_25])).length, 1)
+  assert.equal((await auditRows()).length, 1)
+  assert.deepEqual(await prices(), { ...ALL_AT_DEFAULTS, [SEEDANCE_25]: 404 })
+})
+
+
+test('after --add, Seedance 2.5 is charged 404 a second: 4 s is 1,616, and 15 s (6,060) is refused with the real price', async () => {
+  await seedProduction()
+  await reprice({ add: true, apply: true })
+  const u = await stack.createUser()
+  await give(u.id, 5000)
+  enforce()
+
+  const four = await createTask(u.token, SEEDANCE_25, { prompt: 'a friendly person in a park', duration: 4 })
+  assert.equal(four.status, 200)
+  assert.equal(await balance(u), 5000 - 1616)
+
+  const fifteen = await createTask(u.token, SEEDANCE_25, { prompt: 'a friendly person in a park', duration: 15 })
+  assert.equal(fifteen.status, 402)
+  assert.equal(fifteen.body.code, 'INSUFFICIENT_CREDITS')
+  assert.equal(fifteen.body.price, 6060)
+  assert.equal(fifteen.body.balance, 3384)
+})
+
+test('without --add Seedance 2.5 stays refused for want of a price, and nothing is charged', async () => {
+  await seedProduction()
+  await reprice({ apply: true })
+  const u = await stack.createUser()
+  await give(u.id, 5000)
+  enforce()
+  const res = await createTask(u.token, SEEDANCE_25, { prompt: 'a friendly person in a park', duration: 4 })
+  assert.equal(res.status, 403)
+  assert.equal(res.body.code, 'MODEL_UNAVAILABLE')
+  assert.equal(await balance(u), 5000)
 })
 
 // ── The gate charges what was written ────────────────────────────────────────
@@ -383,6 +488,29 @@ test('the command: a typo is refused in words, never taken as the default, and n
   assert.deepEqual(await prices(), before)
   assert.match((await run(['--aply'])).err, /do not know "--aply"/)
   assert.match((await run(['--margin', '95'])).err, /margin must be a percentage from 0 to 90/)
+})
+
+test('the command: --add previews the row it would create, then --add --apply says the model was put on sale', async () => {
+  await seedProduction()
+  const preview = await run(['--add'])
+  assert.equal(preview.code, 0)
+  assert.match(preview.out, /bytedance\/seedance-2-5\s+per_second\s+158\s+-\s+404/)
+  assert.match(preview.out, /only a preview — nothing was changed/)
+  assert.equal((await stack.sql(`select 1 from model_prices where model = $1`, [SEEDANCE_25])).length, 0)
+
+  const done = await run(['--add', '--apply'])
+  assert.equal(done.code, 0)
+  assert.match(done.out, /Done: 23 prices changed and 1 model put on sale, live now/)
+  assert.equal((await prices())[SEEDANCE_25], 404)
+
+  const again = await run(['--add', '--apply'])
+  assert.match(again.out, /Nothing to change/)
+})
+
+test('the command: without --add a model with no row is named, with the way to put it on sale', async () => {
+  await seedProduction()
+  const r = await run([])
+  assert.match(r.out, /No price row, so unavailable until one is added \(here with --add, or in the admin panel\): bytedance\/seedance-2-5/)
 })
 
 test('the command: --help explains itself and touches nothing', async () => {

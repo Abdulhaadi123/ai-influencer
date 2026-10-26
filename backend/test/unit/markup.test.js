@@ -136,11 +136,12 @@ export const ALL_AT_DEFAULTS = {
   'kling-2.6/motion-control:720p': 29, 'kling-2.6/motion-control:1080p': 46, 'kling-2.6/motion-control': 46,
   'wan/2-6-image-to-video': 54, 'wan/2-5-image-to-video': 52, 'wan/2-2-animate-move': 32,
   'hailuo/2-3-image-to-video-pro': 35, 'minimax-h3/image-to-video': 21, 'minimax-h3/text-to-video': 34,
-  'pixverse-v6/image-to-video': 47, 'bytedance/seedance-2-mini': 21, 'bytedance/seedance-2-fast': 64, 'grok-imagine/image-to-video': 21,
+  'pixverse-v6/image-to-video': 47, 'bytedance/seedance-2-5': 404, 'bytedance/seedance-2-mini': 21, 'bytedance/seedance-2-fast': 64,
+  'grok-imagine/image-to-video': 21,
   'veo3_fast': 166, 'veo-3-1': 166,
 }
 
-test('all 23 models the app offers at the defaults, each to the credit — and each earns 30% to 34%, never less', () => {
+test('all 24 models the app offers at the defaults, each to the credit — and each earns 30% to 34%, never less', () => {
   assert.deepEqual(KIE_COST.map(c => c.model).sort(), Object.keys(ALL_AT_DEFAULTS).sort(), 'the table and this list name the same models')
   for (const c of KIE_COST) {
     const charged = userCredits(c.kieCredits)
@@ -157,6 +158,16 @@ test('where KIE prices a whole video, the row is that price per second (KIE\'s o
   close(rate('wan/2-6-image-to-video'), 105 / 5)               // 1080p, 5 s
   close(rate('wan/2-5-image-to-video'), 100 / 5)               // 1080p, 5 s
   close(rate('hailuo/2-3-image-to-video-pro'), 80 / 6, 0.001)  // 1080p, 6 s
+})
+
+test('Seedance 2.5 is KIE\'s 1080p rate for images only — 158 a second, what two real 4 s jobs cost 632 for — and 404 a second to us', () => {
+  const c = KIE_COST.find(x => x.model === 'bytedance/seedance-2-5')
+  assert.deepEqual({ unit: c.unit, kieCredits: c.kieCredits }, { unit: 'per_second', kieCredits: 158 })
+  assert.equal(c.kieCredits * 4, 632, 'the real job')
+  assert.equal(userCredits(158), 404)
+  assert.equal(404 * 4, 1616)    // the shortest video
+  assert.equal(404 * 15, 6060)   // the app's default length: more than the 5,000 pack holds
+  assert.ok(marginOf(158, 404) >= 0.3)
 })
 
 test('both Veo entries are priced as KIE billed them — 65 a video — and per video, not per second', () => {

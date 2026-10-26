@@ -11,14 +11,16 @@
  *   docker compose exec -T api node db/reprice.js --apply         # write it
  *   docker compose exec -T api node db/reprice.js --margin 40     # a different profit margin (default 30)
  *   docker compose exec -T api node db/reprice.js --commission 15 # a different store commission (default 20)
+ *   docker compose exec -T api node db/reprice.js --add --apply   # also put a listed model with no row on sale
  *
  * What it does and does not touch:
  *
  *   • It works from KIE's price (KIE_COST in markup.js), never from the price a row holds now, so running
  *     it twice changes nothing the second time — a row cannot be marked up twice.
  *   • Only models listed in KIE_COST are repriced. Any other row, and a row whose unit differs from KIE's,
- *     is left as it is and named in the output. A listed model with no row is named too: it stays
- *     unavailable until someone adds a row in the admin panel (or gives this a reason to).
+ *     is left as it is and named in the output. A listed model with no row is named too, and stays
+ *     unavailable (the app is refused it) until a row exists: add one in the admin panel, or run this with
+ *     --add, which creates it switched on at the computed price. Nothing is put on sale without --add.
  *   • Prices change at once: the server reads the table on every request, so there is nothing to restart.
  *   • Balances are not touched. Credits already held simply buy less, as they would after any price rise.
  *   • The change is written to the audit log as the doing of the server console, with every old and new price.
@@ -53,10 +55,11 @@ export function shareFromPercent(text, name, max) {
 /**
  * What would change, from the rows as they are. Reads only.
  *
- * @param {{margin?: number, commission?: number}} opts  shares: 0.3 is 30%
+ * @param {{margin?: number, commission?: number, add?: boolean}} opts  shares: 0.3 is 30%; `add` also
+ *   plans a row for each listed model that has none (otherwise those are only named)
  * @param {Array<{model: string, unit: string, credits: string|number}>} rows  the rows of `model_prices`
  */
-export function plan({ margin = DEFAULT_MARGIN, commission = DEFAULT_COMMISSION } = {}, rows) {
+export function plan({ margin = DEFAULT_MARGIN, commission = DEFAULT_COMMISSION, add = false } = {}, rows) {
   const held = new Map(rows.map(r => [r.model, r]))
   const listed = new Set(KIE_COST.map(c => c.model))
 
@@ -64,9 +67,17 @@ export function plan({ margin = DEFAULT_MARGIN, commission = DEFAULT_COMMISSION 
   const same = []
   const skipped = []
   const missing = []
+  const additions = []
   for (const cost of KIE_COST) {
     const row = held.get(cost.model)
-    if (!row) { missing.push(cost.model); continue }
+    if (!row) {
+      missing.push(cost.model)
+      if (add) {
+        const to = userCredits(cost.kieCredits, { margin, commission })
+        additions.push({ model: cost.model, unit: cost.unit, kieCredits: cost.kieCredits, from: null, to, marginNew: marginOf(cost.kieCredits, to, { commission }) })
+      }
+      continue
+    }
     if (row.unit !== cost.unit) {
       skipped.push({ model: cost.model, reason: `its unit is ${row.unit}, and KIE bills it ${cost.unit}` })
       continue
@@ -81,42 +92,55 @@ export function plan({ margin = DEFAULT_MARGIN, commission = DEFAULT_COMMISSION 
     ;(from === to ? same : changes).push(entry)
   }
   const others = rows.filter(r => !listed.has(r.model)).map(r => ({ model: r.model, unit: r.unit, credits: Number(r.credits) }))
-  return { margin, commission, changes, same, skipped, missing, others }
+  return { margin, commission, changes, same, skipped, missing, additions, others }
 }
 
 /**
  * Work out the new prices and, when `apply` is true, write them — in one transaction that holds the rows
  * while it reads them, so a price an administrator changes at the same moment is neither lost nor mixed in.
  *
- * @returns {Promise<ReturnType<typeof plan> & {applied: boolean}>}
+ * With `add`, a listed model that has no row gets one (enabled, at the computed price): that is how a model
+ * the app offers but nobody has priced is put on sale. Without it such a model is only named.
+ *
+ * @returns {Promise<ReturnType<typeof plan> & {applied: boolean, added: object[]}>}
  */
-export async function reprice({ margin = DEFAULT_MARGIN, commission = DEFAULT_COMMISSION, apply = false } = {}) {
+export async function reprice({ margin = DEFAULT_MARGIN, commission = DEFAULT_COMMISSION, apply = false, add = false } = {}) {
   priceMultiplier({ margin, commission })   // refuses a margin or commission that makes no sense, before any query
 
   if (!apply) {
-    return { ...plan({ margin, commission }, await many('select model, unit, credits from model_prices')), applied: false }
+    return { ...plan({ margin, commission, add }, await many('select model, unit, credits from model_prices')), applied: false, added: [] }
   }
   return transaction(async client => {
     const { rows } = await client.query('select model, unit, credits from model_prices for update')
-    const result = plan({ margin, commission }, rows)
+    const result = plan({ margin, commission, add }, rows)
     for (const c of result.changes) {
       // updated_by cleared: the panel shows who last edited a price, and it was not the person it names now.
       await client.query('update model_prices set credits = $2, updated_by = null where model = $1', [c.model, c.to])
     }
-    if (result.changes.length) {
+    // A row someone else adds at the same moment is theirs: `do nothing`, and it is not reported as added.
+    const added = []
+    for (const a of result.additions) {
+      const { rowCount } = await client.query(
+        'insert into model_prices (model, unit, credits, enabled) values ($1, $2, $3, true) on conflict (model) do nothing',
+        [a.model, a.unit, a.to],
+      )
+      if (rowCount) added.push(a)
+    }
+    if (result.changes.length || added.length) {
       await audit(
         { id: null, email: 'the server console' }, 'price.console-reprice',
         {
-          targetType: 'model_prices', targetId: `${result.changes.length} prices`,
+          targetType: 'model_prices', targetId: `${result.changes.length + added.length} prices`,
           details: {
             margin, commission, by: 'the server console',
             prices: Object.fromEntries(result.changes.map(c => [c.model, { kieCredits: c.kieCredits, from: c.from, to: c.to }])),
+            ...(added.length ? { added: Object.fromEntries(added.map(a => [a.model, { kieCredits: a.kieCredits, to: a.to }])) } : {}),
           },
         },
         client,
       )
     }
-    return { ...result, applied: true }
+    return { ...result, applied: true, added }
   })
 }
 
@@ -124,40 +148,46 @@ const pct = share => (Number.isFinite(share) ? `${Math.round(share * 100)}%` : '
 
 /** The table, as lines of text. */
 export function describe(result) {
-  const { margin, commission, changes, same, skipped, missing, others } = result
+  const { margin, commission, changes, same, skipped, missing, additions = [], others } = result
   const lines = []
   lines.push(
     `Profit margin ${pct(margin)}, store commission ${pct(commission)}, worst-case pack $${WORST_USD_PER_CREDIT} a credit (KIE: $${KIE_USD_PER_CREDIT}).`,
     `One KIE credit is charged as ${priceMultiplier({ margin, commission }).toFixed(3)} of ours (break even ${breakEvenMultiplier({ commission }).toFixed(3)}), rounded up to whole credits.`,
     '',
   )
-  const all = [...changes, ...same].sort((a, b) => a.model.localeCompare(b.model))
+  const all = [...changes, ...same, ...additions].sort((a, b) => a.model.localeCompare(b.model))
   if (all.length) {
     const w = Math.max(5, ...all.map(c => c.model.length))
     // Column widths from the numbers themselves: a price like 13.334 is wider than 18.
-    const n = Math.max(3, ...all.flatMap(c => [c.kieCredits, c.from, c.to].map(v => String(v).length)))
+    const n = Math.max(3, ...all.flatMap(c => [c.kieCredits, c.from ?? '-', c.to].map(v => String(v).length)))
     lines.push(`${'model'.padEnd(w)}  ${'unit'.padEnd(10)}  ${'KIE'.padStart(n)}  ${'now'.padStart(n)}  ${'new'.padStart(n)}  profit now → new`)
     for (const c of all) {
+      const isNew = c.from === null
       lines.push(
-        `${c.model.padEnd(w)}  ${c.unit.padEnd(10)}  ${String(c.kieCredits).padStart(n)}  ${String(c.from).padStart(n)}  ${String(c.to).padStart(n)}  ${pct(c.marginNow).padStart(6)} → ${pct(c.marginNew)}` +
-        (c.from === c.to ? '   (already this price)' : ''),
+        `${c.model.padEnd(w)}  ${c.unit.padEnd(10)}  ${String(c.kieCredits).padStart(n)}  ${(isNew ? '-' : String(c.from)).padStart(n)}  ${String(c.to).padStart(n)}  ` +
+        `${(isNew ? '-' : pct(c.marginNow)).padStart(6)} → ${pct(c.marginNew)}` +
+        (isNew ? '   (no row yet: will be added, switched on)' : c.from === c.to ? '   (already this price)' : ''),
       )
     }
   }
-  const image = all.find(c => c.unit === 'per_image')
+  const image = all.find(c => c.unit === 'per_image' && c.from !== null)
   if (image) {
     lines.push('', `The 5,000-credit pack then buys about ${Math.floor(5000 / image.to)} images (${Math.floor(5000 / image.from)} before).`)
   }
   for (const s of skipped) lines.push(`Left alone: ${s.model} — ${s.reason}.`)
-  if (missing.length) lines.push(`No price row, so unavailable until one is added in the admin panel: ${missing.join(', ')}.`)
+  const unplanned = missing.filter(m => !additions.some(a => a.model === m))
+  if (unplanned.length) {
+    lines.push(`No price row, so unavailable until one is added (here with --add, or in the admin panel): ${unplanned.join(', ')}.`)
+  }
   if (others.length) lines.push(`Not worked out here, left as they are: ${others.map(o => `${o.model} (${o.credits})`).join(', ')}.`)
   return lines
 }
 
-const USAGE = `Usage: node db/reprice.js [--margin 30] [--commission 20] [--apply]
+const USAGE = `Usage: node db/reprice.js [--margin 30] [--commission 20] [--add] [--apply]
 
   --margin      the share of revenue to keep, in percent (default ${DEFAULT_MARGIN * 100})
   --commission  the store's share of each sale, in percent (default ${DEFAULT_COMMISSION * 100})
+  --add         also create a row, switched on, for each listed model that has none (it goes on sale)
   --apply       write the prices. Without it nothing is changed: it only shows what would be.
 `
 
@@ -167,6 +197,7 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--apply') opts.apply = true
+    else if (arg === '--add') opts.add = true
     else if (arg === '--help' || arg === '-h') opts.help = true
     else if (arg === '--margin' || arg === '--commission') {
       const value = argv[++i]
@@ -191,12 +222,17 @@ export async function main({ argv = process.argv.slice(2), out = console.log, er
     const result = await reprice(opts)
     for (const line of describe(result)) out(line)
     out('')
+    const plural = n => `${n} price${n === 1 ? '' : 's'}`
     if (result.applied) {
-      out(result.changes.length
-        ? `Done: ${result.changes.length} price${result.changes.length === 1 ? '' : 's'} changed, live now. Running it again changes nothing.`
+      const parts = [
+        result.changes.length ? `${plural(result.changes.length)} changed` : null,
+        result.added.length ? `${result.added.length} model${result.added.length === 1 ? '' : 's'} put on sale` : null,
+      ].filter(Boolean)
+      out(parts.length
+        ? `Done: ${parts.join(' and ')}, live now. Running it again changes nothing.`
         : 'Nothing to change: every price is already at this margin.')
     } else {
-      out(result.changes.length
+      out(result.changes.length || result.additions.length
         ? 'This was only a preview — nothing was changed. Add --apply to write these prices.'
         : 'Nothing would change: every price is already at this margin.')
     }

@@ -341,10 +341,14 @@ app ──createTask──► /api/kie ──gate: take the price──► KIE �
   ×1.79 to break even, ×2.55 for a 30% margin, ×2.98 for 40%. The margin is a share of revenue, and the
   base is the worst-priced pack, so every pack earns at least the target. At 30% (the default) the image
   model costs 46, Kling 3.0 52 a second, Motion Copy 52 (720p) and 69 (1080p) a second, a Veo video 166, and
-  so on for all 23 models the app offers (the preview of `db/reprice.js` lists them).
+  so on for all 24 models the app offers (the preview of `db/reprice.js` lists them). Seedance 2.5 is 404 a
+  second (KIE: 158, so 1,616 for the shortest 4 s video and 6,060 for the default 15 s).
 - **Repricing** (`db/reprice.js`, on the server, from the backend folder):
   `docker compose exec -T api node db/reprice.js` shows what would change and changes nothing;
-  add `--apply` to write it; `--margin 40` and `--commission 15` change the two assumptions. It works
+  add `--apply` to write it; `--margin 40` and `--commission 15` change the two assumptions;
+  `--add` also creates a row, switched on, for a listed model that has none (that is how Seedance 2.5 is put
+  on sale: `node db/reprice.js --add --apply`; without `--add` such a model is only named and the app is
+  refused it). It works
   from KIE's own prices (`KIE_COST` in `markup.js`, with where each came from), never from the price a row
   holds, so running it twice changes nothing. Only the models listed there are touched; every other row,
   and any row whose unit is not KIE's, is left alone and named. The change is live at once (the table is
