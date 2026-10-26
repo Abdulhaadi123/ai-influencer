@@ -142,6 +142,17 @@ the server checks the caller owns it. **Never persist a presigned URL.**
   Anything handed to KIE goes through `urlForGeneration`, re-signed for two hours.
 - Generated media is copied into S3 by the server (`ingest`), so a phone that
   dies mid-download does not lose paid work.
+- **A big picture always gets its small preview.** A generated image is a 2K file of
+  several megabytes (a PNG was 9.7 MB before image jobs asked KIE for JPEG); on a phone
+  connection a frame drawn only from it sat empty for ten seconds or more, while the
+  gallery showed the same picture at once from its preview. So `MediaImage` takes a
+  `previewUri` and draws it underneath until the full file has loaded, and every large
+  view passes one: the Create preview, the Profile hero (`mainThumb`), the reference
+  sheets (the asset's `thumbUrlFor`), the full-screen viewer and the gallery lightbox
+  (`thumbUrl`). For a result that has only just finished there is no stored preview yet:
+  `quickPreview({ sourceUrl, taskId })` asks the server for one made from KIE's link
+  (backend `api/storage/quick-preview.js`, about a second), and `waitForPreview(assetId)`
+  picks up the stored one after `ingest`. Whichever arrives first stays.
 
 ## Generation
 

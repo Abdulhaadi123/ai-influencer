@@ -12,14 +12,14 @@
  * blocking the other two behind it would be needless.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 
 import { Alert } from '../lib/dialog'
 
 import { IDENTITY_SLOTS, generateIdentityRef, NO_MAIN_IMAGE } from '@core/identityRefs'
 import { STILL_RUNNING } from '@core/services/generation'
-import { uploadLocal } from '@core/data/assets'
+import { uploadLocal, thumbUrlFor, waitForPreview, quickPreview } from '@core/data/assets'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { userMessage } from '@core/errors'
 import { useInfluencers } from '@core/store'
@@ -68,6 +68,10 @@ function RefSlot({ slot, influencer }) {
   const source = fresh && (storing || fresh.assetId === null || fresh.assetId === influencer[slot.assetField])
     ? fresh.url
     : isServable(value) ? value : null
+  // The same sheet small. The full file is megabytes, and the card stayed an empty frame while it
+  // came down, though the gallery showed the very same sheet at once from its preview.
+  const storedPreview = usePreviewOf(influencer[slot.assetField])
+  const preview = fresh && source === fresh.url ? fresh.thumbUrl ?? null : storedPreview
 
   /**
    * Point the slot at an asset, and record it in the gallery.
@@ -102,13 +106,19 @@ function RefSlot({ slot, influencer }) {
       setFresh({ url, assetId: null })
       setBusy(false)
       setStoring(true)
+      // A small picture of it within a second or so, while the full file comes down (MediaImage).
+      const giveThumb = match => thumbUrl => {
+        if (thumbUrl) setFresh(f => (f && match(f) && !f.thumbUrl ? { ...f, thumbUrl } : f))
+      }
+      quickPreview({ sourceUrl: url, taskId }).then(giveThumb(f => f.url === url))
       try {
         // KIE deletes result URLs within a day, so the server copies the file
         // into this user's storage — same as every other generated file.
         const { assetId } = await persistGenerated({
           sourceUrl: url, kind: 'image', influencerId: influencer.id,
         })
-        setFresh({ url, assetId })
+        setFresh(f => ({ ...(f?.url === url ? f : null), url, assetId }))
+        waitForPreview(assetId).then(giveThumb(f => f.assetId === assetId))
         await save(assetId)
       } catch (e) {
         // Not stored (refused by the content check, or the copy failed): the previous sheet comes back.
@@ -202,15 +212,17 @@ function RefSlot({ slot, influencer }) {
         >
           <MediaImage
             uri={source}
+            previewUri={preview}
             style={[styles.preview, { aspectRatio: previewRatio(slot.aspectRatio), backgroundColor: colors.surfaceAlt }]}
             contentFit="contain"
+            loadingIndicator
           />
           <View style={styles.expand} pointerEvents="none">
             <Icon name="expand" size={16} color="#FFFFFF" />
           </View>
         </Pressable>
       ) : null}
-      <ImageViewer uri={viewing ? source : null} title={`${influencer.name || ''} · ${slot.label}`} onClose={() => setViewing(false)} />
+      <ImageViewer uri={viewing ? source : null} previewUri={preview} title={`${influencer.name || ''} · ${slot.label}`} onClose={() => setViewing(false)} />
 
       {busy || pendingTaskId ? (
         <View style={[styles.progressBox, { borderColor: colors.border }]}>
@@ -256,6 +268,24 @@ function RefSlot({ slot, influencer }) {
       {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
     </View>
   )
+}
+
+/**
+ * A stored file's small preview: from the link cache when the roster's last signing brought one,
+ * otherwise asked for (a sheet set moments ago, before the server had made its preview).
+ */
+function usePreviewOf(assetId) {
+  const cached = assetId ? thumbUrlFor(assetId) : null
+  const [asked, setAsked] = useState({ id: null, url: null })
+  useEffect(() => {
+    if (!assetId || cached) return undefined
+    let left = false
+    waitForPreview(assetId, { isCancelled: () => left }).then(url => {
+      if (url && !left) setAsked({ id: assetId, url })
+    })
+    return () => { left = true }
+  }, [assetId, cached])
+  return cached ?? (asked.id === assetId ? asked.url : null)
 }
 
 /** "16:9" -> 16/9, so each sheet previews at the shape it was generated in. */

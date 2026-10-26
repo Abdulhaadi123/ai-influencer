@@ -30,6 +30,7 @@
 import { apiFetch } from '../api/client'
 import { AppError } from '../errors'
 import { uploadToPresignedUrl, getByteSize } from '../platform/uploader'
+import { waitFor } from './previewWait'
 
 /** The server's cap per download-url request (backend/api/storage/download-url.js). */
 const MAX_IDS_PER_REQUEST = 100
@@ -219,6 +220,19 @@ export async function fetchPreview(assetId) {
   return thumbUrlFor(assetId)
 }
 
+/**
+ * The preview of a file stored moments ago, asked for at once and then quickly a few more times
+ * (core/data/previewWait.js) — for a screen showing the big picture while its full file downloads.
+ *
+ * @param {string} assetId
+ * @param {{isCancelled?: () => boolean}} [options]
+ * @returns {Promise<string|null>}
+ */
+export function waitForPreview(assetId, options) {
+  if (!assetId) return Promise.resolve(null)
+  return waitFor(() => fetchPreview(assetId), options)
+}
+
 /** Whether a URL this session was handed is a preview rather than the file itself. */
 export function isThumbUrl(url) {
   return typeof url === 'string' && thumbUrls.has(url)
@@ -252,6 +266,34 @@ export async function ingestRemote({ sourceUrl, kind, influencerId = null, conte
 
   if (!json?.assetId) throw new AppError('The file could not be saved. Please try again.')
   return { assetId: json.assetId, reused: !!json.reused }
+}
+
+/**
+ * A small picture of an image that has just finished, from the generator's link (backend
+ * api/storage/quick-preview.js): the stored file's preview when the server already has it, otherwise
+ * one the server makes there and then, in a second or so. The full file is megabytes and takes
+ * several seconds more on a phone connection; this fills the frame meanwhile.
+ *
+ * Never throws: with no preview to be had (an older server without the endpoint, a network hiccup)
+ * the screen simply waits for the full picture, as it always did.
+ *
+ * @param {{sourceUrl: string, taskId?: string|null}} input  taskId: the job's, so the server can confirm
+ *        the link is this account's even before the job's row has heard that it finished
+ * @returns {Promise<string|null>} a URL to show (a signed link or a data: URL), or null
+ */
+export async function quickPreview({ sourceUrl, taskId = null }) {
+  if (!sourceUrl) return null
+  try {
+    const json = await apiFetch('/api/storage/quick-preview', {
+      method: 'POST',
+      body: { sourceUrl, ...(taskId ? { taskId } : {}) },
+      timeoutMs: 30_000,
+    })
+    return typeof json?.url === 'string' && json.url ? json.url : null
+  } catch (e) {
+    console.warn('[assets] no quick preview:', e?.message ?? e)
+    return null
+  }
 }
 
 /**

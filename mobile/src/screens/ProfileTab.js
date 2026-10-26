@@ -29,7 +29,7 @@ import { getNiches } from '@core/niches'
 import { INPUT_LIMITS, cleanAge, ageProblem } from '@core/config/inputLimits'
 import { regenerateMainImage, NO_CREATION_PARAMS } from '@core/regenerate'
 import { STILL_RUNNING } from '@core/services/generation'
-import { uploadLocal, remove as removeAsset } from '@core/data/assets'
+import { uploadLocal, remove as removeAsset, waitForPreview, quickPreview } from '@core/data/assets'
 import { assetUses } from '@core/data/influencers'
 import { hasActiveJobs } from '@core/data/jobs'
 import { isInGallery } from '@core/data/generations'
@@ -60,6 +60,8 @@ export default function ProfileTab({ influencer, navigation }) {
   const heroSource = fresh && (storingHero || fresh.assetId === null || fresh.assetId === influencer.mainAssetId)
     ? fresh.url
     : isServable(influencer.mainImage) ? influencer.mainImage : null
+  // The same picture small, drawn at once while the full file (megabytes) comes down.
+  const heroPreview = fresh && heroSource === fresh.url ? fresh.thumbUrl ?? null : influencer.mainThumb ?? null
 
   const [viewingHero, setViewingHero] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
@@ -138,13 +140,19 @@ export default function ProfileTab({ influencer, navigation }) {
       setFresh({ url, assetId: null })
       setRegenerating(false)
       setStoringHero(true)
+      // A small picture of it within a second or so, while the full file comes down (MediaImage).
+      const giveThumb = match => thumbUrl => {
+        if (thumbUrl) setFresh(f => (f && match(f) && !f.thumbUrl ? { ...f, thumbUrl } : f))
+      }
+      quickPreview({ sourceUrl: url, taskId }).then(giveThumb(f => f.url === url))
       try {
         // KIE's result URLs expire within a day, so the server copies the file
         // into this user's storage before it becomes the influencer's main image.
         const { assetId } = await persistGenerated({
           sourceUrl: url, kind: 'image', influencerId: influencer.id,
         })
-        setFresh({ url, assetId })
+        setFresh(f => ({ ...(f?.url === url ? f : null), url, assetId }))
+        waitForPreview(assetId).then(giveThumb(f => f.assetId === assetId))
         await setMainImage(assetId)
       } catch (e) {
         // Not stored (refused by the content check, or the copy failed): the old image comes back.
@@ -246,9 +254,9 @@ export default function ProfileTab({ influencer, navigation }) {
                   accessibilityRole="imagebutton"
                   accessibilityLabel="Main image, open full screen"
                 >
-                  <MediaImage uri={heroSource} style={styles.hero} contentFit="cover" />
+                  <MediaImage uri={heroSource} previewUri={heroPreview} style={styles.hero} contentFit="cover" loadingIndicator />
                 </Pressable>
-                <ImageViewer uri={viewingHero ? heroSource : null} title={influencer.name} onClose={() => setViewingHero(false)} />
+                <ImageViewer uri={viewingHero ? heroSource : null} previewUri={heroPreview} title={influencer.name} onClose={() => setViewingHero(false)} />
                 {regenerating || pendingTaskId ? (
                   <View style={styles.heroOverlay}>
                     <ActivityIndicator size="large" color="#FFFFFF" />

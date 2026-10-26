@@ -20,7 +20,7 @@ import {
 import { useInfluencers } from '@core/store'
 import { generateThreeImages, STILL_RUNNING } from '@core/services/generation'
 import { IMAGE_MODEL_ID } from '@core/config/generation'
-import { uploadLocal, resolveUrl, remove as removeAsset } from '@core/data/assets'
+import { uploadLocal, resolveUrl, remove as removeAsset, waitForPreview, quickPreview } from '@core/data/assets'
 import { COPY_ATTRIBUTES, buildImagePrompts } from '@core/prompts/influencerPrompts'
 import { buildNewInfluencer, buildCreationParams } from '@core/newInfluencer'
 import { INPUT_LIMITS, MAX_INFLUENCERS, MIN_AGE, MAX_AGE, cleanAge, ageProblem } from '@core/config/inputLimits'
@@ -80,7 +80,8 @@ export default function CreateScreen({ navigation }) {
 
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
-  /** [{ assetId, url }] — the asset is the durable reference, the url is for display. */
+  /** [{ assetId, url, thumbUrl? }] — the asset is the durable reference, the url is for display, the
+   *  thumbUrl its small preview once the server has made one. */
   const [variations, setVariations] = useState([])
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [error, setError] = useState(null)
@@ -100,6 +101,27 @@ export default function CreateScreen({ navigation }) {
   useEffect(() => { dataRef.current = data }, [data])
 
   const set = useCallback((key, value) => setData(d => ({ ...d, [key]: value })), [])
+
+  /**
+   * Give the variation `match` picks a small preview, drawn under it while its full file comes down
+   * (megabytes, seconds on a phone connection; the preview is tens of kilobytes). The first preview
+   * to arrive stays: the quick one from the generator's link or the stored file's, the same picture.
+   */
+  const giveThumb = useCallback((match, thumbUrl) => {
+    if (!thumbUrl || cancelledRef.current) return
+    if (!variationsRef.current.some(v => match(v) && !v.thumbUrl)) return
+    variationsRef.current = variationsRef.current.map(v => (match(v) && !v.thumbUrl ? { ...v, thumbUrl } : v))
+    setVariations(variationsRef.current)
+  }, [])
+
+  /** The stored file's preview, for a variation that has none yet. */
+  const attachPreview = useCallback(assetId => {
+    if (!assetId) return
+    const needed = () => !cancelledRef.current && variationsRef.current.some(v => v.assetId === assetId && !v.thumbUrl)
+    if (!needed()) return
+    waitForPreview(assetId, { isCancelled: () => !needed() })
+      .then(thumbUrl => giveThumb(v => v.assetId === assetId, thumbUrl))
+  }, [giveThumb])
 
   const canContinue = useMemo(() => {
     if (atLimit) return false
@@ -213,14 +235,20 @@ export default function CreateScreen({ navigation }) {
       setSelectedIdx(0)
       setGenerating(false)
       setStoring(true)
+      // The same picture small, made by the server from the generator's link in a second or so,
+      // so the frame is not empty while the full file comes down to the phone.
+      quickPreview({ sourceUrl: generated, taskId }).then(thumbUrl => giveThumb(v => v.url === generated, thumbUrl))
       try {
         // KIE deletes results within a day, so the server copies the file into this user's
         // storage — and marks the queue row collected in the same request.
         const { assetId } = await persistGenerated({ sourceUrl: generated, kind: 'image' })
         if (cancelledRef.current) return
-        // The link already loaded stays on screen, so the picture is not fetched a second time.
-        variationsRef.current = [{ assetId, url: generated }]
+        // The link already loaded stays on screen, so the picture is not fetched a second time;
+        // a preview that arrived meanwhile stays with it.
+        const shown = variationsRef.current.find(v => v.url === generated)
+        variationsRef.current = [{ ...shown, assetId, url: generated }]
         setVariations(variationsRef.current)
+        attachPreview(assetId)
         // The image this one replaces can never be chosen again; it goes now that this one is safe.
         before.forEach(v => discardAsset(v.assetId))
       } catch (e) {
@@ -245,7 +273,7 @@ export default function CreateScreen({ navigation }) {
     } finally {
       setGenerating(false)
     }
-  }, [data, showVariation])
+  }, [data, showVariation, attachPreview, giveThumb])
 
   // Wait on a generation that outlived the foreground poll, so the image still
   // lands here rather than only in the Queue.
@@ -255,6 +283,7 @@ export default function CreateScreen({ navigation }) {
       setPendingTaskId(null)
       setError(null)
       showVariation({ assetId, url })
+      attachPreview(assetId)
     },
     onFailed: message => {
       setPendingTaskId(null)
@@ -603,12 +632,17 @@ function GenerateStep({ generating, progress, variations, selectedIdx, onSelect,
                 { borderColor: i === selectedIdx ? colors.primary : 'transparent' },
               ]}
             >
-              <MediaImage uri={variation.url} style={styles.variationImage} contentFit="cover" loadingIndicator />
+              <MediaImage uri={variation.url} previewUri={variation.thumbUrl} style={styles.variationImage} contentFit="cover" loadingIndicator />
             </Pressable>
           ))}
         </View>
       </GlassCard>
-      <ImageViewer uri={viewing} title="Preview" onClose={() => setViewing(null)} />
+      <ImageViewer
+        uri={viewing}
+        previewUri={variations.find(v => v.url === viewing)?.thumbUrl}
+        title="Preview"
+        onClose={() => setViewing(null)}
+      />
 
       <View style={styles.afterCard}>
         {error ? <Notice tone="error">{error}</Notice> : null}

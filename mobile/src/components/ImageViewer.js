@@ -28,9 +28,10 @@ const distance = ([a, b]) => Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY)
 /**
  * The picture, zoomable inside whatever box it is given.
  *
- * @param {{uri: string, contentFit?: 'contain'|'cover', accessibilityLabel?: string}} props
+ * @param {{uri: string, previewUri?: string|null, contentFit?: 'contain'|'cover', accessibilityLabel?: string}} props
+ *        previewUri  the file's small preview, shown at once while the full file loads (MediaImage)
  */
-export function ZoomableImage({ uri, contentFit = 'contain', accessibilityLabel }) {
+export function ZoomableImage({ uri, previewUri = null, contentFit = 'contain', accessibilityLabel }) {
   const scale = useRef(new Animated.Value(1)).current
   const tx = useRef(new Animated.Value(0)).current
   const ty = useRef(new Animated.Value(0)).current
@@ -123,7 +124,7 @@ export function ZoomableImage({ uri, contentFit = 'contain', accessibilityLabel 
       {...responder.panHandlers}
     >
       <Animated.View style={[styles.fill, { transform: [{ translateX: tx }, { translateY: ty }, { scale }] }]} pointerEvents="none">
-        <MediaImage uri={uri} style={styles.fill} contentFit={contentFit} accessibilityLabel={accessibilityLabel} />
+        <MediaImage uri={uri} previewUri={previewUri} style={styles.fill} contentFit={contentFit} accessibilityLabel={accessibilityLabel} loadingIndicator />
       </Animated.View>
     </View>
   )
@@ -132,9 +133,10 @@ export function ZoomableImage({ uri, contentFit = 'contain', accessibilityLabel 
 /**
  * The picture over everything, on black, with a Done button.
  *
- * @param {{uri: string|null, title?: string, onClose: () => void}} props  visible while `uri` is set
+ * @param {{uri: string|null, previewUri?: string|null, title?: string, onClose: () => void}} props
+ *        visible while `uri` is set; `previewUri` is drawn until the full file has loaded
  */
-export default function ImageViewer({ uri, title, onClose }) {
+export default function ImageViewer({ uri, previewUri = null, title, onClose }) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   // The URL as it was when opened: the roster re-signs URLs every few minutes, and a new one
@@ -146,7 +148,7 @@ export default function ImageViewer({ uri, title, onClose }) {
   return (
     <Modal visible={!!uri} animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.page}>
-        {shown ? <ZoomableImage uri={shown} accessibilityLabel={title} /> : null}
+        {shown ? <ZoomableImage uri={shown} previewUri={previewUri} accessibilityLabel={title} /> : null}
         <View style={[styles.bar, { paddingTop: insets.top + space.sm }]} pointerEvents="box-none">
           <Text style={[styles.title, font('semibold')]} numberOfLines={1}>{title || ''}</Text>
           <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close" style={styles.done}>

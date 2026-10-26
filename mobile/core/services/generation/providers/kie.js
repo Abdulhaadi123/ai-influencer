@@ -532,7 +532,11 @@ async function launchImageJob(prompt, imageUrls, aspectRatio) {
     prompt: capPrompt(prompt),
     aspect_ratio: aspectRatio,
     resolution: '2K',
-    output_format: 'png',
+    // JPEG, not PNG. These are photographs, and a 2K PNG of one is about 10 MB (a main image stored on
+    // 2026-10-26: 9.7 MB) — ten to fifteen seconds on a phone connection before the preview appeared.
+    // The same 1536×2752 picture as KIE's JPEG is 3.7 MB, looks the same, and every later step (the
+    // server's copy, the content check, storage, the phone's download) moves less than half the bytes.
+    output_format: 'jpg',
   }
   const refs = (imageUrls || []).filter(Boolean)
   if (refs.length) input.image_input = refs

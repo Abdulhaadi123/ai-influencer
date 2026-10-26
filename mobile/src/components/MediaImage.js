@@ -35,45 +35,75 @@ export function mediaImageSource(uri) {
 }
 
 /**
- * @param {{uri: string|null|undefined, style?: any, contentFit?: 'cover'|'contain'|'fill'|'none'|'scale-down',
- *          transition?: number, loadingIndicator?: boolean, accessibilityLabel?: string}} props
- *        loadingIndicator  show a spinner until the first frame arrives — for a big picture the
- *                          person is waiting on (a blank frame looked like a failure)
+ * @param {{uri: string|null|undefined, previewUri?: string|null, style?: any,
+ *          contentFit?: 'cover'|'contain'|'fill'|'none'|'scale-down', transition?: number,
+ *          loadingIndicator?: boolean, accessibilityLabel?: string}} props
+ *        previewUri        the same picture small (the file's preview, a few tens of kilobytes),
+ *                          drawn at once underneath while the full file — megabytes — comes down.
+ *                          A main image or a reference sheet used to sit blank for ten seconds or
+ *                          more on a phone connection, while the gallery showed the same picture
+ *                          straight away from its preview.
+ *        loadingIndicator  show a spinner until the first frame arrives (the preview's or the
+ *                          file's) — for a big picture the person is waiting on, where a blank frame
+ *                          looked like a failure
  */
-export default function MediaImage({ uri, style, contentFit = 'cover', transition = 150, loadingIndicator = false, ...rest }) {
+export default function MediaImage({ uri, previewUri = null, style, contentFit = 'cover', transition = 150, loadingIndicator = false, ...rest }) {
   const source = mediaImageSource(uri)
   const key = source ? source.cacheKey ?? source.uri : null
+  const preview = previewUri && previewUri !== uri ? mediaImageSource(previewUri) : null
+  const previewKey = preview ? preview.cacheKey ?? preview.uri : null
   // Which picture has loaded — not a boolean, so a different picture shows the spinner again
   // while a re-signed URL for the same one does not.
   const [loadedKey, setLoadedKey] = useState(null)
+  const [previewLoadedKey, setPreviewLoadedKey] = useState(null)
 
   if (!source) return <View style={style} />
 
+  const layered = loadingIndicator || !!preview
   const image = (
     <Image
       source={source}
-      style={loadingIndicator ? StyleSheet.absoluteFill : style}
+      style={layered ? StyleSheet.absoluteFill : style}
       contentFit={contentFit}
       cachePolicy="memory-disk"
       // Re-signing changes the URL but not the picture; keyed on the asset, the view is reused
       // instead of fading the same image in again.
       recyclingKey={key}
       transition={transition}
-      onLoad={loadingIndicator ? () => setLoadedKey(key) : undefined}
-      onError={loadingIndicator ? () => setLoadedKey(key) : undefined}
+      onLoad={layered ? () => setLoadedKey(key) : undefined}
+      onError={layered ? () => setLoadedKey(key) : undefined}
       {...rest}
     />
   )
-  if (!loadingIndicator) return image
+  if (!layered) return image
+
+  const waiting = loadedKey !== key && !(previewKey && previewLoadedKey === previewKey)
 
   return (
     <View style={[style, styles.frame]}>
+      {preview ? (
+        // Stays under the full picture once that has loaded: taking it away at that moment would
+        // show the frame's empty background through the full picture's fade-in.
+        <Image
+          source={preview}
+          style={StyleSheet.absoluteFill}
+          contentFit={contentFit}
+          cachePolicy="memory-disk"
+          recyclingKey={previewKey}
+          transition={0}
+          onLoad={() => setPreviewLoadedKey(previewKey)}
+          accessible={false}
+        />
+      ) : null}
       {image}
-      {loadedKey === key ? null : (
+      {loadingIndicator && waiting ? (
         <View style={[StyleSheet.absoluteFill, styles.center]} pointerEvents="none">
-          <ActivityIndicator color="#FFFFFF" />
+          {/* On a dark chip, so it shows on the light lavender of an empty frame as well as on a photo. */}
+          <View style={styles.spinnerChip}>
+            <ActivityIndicator color="#FFFFFF" />
+          </View>
         </View>
-      )}
+      ) : null}
     </View>
   )
 }
@@ -87,4 +117,9 @@ export function clearMediaImageCache() {
 const styles = StyleSheet.create({
   frame: { overflow: 'hidden' },
   center: { alignItems: 'center', justifyContent: 'center' },
+  spinnerChip: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(8,3,83,0.45)',
+  },
 })

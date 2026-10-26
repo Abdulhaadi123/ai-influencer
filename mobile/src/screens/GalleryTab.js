@@ -366,7 +366,8 @@ function Lightbox({ entry, influencerName, onClose, onShare, onReport, onDelete 
           {entry ? (
             (entry.type || 'video') === 'video'
               ? <LightboxVideo uri={entry.url} />
-              : <ZoomableImage uri={entry.url} accessibilityLabel={entry.label || 'Image'} />
+              // The square's own preview, already on the phone, stands in while the full file loads.
+              : <ZoomableImage uri={entry.url} previewUri={entry.thumbUrl} accessibilityLabel={entry.label || 'Image'} />
           ) : null}
         </View>
 
