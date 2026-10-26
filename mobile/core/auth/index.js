@@ -20,10 +20,11 @@
  * ── What is said about an email that is already registered ───────────────────
  *
  * Sign-in never says which half was wrong ("Incorrect email or password."), and
- * forgot-password / resend answer "sent" whether or not the account exists. Do not
- * "improve" those. Sign-up is the exception: when the address already has an account
- * the server answers EMAIL_TAKEN and the form says so, because "check your email"
- * for a message that never comes is worse than the truth.
+ * resend answers "sent" whether or not the account exists. Do not "improve" those.
+ * Sign-up and forgot-password are the exceptions, by the owner's decision: an
+ * address that already has an account is refused at sign-up (EMAIL_TAKEN), and one
+ * with no account is refused at forgot-password (ACCOUNT_NOT_FOUND), because
+ * "check your email" for a message that never comes is worse than the truth.
  */
 
 import { apiFetch } from '../api/client'
@@ -44,6 +45,9 @@ export const EMAIL_NOT_CONFIRMED = 'EMAIL_NOT_CONFIRMED'
 
 /** `code` on the error signUp throws when the address already has an account. */
 export const EMAIL_TAKEN = 'EMAIL_TAKEN'
+
+/** `code` on the error requestPasswordReset throws when no account has the address. */
+export const ACCOUNT_NOT_FOUND = 'ACCOUNT_NOT_FOUND'
 
 /** @returns {string|null} a problem to show the user, or null when acceptable */
 export function validatePassword(password) {
@@ -126,7 +130,7 @@ export async function signOut() {
 
 // ── Emails ───────────────────────────────────────────────────────────────────
 
-/** Send a password-reset link. Answers the same whether or not the account exists. */
+/** Send a password-reset link. An address with no account throws an error with `code` ACCOUNT_NOT_FOUND. */
 export async function requestPasswordReset(email) {
   check(validateEmail(email))
   await apiFetch('/api/auth/forgot-password', { method: 'POST', auth: false, body: { email: normalise(email) } })

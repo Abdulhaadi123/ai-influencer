@@ -81,6 +81,10 @@ function toApp(row, urls, history = [], counts = null) {
     })),
 
     generationHistory: history,
+    // What the gallery's filters fetched beyond `history`, and where each list's
+    // paging stands (paging.js). A reloaded roster starts both afresh.
+    galleryExtra: [],
+    galleryPaging: {},
 
     /**
      * How much is in this influencer's gallery in total, against how much of it
@@ -109,10 +113,11 @@ export function toGalleryEntry(row, url, thumbUrl = thumbUrlFor(row.asset_id)) {
     thumbUrl: thumbUrl ?? null,
     assetId: row.asset_id,
     date: new Date(row.created_at).getTime(),
-    // The timestamp exactly as Postgres wrote it, for the paging cursor. `date`
-    // is milliseconds and a timestamptz has microseconds, so a cursor built
-    // from it could re-fetch or skip the row on the page boundary.
     createdAt: row.created_at,
+    // Where a page that ends with this entry continues (paging.js). Not built from
+    // `createdAt`: that is milliseconds, and entries saved together share a moment
+    // to the microsecond — a cursor cut short skipped all but one of them.
+    cursor: row.cursor ?? null,
   }
 }
 
@@ -207,6 +212,7 @@ export function assetIdsOf(record) {
     record?.closeUpImage1AssetId, record?.closeUpImage2AssetId,
     ...(record?.wardrobeSlots || []).map(slot => slot?.asset_id),
     ...(record?.generationHistory || []).map(entry => entry?.assetId),
+    ...(record?.galleryExtra || []).map(entry => entry?.assetId),
   ].filter(Boolean)
 }
 
@@ -245,14 +251,16 @@ export function withUrls(record, urls) {
     const image = swap(slot?.asset_id, slot?.image)
     return image === slot?.image ? slot : { ...slot, image }
   })
-  const generationHistory = (record.generationHistory || []).map(entry => {
+  const swapEntry = entry => {
     const url = swap(entry?.assetId, entry?.url)
     const thumbUrl = swapThumb(entry?.assetId, entry?.thumbUrl)
     return url === entry?.url && thumbUrl === (entry?.thumbUrl ?? null) ? entry : { ...entry, url, thumbUrl }
-  })
+  }
+  const generationHistory = (record.generationHistory || []).map(swapEntry)
+  const galleryExtra = (record.galleryExtra || []).map(swapEntry)
 
   if (!changed) return record
-  return { ...record, ...fields, wardrobeSlots, generationHistory }
+  return { ...record, ...fields, wardrobeSlots, generationHistory, galleryExtra }
 }
 
 /** Every asset id referenced by a set of rows, for one batched URL request. */

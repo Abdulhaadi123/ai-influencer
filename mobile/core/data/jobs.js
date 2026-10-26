@@ -35,8 +35,10 @@ export const ACTIVE_STATES = ['waiting', 'queuing', 'generating']
 /** KIE's retention window for a finished result. */
 export const RESULT_TTL_MS = 24 * 60 * 60 * 1000
 
-function toApp(row) {
+/** A job row from the server, as the app uses it. Rows from the change feed carry no `cursor`. */
+export function toApp(row) {
   return {
+    cursor: row.cursor ?? null,
     id: row.id,
     influencerId: row.influencer_id,
     taskId: row.kie_task_id,
@@ -81,6 +83,33 @@ export function isDeleted(job) {
 export async function listJobs({ limit = 60, activeOnly = false } = {}) {
   const { jobs } = await apiFetch(`/api/jobs?limit=${limit}${activeOnly ? '&active=1' : ''}`)
   return (jobs || []).map(toApp)
+}
+
+/** How many jobs the Queue shows per page. */
+export const QUEUE_PAGE = 20
+
+/**
+ * One page of the Queue, newest first. Pass the previous page's `nextCursor` to
+ * continue after it (core/data/paging.js).
+ *
+ * @param {object} [opts]
+ * @param {string|null} [opts.cursor]
+ * @param {boolean} [opts.summary]  also the account's totals — running, ready to save, the rest —
+ *   which a screen holding one page cannot count for itself
+ * @returns {Promise<{jobs: object[], hasMore: boolean, nextCursor: string|null,
+ *   summary: {active: number, ready: number, settled: number}|null}>}
+ */
+export async function listJobsPage({ cursor = null, summary = false, limit = QUEUE_PAGE } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) params.set('cursor', cursor)
+  if (summary) params.set('summary', '1')
+  const json = await apiFetch(`/api/jobs?${params.toString()}`)
+  return {
+    jobs: (json?.jobs || []).map(toApp),
+    hasMore: !!json?.hasMore,
+    nextCursor: json?.nextCursor ?? null,
+    summary: json?.summary ?? null,
+  }
 }
 
 /** One job by its KIE task id, or null. */

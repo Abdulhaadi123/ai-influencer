@@ -1,23 +1,27 @@
 /**
  * Forgot password — request a reset link.
  *
- * This screen reports the same thing whether or not an account exists. That is
- * not vagueness for its own sake: a forgot-password form that says "no account
- * with that email" is a free account-enumeration oracle, and enumerating which
- * addresses are registered is the reconnaissance step before a targeted
- * phishing or credential-stuffing attempt.
- *
- * So the confirmation is phrased carefully — "if there is an account, a link is
- * on its way" — which is honest to a real user and useless to someone probing.
+ * An address with no account is refused here, on the email field, with a way to
+ * sign up — the owner's decision. Saying "if there is an account, a link is on its
+ * way" left someone who mistyped their address waiting for an email that would
+ * never come. The cost is that this form tells anyone whether an address is
+ * registered; the server's limits (per address and per device, counted before it
+ * looks) keep that slow.
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { View } from 'react-native'
+import { View, StyleSheet } from 'react-native'
 
 import { useAuth } from '@core/auth/AuthContext'
+import { ACCOUNT_NOT_FOUND } from '@core/auth'
 import { userMessage } from '@core/errors'
 
+import { space } from '../../theme'
 import { AuthShell, Field, PrimaryButton, LinkButton, FormError, FormNotice, emailProps } from './parts'
+
+const styles = StyleSheet.create({
+  missingActions: { marginTop: space.md, gap: space.xs },
+})
 
 export default function ForgotPasswordScreen({ navigation, route }) {
   const { requestPasswordReset } = useAuth()
@@ -29,22 +33,27 @@ export default function ForgotPasswordScreen({ navigation, route }) {
   const [sent, setSent] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  // The address that has no account. Kept as the address, not a flag, so editing it clears
+  // the message and typing it back brings nothing stale.
+  const [missingEmail, setMissingEmail] = useState(null)
+  const missing = missingEmail !== null && missingEmail === email.trim().toLowerCase()
 
   const submit = useCallback(async () => {
-    if (busy) return
+    if (busy || missing) return
     setBusy(true)
     setError(null)
+    setMissingEmail(null)
     try {
       await requestPasswordReset(email)
       setSent(true)
     } catch (e) {
-      // Only genuine problems reach here — a malformed address, or this device
-      // being rate limited. "No such user" deliberately does not.
-      setError(userMessage(e, 'Unable to send the reset link. Please try again.'))
+      // Said on the email field itself, with the way forward below the button.
+      if (e?.code === ACCOUNT_NOT_FOUND) setMissingEmail(email.trim().toLowerCase())
+      else setError(userMessage(e, 'Unable to send the reset link. Please try again.'))
     } finally {
       setBusy(false)
     }
-  }, [busy, email, requestPasswordReset])
+  }, [busy, missing, email, requestPasswordReset])
 
   if (sent) {
     return (
@@ -54,8 +63,8 @@ export default function ForgotPasswordScreen({ navigation, route }) {
         footer={<LinkButton prefix="Ready to sign in?" title="Back to sign in" onPress={() => navigation.navigate('SignIn')} />}
       >
         <FormNotice>
-          If an account exists for {email.trim()}, you will receive a password reset link
-          shortly. If you don't see it, check your spam folder.
+          We sent a password reset link to {email.trim()}. It can take a minute to arrive;
+          if you don't see it, check your spam folder.
         </FormNotice>
         <View>
           <PrimaryButton title="Resend link" onPress={() => { setSent(false) }} />
@@ -74,6 +83,7 @@ export default function ForgotPasswordScreen({ navigation, route }) {
 
       <Field
         label="Email"
+        error={missing ? 'No account was found with this email address.' : null}
         value={email}
         onChangeText={setEmail}
         placeholder="name@example.com"
@@ -83,8 +93,14 @@ export default function ForgotPasswordScreen({ navigation, route }) {
       />
 
       <View>
-        <PrimaryButton title="Send reset link" onPress={submit} loading={busy} disabled={!email.trim()} />
+        <PrimaryButton title="Send reset link" onPress={submit} loading={busy} disabled={!email.trim() || missing} />
       </View>
+
+      {missing ? (
+        <View style={styles.missingActions}>
+          <LinkButton prefix="New here?" title="Create an account" onPress={() => navigation.navigate('SignUp', { email: email.trim() })} />
+        </View>
+      ) : null}
     </AuthShell>
   )
 }

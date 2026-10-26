@@ -11,7 +11,7 @@
  * assuming one. When one is required the whole page changes to "Email sent" (VerifyEmailScreen).
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, StyleSheet } from 'react-native'
 
 import { useAuth } from '@core/auth/AuthContext'
@@ -28,11 +28,14 @@ const styles = StyleSheet.create({
   takenActions: { marginTop: space.md, gap: space.xs },
 })
 
-export default function SignUpScreen({ navigation }) {
+export default function SignUpScreen({ navigation, route }) {
   const { signUp } = useAuth()
 
+  // Forgot-password passes along an address that has no account, so it need not be typed again.
+  const passedEmail = route?.params?.email
   const [displayName, setDisplayName] = useState('')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(passedEmail || '')
+  useEffect(() => { if (passedEmail) setEmail(passedEmail) }, [passedEmail])
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState(null)

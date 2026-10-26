@@ -28,37 +28,51 @@ export async function findByAsset(assetId) {
 }
 
 /**
+ * Whether a file has a gallery entry — asked of the server, because the app holds
+ * only the pages someone has scrolled to. Throws when it cannot find out.
+ */
+export async function isInGallery(assetId) {
+  if (!assetId) return false
+  const { generation } = await apiFetch(`/api/generations/by-asset?assetId=${encodeURIComponent(assetId)}`)
+  return !!generation
+}
+
+/**
  * One page of an influencer's gallery, newest first.
  *
  * The roster carries only the newest few entries, so this is how the Gallery tab
- * reaches the rest. Pass the last entry you hold as the cursor — its exact
- * `createdAt` and `id` — rather than an offset: a result collected while the
- * user scrolls would shift every offset and silently skip or repeat an entry.
+ * reaches the rest. Pass the `cursor` of the last entry held rather than an
+ * offset: a result collected while the user scrolls would shift every offset and
+ * silently skip or repeat an entry. `paging.js` works out which cursor.
  *
  * @param {object} opts
  * @param {string} opts.influencerId
- * @param {string|null} [opts.beforeAt]  the last held entry's `createdAt`
- * @param {string|null} [opts.beforeId]  the last held entry's `id`
+ * @param {string|null} [opts.cursor]  where the last page ended
+ * @param {'image'|'video'|null} [opts.kind]  one kind only, for the gallery's filter
+ * @param {object|null} [opts.before]  the oldest entry held — for a server without cursors
  * @param {number} [opts.limit]
- * @returns {Promise<{entries: object[], hasMore: boolean}>}
+ * @returns {Promise<{entries: object[], hasMore: boolean, nextCursor: string|null}>}
  */
-export async function listForInfluencer({ influencerId, beforeAt = null, beforeId = null, limit = 30 }) {
-  if (!influencerId) return { entries: [], hasMore: false }
+export async function listForInfluencer({ influencerId, cursor = null, kind = null, before = null, limit = 30 }) {
+  if (!influencerId) return { entries: [], hasMore: false, nextCursor: null }
 
   const params = new URLSearchParams({ influencerId, limit: String(limit) })
-  // Both halves or neither: one alone cannot order anything, and the server
-  // refuses a half cursor.
-  if (beforeAt && beforeId) {
-    params.set('beforeAt', String(beforeAt))
-    params.set('beforeId', String(beforeId))
+  if (cursor) params.set('cursor', cursor)
+  if (kind) params.set('kind', kind)
+  // The older form, only exact to the millisecond. Both halves or neither: one
+  // alone cannot order anything, and the server refuses a half cursor.
+  if (!cursor && before?.createdAt && before?.id) {
+    params.set('beforeAt', String(before.createdAt))
+    params.set('beforeId', String(before.id))
   }
 
-  const { generations = [], hasMore = false } = await apiFetch(`/api/generations/by-influencer?${params.toString()}`)
+  const { generations = [], hasMore = false, nextCursor = null } = await apiFetch(`/api/generations/by-influencer?${params.toString()}`)
   // One batch of signed URLs for the page, the same way the roster does it.
   const urls = await resolveUrls(generations.map(g => g.asset_id))
   return {
     entries: generations.map(g => toGalleryEntry(g, urls.get(String(g.asset_id)))),
     hasMore,
+    nextCursor,
   }
 }
 

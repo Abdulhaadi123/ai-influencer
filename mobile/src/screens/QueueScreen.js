@@ -7,11 +7,16 @@
  * started on a phone is visible, and collectable, from any other device the
  * user signs in to.
  *
- * ── Push, not poll ───────────────────────────────────────────────────────────
+ * ── Told, not reloaded ────────────────────────────────────────────────────────
  *
- * The list updates from a Realtime subscription. Something still has to ask KIE
- * whether a task has finished — that is the sync loop — but the UI never polls
- * for the answer, it is told.
+ * The list updates from the server's change feed (core/data/jobs.js subscribe).
+ * Something still has to ask KIE whether a task has finished — that is the sync
+ * loop — but the list is not re-fetched whole for the answer.
+ *
+ * ── A page at a time ─────────────────────────────────────────────────────────
+ *
+ * Twenty jobs, then the next twenty as the list is scrolled (hooks/useQueuePages.js).
+ * The counts at the top are the account's, from the server, not the pages loaded.
  *
  * ── "Done" is not "safe" ─────────────────────────────────────────────────────
  *
@@ -19,28 +24,28 @@
  * marked Expired past 24 hours rather than offering a button that would 404.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
-  View, Text, ScrollView, Pressable, RefreshControl,
+  View, Text, FlatList, Pressable, RefreshControl,
   ActivityIndicator, StyleSheet, Alert,
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 
 import { useAuth } from '@core/auth/AuthContext'
 import {
-  listJobs, isActive, isCollectable, isExpired, isDeleted,
-  removeJob, clearSettled, subscribe as subscribeToJobs,
+  isActive, isCollectable, isExpired, isDeleted, removeJob, clearSettled,
 } from '@core/data/jobs'
 import { useInfluencers } from '@core/store'
 import { persistGenerated } from '@core/platform/persistMedia'
 import { resolveUrl } from '@core/data/assets'
-import { userMessage } from '@core/errors'
 import { failureMessage } from '@core/services/generation/transient'
 
 import { syncActiveJobs } from '../lib/queueSync'
 import { shareMedia } from '../lib/share'
 import { showError } from '../lib/alerts'
 import { useBottomInset } from '../hooks/useBottomInset'
+import { useQueuePages } from '../hooks/useQueuePages'
+import LoadMoreFooter from '../components/LoadMoreFooter'
 import { useTheme, space, radius, font, layout } from '../theme'
 import Screen, { ScreenHeader } from '../components/Screen'
 import { Button, GlassCard, EmptyState } from '../components/ui'
@@ -55,32 +60,16 @@ export default function QueueScreen() {
   const { userId } = useAuth()
   const { addGeneration } = useInfluencers()
 
-  const [jobs, setJobs] = useState([])
-  const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [savingId, setSavingId] = useState(null)
-  // Shown instead of "Nothing in the queue", which is what a failed load used
-  // to look like — telling someone with running jobs that they had none.
-  const [loadError, setLoadError] = useState(null)
 
-  const reload = useCallback(async () => {
-    try {
-      setJobs(await listJobs())
-      setLoadError(null)
-    } catch (e) {
-      setLoadError(userMessage(e, 'The queue could not be loaded. Please try again.'))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  // Realtime keeps the list current; the interval only nudges KIE.
-  useEffect(() => {
-    if (!userId) return
-    reload()
-    const unsubscribe = subscribeToJobs(userId, reload)
-    return unsubscribe
-  }, [userId, reload])
+  // A page at a time, kept current by the change feed (hooks/useQueuePages.js).
+  // `loadError` is shown instead of "Nothing in the queue", which is what a failed
+  // load used to look like — telling someone with running jobs that they had none.
+  const {
+    jobs, hasMore, summary, loading, loadError, loadingMore, moreError,
+    reset, refreshHead, loadMore, removeRow,
+  } = useQueuePages(userId)
 
   // Only while this tab is on screen. Bottom tabs stay mounted after their
   // first visit, so a plain effect kept asking KIE every 8 seconds for the rest
@@ -91,12 +80,13 @@ export default function QueueScreen() {
     return () => clearInterval(id)
   }, []))
 
+  // Starts over from the newest page.
   const onPullRefresh = useCallback(async () => {
     setRefreshing(true)
     await syncActiveJobs()
-    await reload()
+    await reset()
     setRefreshing(false)
-  }, [reload])
+  }, [reset])
 
   /**
    * Bring a finished result into permanent storage.
@@ -122,7 +112,7 @@ export default function QueueScreen() {
         })
       }
 
-      await reload()
+      await refreshHead()
       Alert.alert(
         'Saved',
         job.influencerId
@@ -134,7 +124,7 @@ export default function QueueScreen() {
     } finally {
       setSavingId(null)
     }
-  }, [addGeneration, reload])
+  }, [addGeneration, refreshHead])
 
   const share = useCallback(async job => {
     try {
@@ -163,24 +153,29 @@ export default function QueueScreen() {
           text: unsaved ? 'Discard' : 'Remove',
           style: 'destructive',
           onPress: async () => {
-            try { await removeJob(job.id); await reload() }
+            try { await removeJob(job.id); removeRow(job.id) }
             catch (e) { showError('Unable to remove', e, 'The item could not be removed. Please try again.') }
           },
         },
       ],
     )
-  }, [reload])
+  }, [removeRow])
 
   const clearDone = useCallback(async () => {
-    try { await clearSettled(); await reload() }
+    try { await clearSettled(); await reset() }
     catch (e) { showError('Unable to clear', e, 'The queue could not be cleared. Please try again.') }
-  }, [reload])
+  }, [reset])
 
-  const activeCount = useMemo(() => jobs.filter(isActive).length, [jobs])
-  const readyCount = useMemo(() => jobs.filter(isCollectable).length, [jobs])
+  // The account's totals, from the server: the rows held are only the pages
+  // scrolled to. Counted from those only until the totals arrive.
+  const activeCount = useMemo(() => summary?.active ?? jobs.filter(isActive).length, [summary, jobs])
+  const readyCount = useMemo(() => summary?.ready ?? jobs.filter(isCollectable).length, [summary, jobs])
   // What "Clear finished" would remove. Results waiting to be saved are not
   // cleared (see clearSettled), so they do not count.
-  const settledCount = useMemo(() => jobs.filter(j => !isActive(j) && !isCollectable(j)).length, [jobs])
+  const settledCount = useMemo(
+    () => summary?.settled ?? jobs.filter(j => !isActive(j) && !isCollectable(j)).length,
+    [summary, jobs],
+  )
 
   const header = <ScreenHeader title="Queue" size={22} right={<CreditsChip />} />
 
@@ -205,14 +200,14 @@ export default function QueueScreen() {
             title="Unable to load the queue"
             body={loadError}
             actionTitle="Try again"
-            onAction={() => { setLoading(true); reload() }}
+            onAction={reset}
           />
         </View>
       </Screen>
     )
   }
 
-  if (!jobs.length) {
+  if (!jobs.length && !hasMore) {
     return (
       <Screen>
         {header}
@@ -227,60 +222,81 @@ export default function QueueScreen() {
     )
   }
 
+  const listHeader = (
+    <>
+      {header}
+
+      <View style={styles.content}>
+        <View style={styles.summary}>
+          <Text style={[styles.summaryText, font('medium'), { color: colors.textSecondary }]}>
+            {activeCount > 0
+              ? `${activeCount} in progress${readyCount ? ` · ${readyCount} ready to save` : ''}`
+              : readyCount > 0
+              ? `${readyCount} ready to save`
+              : 'No generations in progress'}
+          </Text>
+          {activeCount > 0 ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+        </View>
+
+        {loadError ? (
+          <Text style={[styles.hint, { color: colors.danger }]}>
+            {loadError} Pull down to refresh.
+          </Text>
+        ) : null}
+
+        {activeCount > 0 ? (
+          <Text style={[styles.hint, { color: colors.textTertiary }]}>
+            Generation continues in the background. Completed results are
+            available for 24 hours, so save them before they expire.
+          </Text>
+        ) : null}
+      </View>
+    </>
+  )
+
+  const listFooter = (
+    <View style={styles.content}>
+      <LoadMoreFooter loading={loadingMore} error={moreError} hasMore={hasMore} onLoadMore={loadMore} />
+      {settledCount > 0 ? (
+        <View style={{ marginTop: space.sm }}>
+          <Button title="Clear completed" variant="soft" onPress={clearDone} />
+        </View>
+      ) : null}
+    </View>
+  )
+
+  // A FlatList, not a ScrollView: only the rows near the screen are drawn, however
+  // many pages have been scrolled to.
   return (
     <Screen>
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: bottomInset }}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.primary} />
-        }
-      >
-        {header}
-
-        <View style={styles.content}>
-          <View style={styles.summary}>
-            <Text style={[styles.summaryText, font('medium'), { color: colors.textSecondary }]}>
-              {activeCount > 0
-                ? `${activeCount} in progress${readyCount ? ` · ${readyCount} ready to save` : ''}`
-                : readyCount > 0
-                ? `${readyCount} ready to save`
-                : 'No generations in progress'}
-            </Text>
-            {activeCount > 0 ? <ActivityIndicator size="small" color={colors.primary} /> : null}
-          </View>
-
-          {loadError ? (
-            <Text style={[styles.hint, { color: colors.danger }]}>
-              {loadError} Pull down to refresh.
-            </Text>
-          ) : null}
-
-          {activeCount > 0 ? (
-            <Text style={[styles.hint, { color: colors.textTertiary }]}>
-              Generation continues in the background. Completed results are
-              available for 24 hours, so save them before they expire.
-            </Text>
-          ) : null}
-
-          {jobs.map(job => (
+      <FlatList
+        data={jobs}
+        keyExtractor={job => job.id}
+        renderItem={({ item: job }) => (
+          <View style={styles.content}>
             <JobRow
-              key={job.id}
               job={job}
               saving={savingId === job.id}
               onCollect={() => collect(job)}
               onShare={() => share(job)}
               onDiscard={() => discard(job)}
             />
-          ))}
-
-          {settledCount > 0 ? (
-            <View style={{ marginTop: space.sm }}>
-              <Button title="Clear completed" variant="soft" onPress={clearDone} />
-            </View>
-          ) : null}
-        </View>
-      </ScrollView>
+          </View>
+        )}
+        extraData={savingId}
+        ListHeaderComponent={listHeader}
+        ListFooterComponent={listFooter}
+        onEndReached={hasMore && !moreError ? loadMore : null}
+        onEndReachedThreshold={0.5}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        contentContainerStyle={{ paddingBottom: bottomInset }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.primary} />
+        }
+      />
     </Screen>
   )
 }

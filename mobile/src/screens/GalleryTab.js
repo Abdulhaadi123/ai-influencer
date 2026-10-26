@@ -25,14 +25,15 @@
  * number of live players stays roughly constant however long the history is.
  *
  * The roster only carries the newest few entries (backend GALLERY_PREVIEW), so
- * this screen also pages the rest in as it is scrolled. The filter chips show
- * the gallery's REAL totals, which come from the server, not the count of what
- * happens to be loaded.
+ * this screen also pages the rest in as it is scrolled — for the filter on
+ * screen, so Images pages through images alone (core/data/paging.js). The filter
+ * chips show the gallery's REAL totals, which come from the server, not the
+ * count of what happens to be loaded.
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, FlatList, Pressable, StyleSheet, Alert, Modal, ActivityIndicator,
+  View, Text, FlatList, Pressable, StyleSheet, Alert, Modal,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useVideoPlayer, VideoView } from 'expo-video'
@@ -41,7 +42,9 @@ import { shareMedia } from '../lib/share'
 import { showError } from '../lib/alerts'
 import { useInfluencers } from '@core/store'
 import { assetUses } from '@core/data/influencers'
+import { galleryEntries, galleryTotal, galleryHasMore, findGalleryEntry } from '@core/data/paging'
 import { report as reportGeneration } from '@core/data/reports'
+import { userMessage } from '@core/errors'
 
 import { useBottomInset } from '../hooks/useBottomInset'
 import { isServable } from '../lib/seedMedia'
@@ -52,6 +55,10 @@ import Screen from '../components/Screen'
 import { Button, Chip, EmptyState } from '../components/ui'
 import Icon from '../components/icons'
 import ReportSheet from '../components/ReportSheet'
+import LoadMoreFooter from '../components/LoadMoreFooter'
+
+/** Fewer entries than this on screen and the next page is fetched without waiting for a scroll. */
+const AUTO_FILL = 8
 
 export default function GalleryTab({ influencer }) {
   const { colors } = useTheme()
@@ -60,19 +67,25 @@ export default function GalleryTab({ influencer }) {
   const { removeGeneration, loadMoreGenerations } = useInfluencers()
   const [filter, setFilter] = useState('all')
   const [loadingMore, setLoadingMore] = useState(false)
+  // Why the last page failed, and for which filter. Until Try again nothing more is
+  // asked by itself: onEndReached fires again the moment a short list settles, and a
+  // failing request would be retried in a tight loop.
+  const [loadError, setLoadError] = useState(null)
   // The entry as it was when opened. The roster re-signs its URLs every few
   // minutes, and handing the player a new URL would restart a clip mid-view.
   const [openEntry, setOpenEntry] = useState(null)
-
-  const history = influencer.generationHistory
 
   // isServable, not just `e.url`: a record can still carry a web-origin path
   // like "/camila/videos/v1.mp4" from the old demo data, whose file was never
   // shipped with the app. Left in, each would be a black tile with a video
   // player behind it trying to decode nothing.
-  const all = useMemo(
-    () => [...(history || []).filter(e => e && isServable(e.url))].sort((a, b) => (b.date || 0) - (a.date || 0)),
-    [history],
+  const all = useMemo(() => galleryEntries(influencer, 'all').filter(e => e && isServable(e.url)), [influencer])
+
+  // A filter shows its kind from everything held — including pages fetched for that
+  // filter alone (core/data/paging.js), so Images never waits on pages of videos.
+  const items = useMemo(
+    () => (filter === 'all' ? all : galleryEntries(influencer, filter).filter(e => e && isServable(e.url))),
+    [influencer, all, filter],
   )
 
   /**
@@ -80,48 +93,45 @@ export default function GalleryTab({ influencer }) {
    * happen to be loaded. Falls back to what is loaded for a record that predates
    * the counts (or an influencer created in this session).
    */
-  const counts = useMemo(() => {
-    const server = influencer.galleryCounts
-    return {
-      all: server?.total ?? all.length,
-      video: server?.videos ?? all.filter(e => (e.type || 'video') === 'video').length,
-      image: server?.images ?? all.filter(e => (e.type || 'video') === 'image').length,
-    }
-  }, [influencer.galleryCounts, all])
+  const counts = useMemo(() => ({
+    all: galleryTotal(influencer, 'all'),
+    video: galleryTotal(influencer, 'video'),
+    image: galleryTotal(influencer, 'image'),
+  }), [influencer])
 
-  const moreToLoad = all.length < counts.all
+  const moreToLoad = galleryHasMore(influencer, filter)
+  const errorHere = loadError?.filter === filter ? loadError.message : null
+  useEffect(() => { setLoadError(null) }, [influencer.id])
 
-  /**
-   * Fetch the next page.
-   *
-   * `exhausted` latches on a failure as well as on the last page: onEndReached
-   * fires again the moment a short list settles, and without it a failing
-   * request would be retried in a tight loop.
-   */
-  const exhausted = useRef(false)
-  useEffect(() => { exhausted.current = false }, [influencer.id])
-
+  /** Fetch the next page for the filter on screen. One at a time, whatever asks. */
+  const loading = useRef(false)
   const loadMore = useCallback(async () => {
-    if (loadingMore || exhausted.current) return
+    if (loading.current) return
+    loading.current = true
     setLoadingMore(true)
+    setLoadError(null)
+    const asked = filter
     try {
-      const { added, hasMore } = await loadMoreGenerations(influencer.id)
-      if (!hasMore || added === 0) exhausted.current = true
+      await loadMoreGenerations(influencer.id, asked)
     } catch (e) {
-      exhausted.current = true
       console.warn('[gallery] could not load more:', e?.message ?? e)
+      setLoadError({ filter: asked, message: userMessage(e, 'More could not be loaded. Please try again.') })
     } finally {
+      loading.current = false
       setLoadingMore(false)
     }
-  }, [influencer.id, loadingMore, loadMoreGenerations])
+  }, [influencer.id, filter, loadMoreGenerations])
 
-  const items = useMemo(
-    () => (filter === 'all' ? all : all.filter(e => (e.type || 'video') === filter)),
-    [all, filter],
-  )
+  // A list too short to scroll never reaches its end, so onEndReached never asks for
+  // more — Images with none loaded yet, or a gallery whose loaded entries were deleted.
+  // Fill it up to a screenful here. A page that adds nothing changes none of these, so
+  // this cannot loop.
+  useEffect(() => {
+    if (items.length < AUTO_FILL && moreToLoad && !errorHere) loadMore()
+  }, [items.length, moreToLoad, errorHere, loadMore])
 
   // Closes by itself if the entry disappears from the gallery.
-  const open = openEntry && all.some(e => e.id === openEntry.id) ? openEntry : null
+  const open = openEntry && findGalleryEntry(influencer, openEntry.id) ? openEntry : null
 
   const remove = useCallback(entry => {
     // A reference sheet is the same file as its gallery entry, so deleting one
@@ -157,9 +167,9 @@ export default function GalleryTab({ influencer }) {
     const isVideo = (entry.type || 'video') === 'video'
     const base = (influencer.name || 'clip').toLowerCase().replace(/\s+/g, '-')
     // The freshest URL for this entry, not the one pinned when the lightbox opened.
-    const current = all.find(e => e.id === entry.id) || entry
+    const current = findGalleryEntry(influencer, entry.id) || entry
     shareMedia(current.url, base + '-' + entry.id + (isVideo ? '.mp4' : '.jpg'))
-  }, [influencer.name, all])
+  }, [influencer])
 
   /**
    * Flag a result as inappropriate. Rejects on failure — after saying so — so the
@@ -176,8 +186,9 @@ export default function GalleryTab({ influencer }) {
   }, [])
 
   // Nothing generated yet at all — a single, calm empty state rather than an
-  // empty grid with a filter bar above it that does nothing.
-  if (all.length === 0) {
+  // empty grid with a filter bar above it that does nothing. Not while the server
+  // still has entries: deleting the few loaded ones does not empty the gallery.
+  if (all.length === 0 && !galleryHasMore(influencer, 'all')) {
     return (
       <View style={[styles.emptyScreen, { paddingBottom: bottomInset }]}>
         <EmptyState
@@ -225,22 +236,24 @@ export default function GalleryTab({ influencer }) {
         )}
         ListHeaderComponent={filterBar}
         ListEmptyComponent={
-          <Text style={[styles.noneForFilter, { color: colors.textTertiary }]}>
-            {moreToLoad
-              ? 'Loading…'
-              : `No ${filter === 'video' ? 'videos' : 'images'} yet.`}
-          </Text>
+          // While there is more, the footer says what is happening (loading, failed, Load more).
+          moreToLoad ? null : (
+            <Text style={[styles.noneForFilter, { color: colors.textTertiary }]}>
+              {`No ${filter === 'video' ? 'videos' : filter === 'image' ? 'images' : 'content'} yet.`}
+            </Text>
+          )
         }
         ListFooterComponent={
-          loadingMore
-            ? <ActivityIndicator style={styles.footer} size="small" color={colors.primary} />
-            : moreToLoad
-              ? <Text style={[styles.footerText, { color: colors.textTertiary }]}>
-                  {all.length} of {counts.all} loaded
-                </Text>
-              : null
+          <LoadMoreFooter
+            loading={loadingMore}
+            error={errorHere}
+            hasMore={moreToLoad}
+            onLoadMore={loadMore}
+            loaded={items.length}
+            total={counts[filter]}
+          />
         }
-        onEndReached={moreToLoad ? loadMore : null}
+        onEndReached={moreToLoad && !errorHere ? loadMore : null}
         onEndReachedThreshold={0.5}
         // Only the rows near the viewport hold a video player; the rest are
         // unmounted, which is the whole point of moving off a ScrollView.
@@ -398,8 +411,6 @@ const styles = StyleSheet.create({
 
   column: { justifyContent: 'space-between' },
   tile: { width: '48%', marginBottom: space.lg },
-  footer: { paddingVertical: space.lg },
-  footerText: { fontSize: 12.5, textAlign: 'center', paddingVertical: space.lg },
   thumbWrap: {
     width: '100%', aspectRatio: 3 / 4, borderRadius: 22,
     overflow: 'hidden', backgroundColor: 'rgba(8,3,83,0.25)',

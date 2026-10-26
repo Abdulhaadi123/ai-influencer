@@ -32,6 +32,7 @@ import { STILL_RUNNING } from '@core/services/generation'
 import { uploadLocal, remove as removeAsset } from '@core/data/assets'
 import { assetUses } from '@core/data/influencers'
 import { hasActiveJobs } from '@core/data/jobs'
+import { isInGallery } from '@core/data/generations'
 import { shareMedia } from '../lib/share'
 import { showError } from '../lib/alerts'
 import { persistGenerated } from '@core/platform/persistMedia'
@@ -89,9 +90,16 @@ export default function ProfileTab({ influencer, navigation }) {
     await updateInfluencer(influencer.id, { mainAssetId: assetId })
     if (!previous || previous === assetId) return
 
-    const inGallery = (influencer.generationHistory || []).some(g => g.assetId === previous)
     const usedElsewhere = assetUses({ ...influencer, mainAssetId: null }, previous).length > 0
-    if (inGallery || usedElsewhere) return
+    if (usedElsewhere) return
+    // Asked of the server: the gallery on this phone is only the pages loaded so far, and a file
+    // further back in it was deleted from under its entry. Not knowing means keeping it.
+    try {
+      if (await isInGallery(previous)) return
+    } catch (e) {
+      console.warn('[profile] could not check the gallery, so the replaced image is kept:', e?.message ?? e)
+      return
+    }
     // The main image is the reference for every video and sheet. A job still
     // running may not have downloaded it yet, and deleting it would fail a job
     // already paid for — so it stays, and goes when the influencer is deleted.

@@ -35,6 +35,7 @@ import { createContext, useContext, useCallback, useEffect, useMemo, useRef, use
 
 import * as influencerRepo from './data/influencers'
 import * as generationRepo from './data/generations'
+import { galleryRequest, applyGalleryPage, galleryHasMore, findGalleryEntry, withoutGalleryEntry } from './data/paging'
 import { clearUrlCache, resolveUrls, fetchPreview, URL_REFRESH_WINDOW_MS } from './data/assets'
 import { useAuth } from './auth/AuthContext'
 import { userMessage } from './errors'
@@ -48,6 +49,10 @@ const BrandDealsCtx = createContext(null)
  * that never gets one (an unreadable picture) costs three small requests and no more.
  */
 const PREVIEW_ASK_AFTER_MS = [2500, 6000, 15000]
+
+/** The parts of a record that are its gallery, which a saved edit must not reset (data/paging.js). */
+const GALLERY_KEYS = ['generationHistory', 'galleryCounts', 'galleryExtra', 'galleryPaging']
+const galleryOf = record => Object.fromEntries(GALLERY_KEYS.map(key => [key, record[key]]))
 
 /**
  * Local ids for things that have not been saved yet.
@@ -233,9 +238,10 @@ export function StoreProvider({ children }) {
       // does not re-query it) and overwriting would empty the gallery on screen.
       // The same goes for its totals: `saved` carries zeroes, and letting them
       // through made the Gallery tab read "Images 00" (and disable that filter)
-      // after any edit to the influencer.
+      // after any edit to the influencer. And for its paging, or the next page
+      // would start again from the top.
       setInfluencersState(prev => prev.map(i => (i.id === id
-        ? { ...i, ...saved, generationHistory: i.generationHistory, galleryCounts: i.galleryCounts }
+        ? { ...i, ...saved, ...galleryOf(i) }
         : i)))
       if (saved.mainAssetId && !saved.mainThumb && Object.hasOwn(patch, 'mainAssetId')) watchMainPreview(id, saved.mainAssetId)
       return saved
@@ -289,31 +295,35 @@ export function StoreProvider({ children }) {
   }, [watchForPreview])
 
   /**
-   * Append the next page of an influencer's gallery.
+   * Fetch the next page of an influencer's gallery — for "All", or for one kind
+   * when the gallery is filtered — and add it to what is held (data/paging.js).
    *
+   * A page that answers an older state of the gallery (the roster reloaded while it
+   * was on its way) is dropped rather than added after a gap; the next request asks
+   * again from where the gallery now ends.
+   *
+   * @param {string} influencerId
+   * @param {'all'|'image'|'video'} [filter]
    * @returns {Promise<{added: number, hasMore: boolean}>}
    */
-  const loadMoreGenerations = useCallback(async influencerId => {
+  const loadMoreGenerations = useCallback(async (influencerId, filter = 'all') => {
     const current = influencersRef.current.find(i => i.id === influencerId)
-    if (!current) return { added: 0, hasMore: false }
+    const request = current ? galleryRequest(current, filter) : null
+    if (!request) return { added: 0, hasMore: false }
 
-    const history = current.generationHistory || []
-    const oldest = history[history.length - 1]
-    const { entries, hasMore } = await generationRepo.listForInfluencer({
-      influencerId,
-      beforeAt: oldest?.createdAt ?? null,
-      beforeId: oldest?.id ?? null,
+    const page = await generationRepo.listForInfluencer({
+      influencerId, cursor: request.cursor, kind: request.kind, before: request.before,
     })
-    if (!alive.current) return { added: 0, hasMore }
+    if (!alive.current) return { added: 0, hasMore: false }
 
     let added = 0
+    let hasMore = page.hasMore
     setInfluencersState(prev => prev.map(i => {
       if (i.id !== influencerId) return i
-      const seen = new Set((i.generationHistory || []).map(g => g.id))
-      const fresh = entries.filter(e =>
-        !seen.has(e.id) && !removedAssets.current.has(String(e.assetId)))
-      added = fresh.length
-      return fresh.length ? { ...i, generationHistory: [...(i.generationHistory || []), ...fresh] } : i
+      const result = applyGalleryPage(i, request, page, e => removedAssets.current.has(String(e.assetId)))
+      added = result.added
+      hasMore = galleryHasMore(result.record, filter)
+      return result.record
     }))
     return { added, hasMore }
   }, [])
@@ -341,18 +351,15 @@ export function StoreProvider({ children }) {
 
   const removeGeneration = useCallback(async (influencerId, generationId) => {
     const snapshot = influencers
-    const removedAssetId = influencersRef.current
-      .find(i => i.id === influencerId)?.generationHistory
-      ?.find(g => g.id === generationId)?.assetId
+    const removedAssetId = findGalleryEntry(influencersRef.current.find(i => i.id === influencerId), generationId)?.assetId
     if (removedAssetId) removedAssets.current.add(String(removedAssetId))
     setInfluencersState(prev => prev.map(i => {
       if (i.id !== influencerId) return i
-      const entry = (i.generationHistory || []).find(g => g.id === generationId)
+      const entry = findGalleryEntry(i, generationId)
       const counts = i.galleryCounts || { total: 0, videos: 0, images: 0 }
       const wasVideo = (entry?.type || 'video') === 'video'
       const next = {
-        ...i,
-        generationHistory: (i.generationHistory || []).filter(g => g.id !== generationId),
+        ...withoutGalleryEntry(i, generationId),
         galleryCounts: entry ? {
           total: Math.max(0, counts.total - 1),
           videos: Math.max(0, counts.videos - (wasVideo ? 1 : 0)),
@@ -393,9 +400,9 @@ export function StoreProvider({ children }) {
 
         const patch = {}
         for (const key of Object.keys(record)) {
-          // generationHistory is server-owned; it is written through
-          // addGeneration, never by patching the influencer.
-          if (key === 'generationHistory') continue
+          // The gallery is server-owned; it is written through addGeneration,
+          // never by patching the influencer.
+          if (GALLERY_KEYS.includes(key)) continue
           if (record[key] !== before[key]) patch[key] = record[key]
         }
 

@@ -94,9 +94,11 @@ Things that look like details and are not:
   `{ suggestion, notice }` (a refusal, `CONTENT_BLOCKED`, is returned as a `blocked` notice, not thrown).
 
 Sign-in errors are deliberately vague — "that email and password combination is
-not right" — and forgot-password / resend always report success. Do not "improve"
-those. Sign-up is the exception: an address that already has an account is
-refused on the form (`EMAIL_TAKEN`), not answered with "check your email".
+not right" — and resend always reports success. Do not "improve" those. Sign-up and
+forgot-password are the exceptions (the owner's decision): an address that already
+has an account is refused at sign-up (`EMAIL_TAKEN`), and one with no account at
+forgot-password (`ACCOUNT_NOT_FOUND`, with a **Sign up** link) — said on the form,
+not answered with "check your email".
 
 ## Data
 
@@ -113,6 +115,15 @@ sends a user id.
 
 Modules translate API rows (snake_case, asset ids) into the objects screens use
 (`mainImage`, `generationHistory`…) and keep the durable `*AssetId` alongside.
+
+**The Queue and the Gallery are paged** (`core/data/paging.js`, pure and tested).
+Continue from a row's server `cursor`, never from `createdAt` (milliseconds; rows
+saved together share a microsecond). The Queue (`src/hooks/useQueuePages.js`) holds
+the pages scrolled to, merges a fresh first page on top when the change feed reports
+something, and takes its totals from `summary`, not from the rows held. The Gallery
+keeps "All" in `generationHistory` and a filter's own pages in `galleryExtra`, so
+"All" never shows a gap. The app holds only what was scrolled to: a question about
+the whole gallery (is this file in it?) goes to the server (`isInGallery`).
 
 **Creating an influencer is one call** (`influencers.create(record, {
 linkAssetIds, creationParams })`): the record, the files the wizard stored before
