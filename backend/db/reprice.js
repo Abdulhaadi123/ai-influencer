@@ -134,10 +134,12 @@ export function describe(result) {
   const all = [...changes, ...same].sort((a, b) => a.model.localeCompare(b.model))
   if (all.length) {
     const w = Math.max(5, ...all.map(c => c.model.length))
-    lines.push(`${'model'.padEnd(w)}  ${'unit'.padEnd(10)}  ${'KIE'.padStart(5)}  ${'now'.padStart(5)}  ${'new'.padStart(5)}  profit now → new`)
+    // Column widths from the numbers themselves: a price like 13.334 is wider than 18.
+    const n = Math.max(3, ...all.flatMap(c => [c.kieCredits, c.from, c.to].map(v => String(v).length)))
+    lines.push(`${'model'.padEnd(w)}  ${'unit'.padEnd(10)}  ${'KIE'.padStart(n)}  ${'now'.padStart(n)}  ${'new'.padStart(n)}  profit now → new`)
     for (const c of all) {
       lines.push(
-        `${c.model.padEnd(w)}  ${c.unit.padEnd(10)}  ${String(c.kieCredits).padStart(5)}  ${String(c.from).padStart(5)}  ${String(c.to).padStart(5)}  ${pct(c.marginNow).padStart(6)} → ${pct(c.marginNew)}` +
+        `${c.model.padEnd(w)}  ${c.unit.padEnd(10)}  ${String(c.kieCredits).padStart(n)}  ${String(c.from).padStart(n)}  ${String(c.to).padStart(n)}  ${pct(c.marginNow).padStart(6)} → ${pct(c.marginNew)}` +
         (c.from === c.to ? '   (already this price)' : ''),
       )
     }

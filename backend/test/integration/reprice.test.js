@@ -143,13 +143,13 @@ test('another margin or commission moves every price the same way, and each stil
 
 test('a row it has no cost for is left exactly as it is, and named', async () => {
   await seedToday()
-  await stack.sql(`insert into model_prices (model, unit, credits, enabled) values ('wan/2-5-image-to-video', 'per_second', 20, true), ('free-model', 'per_video', 0, true)`)
+  await stack.sql(`insert into model_prices (model, unit, credits, enabled) values ('some-new/model-nobody-listed', 'per_second', 20, true), ('free-model', 'per_video', 0, true)`)
   const result = await reprice({ apply: true })
   const now = await prices()
-  assert.equal(now['wan/2-5-image-to-video'], 20)
+  assert.equal(now['some-new/model-nobody-listed'], 20)
   assert.equal(now['free-model'], 0)
-  assert.deepEqual(result.others.map(o => o.model).sort(), ['free-model', 'wan/2-5-image-to-video'])
-  assert.match(describe(result).join('\n'), /wan\/2-5-image-to-video \(20\)/)
+  assert.deepEqual(result.others.map(o => o.model).sort(), ['free-model', 'some-new/model-nobody-listed'])
+  assert.match(describe(result).join('\n'), /some-new\/model-nobody-listed \(20\)/)
 })
 
 test('a row whose unit is not KIE\'s is left alone and said so — a per-video price must not be read as per-second', async () => {
@@ -165,7 +165,8 @@ test('a row whose unit is not KIE\'s is left alone and said so — a per-video p
 test('a model with no row is named, not created: it stays unavailable until someone adds a price', async () => {
   await seedToday([['nano-banana-pro', 'per_image', 18]])
   const result = await reprice({ apply: true })
-  assert.deepEqual(result.missing.sort(), ['kling-3.0/motion-control', 'kling-3.0/motion-control:1080p', 'kling-3.0/motion-control:720p', 'kling-3.0/video'])
+  assert.deepEqual(result.missing.sort(), markup.KIE_COST.map(c => c.model).filter(m => m !== 'nano-banana-pro').sort())
+  assert.ok(result.missing.includes('kling-3.0/video') && result.missing.includes('veo3_fast'))
   assert.equal((await stack.sql('select 1 from model_prices')).length, 1)
   assert.match(describe(result).join('\n'), /No price row/)
 })
@@ -173,7 +174,7 @@ test('a model with no row is named, not created: it stays unavailable until some
 test('an empty price list changes nothing and says so', async () => {
   const result = await reprice({ apply: true })
   assert.deepEqual(result.changes, [])
-  assert.equal(result.missing.length, 5)
+  assert.equal(result.missing.length, markup.KIE_COST.length)
   assert.deepEqual(await auditRows(), [])
 })
 
@@ -192,6 +193,75 @@ test('a price an administrator set by hand to a listed model is replaced — the
   assert.equal(change.from, 75)
   assert.equal(change.to, 46)
   assert.match(describe(preview).join('\n'), /nano-banana-pro\s+per_image\s+18\s+75\s+46/)
+})
+
+// ── The whole list, as production has it ─────────────────────────────────────
+
+/** Worked out by hand from KIE's numbers (× 2.551, rounded up) — not by the code under test. */
+const ALL_AT_DEFAULTS = {
+  'nano-banana-pro': 46,
+  'kling-3.0/video': 52, 'kling-3.0/motion-control:720p': 52, 'kling-3.0/motion-control:1080p': 69, 'kling-3.0/motion-control': 69,
+  'kling/v3-turbo-image-to-video': 58, 'kling/v2-5-turbo-image-to-video-pro': 22, 'kling/v2-1-master-image-to-video': 82,
+  'kling-2.6/motion-control:720p': 29, 'kling-2.6/motion-control:1080p': 46, 'kling-2.6/motion-control': 46,
+  'wan/2-6-image-to-video': 54, 'wan/2-5-image-to-video': 52, 'wan/2-2-animate-move': 32,
+  'hailuo/2-3-image-to-video-pro': 35, 'minimax-h3/image-to-video': 21, 'minimax-h3/text-to-video': 34,
+  'pixverse-v6/image-to-video': 47, 'bytedance/seedance-2-mini': 21, 'bytedance/seedance-2-fast': 64, 'grok-imagine/image-to-video': 21,
+  veo3_fast: 166, 'veo-3-1': 166,
+}
+
+/** All 23 rows the live server listed in its preview, each at KIE's own number — the prices today. */
+const seedProduction = () => seedToday(markup.KIE_COST.map(c => [c.model, c.unit, c.kieCredits]))
+
+test('the live list: all 23 models are repriced in one go, to the credit, and a second run finds nothing to do', async () => {
+  await seedProduction()
+  assert.equal((await stack.sql('select 1 from model_prices')).length, 23)
+
+  const preview = await reprice({})
+  assert.equal(preview.changes.length, 23)
+  assert.deepEqual([preview.same, preview.skipped, preview.missing, preview.others], [[], [], [], []])
+  assert.deepEqual((await prices())['veo3_fast'], 65, 'a preview changes nothing')
+
+  const done = await reprice({ apply: true })
+  assert.equal(done.changes.length, 23)
+  assert.deepEqual(await prices(), ALL_AT_DEFAULTS)
+
+  const log = await auditRows()
+  assert.equal(log.length, 1)
+  assert.equal(Object.keys(log[0].details.prices).length, 23)
+  assert.deepEqual(log[0].details.prices.veo3_fast, { kieCredits: 65, from: 65, to: 166 })
+
+  const again = await reprice({ apply: true })
+  assert.deepEqual(again.changes, [])
+  assert.equal(again.same.length, 23)
+  assert.deepEqual(await prices(), ALL_AT_DEFAULTS)
+})
+
+test('the live list: not one model is left charging less than it costs', async () => {
+  await seedProduction()
+  await reprice({ apply: true })
+  const now = await prices()
+  for (const c of markup.KIE_COST) {
+    assert.ok(markup.marginOf(c.kieCredits, now[c.model]) >= 0.3, `${c.model} earns ${markup.marginOf(c.kieCredits, now[c.model])}`)
+  }
+})
+
+test('the live list, charged through the gate: a Veo video 166, 8 s of Seedance Mini 168, 5 s of Wan 2.5 260, 10 s of Kling 2.1 Master 820', async () => {
+  await seedProduction()
+  await reprice({ apply: true })
+  const u = await stack.createUser()
+  await give(u.id, 5000)
+  enforce()
+
+  const charge = async (model, input) => {
+    const before = await balance(u)
+    const res = await createTask(u.token, model, input)
+    assert.equal(res.status, 200, `${model}: ${JSON.stringify(res.body)}`)
+    return before - await balance(u)
+  }
+  assert.equal(await charge('veo3_fast', { prompt: 'a friendly person in a park', generation_type: 'REFERENCE_2_VIDEO', duration: 8 }), 166, 'per video: no seconds multiplied in')
+  assert.equal(await charge('bytedance/seedance-2-mini', { prompt: 'a friendly person in a park', duration: 8 }), 168)
+  assert.equal(await charge('wan/2-5-image-to-video', { prompt: 'a friendly person in a park', duration: '5' }), 260)
+  assert.equal(await charge('kling/v2-1-master-image-to-video', { prompt: 'a friendly person in a park', duration: 10 }), 820)
 })
 
 // ── The gate charges what was written ────────────────────────────────────────

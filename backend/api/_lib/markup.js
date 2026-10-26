@@ -114,7 +114,7 @@ export function marginOf(kieCredits, charged, { commission = DEFAULT_COMMISSION 
  * from the charged price would mark it up again on the next run.
  *
  * Add a model here (with its source) before it can be repriced. Rows that are not listed are
- * never touched.
+ * never touched, and the repricing command names them so none is forgotten.
  */
 export const KIE_COST = Object.freeze([
   // KIE: 1K/2K image (the app asks for 2K); two real jobs in KIE's logs cost 18.
@@ -126,4 +126,37 @@ export const KIE_COST = Object.freeze([
   { model: 'kling-3.0/motion-control:1080p', unit: 'per_second', kieCredits: 27 },
   // The row a request with no mode is priced by: the higher rate, so it never undercharges.
   { model: 'kling-3.0/motion-control', unit: 'per_second', kieCredits: 27 },
+
+  // ── The other models the app offers (mobile/core/config/videoModels.js) ──────────────────────────
+  // Each has one price whatever its resolution or length, so the row holds the higher rate and a price
+  // built on it never undercharges. Where KIE prices a whole video, the row is that price per second.
+  // These were set in the price list at KIE's own number (1:1) and are listed here with KIE's price
+  // page (kie.ai/pricing, read October 2026) as the source.
+
+  // Kling
+  { model: 'kling/v3-turbo-image-to-video', unit: 'per_second', kieCredits: 22.5 },           // Kling 3.0 Turbo, 1080P: 22.5 a second (720P is 18)
+  { model: 'kling/v2-5-turbo-image-to-video-pro', unit: 'per_second', kieCredits: 8.4 },        // Turbo Pro: 42 for 5 s, 84 for 10 s
+  { model: 'kling/v2-1-master-image-to-video', unit: 'per_second', kieCredits: 32 },            // Master: 160 for 5 s, 320 for 10 s
+  { model: 'kling-2.6/motion-control:720p', unit: 'per_second', kieCredits: 11 },               // 2.6 Motion Control, billed per second of the clip
+  { model: 'kling-2.6/motion-control:1080p', unit: 'per_second', kieCredits: 18 },
+  { model: 'kling-2.6/motion-control', unit: 'per_second', kieCredits: 18 },                    // no mode: the higher rate
+
+  // Wan
+  { model: 'wan/2-6-image-to-video', unit: 'per_second', kieCredits: 21 },                      // 1080p: 105 for 5 s (720p: 70)
+  { model: 'wan/2-5-image-to-video', unit: 'per_second', kieCredits: 20 },                      // 1080p: 100 for 5 s (720p: 60)
+  { model: 'wan/2-2-animate-move', unit: 'per_second', kieCredits: 12.5 },                      // Animate, 720p; billed per second of the clip
+
+  // The rest
+  { model: 'hailuo/2-3-image-to-video-pro', unit: 'per_second', kieCredits: 13.334 },           // Pro, 1080p: 80 for 6 s
+  { model: 'minimax-h3/image-to-video', unit: 'per_second', kieCredits: 8 },                    // H3, 768p
+  { model: 'minimax-h3/text-to-video', unit: 'per_second', kieCredits: 13 },                    // H3, 2K
+  { model: 'pixverse-v6/image-to-video', unit: 'per_second', kieCredits: 18.4 },                // v6, 1080p with audio
+  { model: 'bytedance/seedance-2-mini', unit: 'per_second', kieCredits: 8.2 },                  // 720P, no video input
+  { model: 'bytedance/seedance-2-fast', unit: 'per_second', kieCredits: 24.8 },                 // 720p, no video input
+  { model: 'grok-imagine/image-to-video', unit: 'per_second', kieCredits: 8 },                  // 1080p
+
+  // Veo, per video. Both entries in the app are billed as Veo 3.1 Fast, 1080p: a real run of 'veo-3-1' on
+  // 23 October 2026 cost 65 credits, not the 255 of the Quality tier (see videoModels.js).
+  { model: 'veo3_fast', unit: 'per_video', kieCredits: 65 },
+  { model: 'veo-3-1', unit: 'per_video', kieCredits: 65 },
 ])

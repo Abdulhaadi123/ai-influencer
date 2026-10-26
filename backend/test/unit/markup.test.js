@@ -121,9 +121,49 @@ test('the five price rows at the defaults', () => {
   assert.equal(price('kling-3.0/motion-control:720p'), 52)
   assert.equal(price('kling-3.0/motion-control:1080p'), 69)
   assert.equal(price('kling-3.0/motion-control'), 69)
+  for (const model of ['nano-banana-pro', 'kling-3.0/video', 'kling-3.0/motion-control:720p', 'kling-3.0/motion-control:1080p', 'kling-3.0/motion-control']) {
+    const kie = KIE_COST.find(c => c.model === model).kieCredits
+    const margin = marginOf(kie, userCredits(kie))
+    assert.ok(margin >= DEFAULT_MARGIN && margin < DEFAULT_MARGIN + 0.02, `${model}: ${margin}`)
+  }
+})
+
+/** The whole list at the defaults, worked out by hand from KIE's numbers (× 2.551, rounded up) — not by the code under test. */
+export const ALL_AT_DEFAULTS = {
+  'nano-banana-pro': 46,
+  'kling-3.0/video': 52, 'kling-3.0/motion-control:720p': 52, 'kling-3.0/motion-control:1080p': 69, 'kling-3.0/motion-control': 69,
+  'kling/v3-turbo-image-to-video': 58, 'kling/v2-5-turbo-image-to-video-pro': 22, 'kling/v2-1-master-image-to-video': 82,
+  'kling-2.6/motion-control:720p': 29, 'kling-2.6/motion-control:1080p': 46, 'kling-2.6/motion-control': 46,
+  'wan/2-6-image-to-video': 54, 'wan/2-5-image-to-video': 52, 'wan/2-2-animate-move': 32,
+  'hailuo/2-3-image-to-video-pro': 35, 'minimax-h3/image-to-video': 21, 'minimax-h3/text-to-video': 34,
+  'pixverse-v6/image-to-video': 47, 'bytedance/seedance-2-mini': 21, 'bytedance/seedance-2-fast': 64, 'grok-imagine/image-to-video': 21,
+  'veo3_fast': 166, 'veo-3-1': 166,
+}
+
+test('all 23 models the app offers at the defaults, each to the credit — and each earns 30% to 34%, never less', () => {
+  assert.deepEqual(KIE_COST.map(c => c.model).sort(), Object.keys(ALL_AT_DEFAULTS).sort(), 'the table and this list name the same models')
   for (const c of KIE_COST) {
-    const margin = marginOf(c.kieCredits, userCredits(c.kieCredits))
-    assert.ok(margin >= DEFAULT_MARGIN && margin < DEFAULT_MARGIN + 0.02, `${c.model}: ${margin}`)
+    const charged = userCredits(c.kieCredits)
+    assert.equal(charged, ALL_AT_DEFAULTS[c.model], c.model)
+    const margin = marginOf(c.kieCredits, charged)
+    assert.ok(margin >= 0.3 && margin < 0.34, `${c.model}: ${margin}`)
+  }
+})
+
+test('where KIE prices a whole video, the row is that price per second (KIE\'s own page, October 2026)', () => {
+  const rate = model => KIE_COST.find(c => c.model === model).kieCredits
+  close(rate('kling/v2-5-turbo-image-to-video-pro'), 42 / 5)   // 42 for 5 s, 84 for 10 s
+  close(rate('kling/v2-1-master-image-to-video'), 160 / 5)     // 160 for 5 s, 320 for 10 s
+  close(rate('wan/2-6-image-to-video'), 105 / 5)               // 1080p, 5 s
+  close(rate('wan/2-5-image-to-video'), 100 / 5)               // 1080p, 5 s
+  close(rate('hailuo/2-3-image-to-video-pro'), 80 / 6, 0.001)  // 1080p, 6 s
+})
+
+test('both Veo entries are priced as KIE billed them — 65 a video — and per video, not per second', () => {
+  for (const model of ['veo3_fast', 'veo-3-1']) {
+    const c = KIE_COST.find(x => x.model === model)
+    assert.equal(c.unit, 'per_video')
+    assert.equal(c.kieCredits, 65)
   }
 })
 

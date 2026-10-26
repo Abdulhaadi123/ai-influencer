@@ -339,8 +339,9 @@ app ──createTask──► /api/kie ──gate: take the price──► KIE �
   about 79 cents on every dollar earned. A price is
   `KIE credits × 0.005 / (0.0035 × (1 − commission)) / (1 − margin)`, rounded **up** to whole credits:
   ×1.79 to break even, ×2.55 for a 30% margin, ×2.98 for 40%. The margin is a share of revenue, and the
-  base is the worst-priced pack, so every pack earns at least the target. At 30% (the default) the five
-  models we sell cost: image 46, Kling video 52 a second, Motion Copy 52 (720p) and 69 (1080p) a second.
+  base is the worst-priced pack, so every pack earns at least the target. At 30% (the default) the image
+  model costs 46, Kling 3.0 52 a second, Motion Copy 52 (720p) and 69 (1080p) a second, a Veo video 166, and
+  so on for all 23 models the app offers (the preview of `db/reprice.js` lists them).
 - **Repricing** (`db/reprice.js`, on the server, from the backend folder):
   `docker compose exec -T api node db/reprice.js` shows what would change and changes nothing;
   add `--apply` to write it; `--margin 40` and `--commission 15` change the two assumptions. It works
