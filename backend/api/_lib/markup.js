@@ -154,9 +154,12 @@ export const KIE_COST = Object.freeze([
   { model: 'hailuo/2-3-image-to-video-pro', unit: 'per_second', kieCredits: 13.334 },           // Pro, 1080p: 80 for 6 s
   { model: 'minimax-h3/image-to-video', unit: 'per_second', kieCredits: 8 },                    // H3, 768p
   { model: 'minimax-h3/text-to-video', unit: 'per_second', kieCredits: 13 },                    // H3, 2K
-  // v6, 1080p with audio. KIE answers a request WITH audio "No model found [pixverse-v6-i2v]" at every
-  // resolution (tested 26 October 2026) and charges nothing, so today it is billed 14.4 a second (1080p, no
-  // audio: a real 2 s job cost 28.8); the row keeps the audio rate so it stays safe if KIE turns that on.
+  // v6, 1080p with audio (without audio it is 14.4 a second: a real 2 s job on 23 October cost 28.8).
+  // On 26 October 2026 KIE failed EVERY request for this model — with audio or without, at 1080p, 720p, 540p
+  // and 360p, the audio field left out too — with "No model found [pixverse-v6-i2v] In the channel
+  // configuration information", charging nothing. It is KIE's side (the same request worked three days
+  // earlier), not a fault of ours or of audio. While that lasts, switch the row off in the admin panel
+  // (Pricing → Allowed → Off): the app stops offering the model and the server refuses it at once.
   { model: 'pixverse-v6/image-to-video', unit: 'per_second', kieCredits: 18.4 },
   // Seedance. 2.5 at 1080p with images only ("no video input") is 158 a second: a real 4 s job cost 632 both
   // without and with audio (26 October 2026), so sound is not a price factor. The app never sends a video.
