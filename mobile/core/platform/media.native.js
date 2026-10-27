@@ -67,8 +67,17 @@ export async function compressImage(source, maxPx = 1400, quality = 0.82) {
  * into a console warning, so tapping "Save or share" on an expired link, with
  * no connection, or on a device without a share sheet simply did nothing.
  * Callers await it and show the message (src/lib/share.js).
+ *
+ * `options` (all optional): `onProgress({bytesWritten, totalBytes})` while a remote file downloads
+ * (totalBytes is -1 when the server did not say); `signal`, an AbortSignal that stops the download; `onReady()`,
+ * called when the file is ready and the share sheet is about to open — the caller's "preparing" feedback ends
+ * there, not when the sheet is closed (shareAsync resolves only after that).
+ *
+ * @param {string} src  a data: URL, an http(s) address, or a file:// address already on the phone
+ * @param {string} [filename]
+ * @param {{onProgress?: Function, signal?: AbortSignal, onReady?: Function}} [options]
  */
-export async function downloadImage(src, filename = 'image.jpg') {
+export async function downloadImage(src, filename = 'image.jpg', { onProgress, signal, onReady } = {}) {
   if (!src) {
     throw new AppError('There is nothing to share yet.', { code: ERROR_CODES.SHARE_FAILED })
   }
@@ -92,13 +101,19 @@ export async function downloadImage(src, filename = 'image.jpg') {
       })
     }
   } else if (src.startsWith('http')) {
+    // Straight from storage — no need for the web build's img-proxy, since
+    // there is no browser CORS policy to work around here.
+    const target = new File(Paths.cache, safeName(filename))
     try {
-      // Straight from storage — no need for the web build's img-proxy, since
-      // there is no browser CORS policy to work around here.
-      const target = new File(Paths.cache, safeName(filename))
       if (target.exists) target.delete()
-      file = await File.downloadFileAsync(src, target, { idempotent: true })
+      file = await File.downloadFileAsync(src, target, { idempotent: true, onProgress, signal })
     } catch (e) {
+      // Stopped by the person: not a failure, and nothing to say (the caller knows its own signal).
+      // The half-written file is not left behind.
+      if (signal?.aborted) {
+        try { if (target.exists) target.delete() } catch { /* the cache is cleared by the system anyway */ }
+        throw e
+      }
       console.warn('[media] download failed:', e?.message ?? e)
       throw new AppError('The file could not be downloaded. Please check your connection and try again.', {
         code: ERROR_CODES.SHARE_FAILED, cause: e,
@@ -126,6 +141,7 @@ export async function downloadImage(src, filename = 'image.jpg') {
   }
 
   try {
+    onReady?.()
     await Sharing.shareAsync(file.uri)
   } catch (e) {
     console.warn('[media] share sheet failed:', e?.message ?? e)

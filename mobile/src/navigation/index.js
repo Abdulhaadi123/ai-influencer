@@ -61,6 +61,7 @@ import Screen from '../components/Screen'
 import SplashOverlay from '../components/SplashOverlay'
 import PurchaseNoticeHost from '../components/PurchaseNotice'
 import GalleryToastHost from '../components/GalleryToastHost'
+import ShareStatusHost from '../components/ShareStatusHost'
 import DialogHost from '../components/DialogHost'
 import { clearMediaImageCache } from '../components/MediaImage'
 import { navigationRef } from './ref'
@@ -236,6 +237,8 @@ export default function RootNavigator() {
       )}
       {isSignedIn ? <PurchaseNoticeHost /> : null}
       {isSignedIn ? <GalleryToastHost /> : null}
+      {/* "Preparing to share…" while a file is downloaded for the share sheet (lib/share.js). */}
+      {isSignedIn ? <ShareStatusHost /> : null}
       {/* Every message box in the app, drawn by the app (lib/dialog.js). Mounted for signed-out screens too. */}
       <DialogHost />
       {splashGone ? null : <SplashOverlay ready={!initialising} onGone={endSplash} />}

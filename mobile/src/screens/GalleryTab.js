@@ -56,6 +56,7 @@ import Screen from '../components/Screen'
 import { Button, Chip, EmptyState } from '../components/ui'
 import Icon from '../components/icons'
 import ReportSheet from '../components/ReportSheet'
+import ShareStatusHost from '../components/ShareStatusHost'
 import LoadMoreFooter from '../components/LoadMoreFooter'
 
 /** Fewer entries than this on screen and the next page is fetched without waiting for a scroll. */
@@ -383,6 +384,9 @@ function Lightbox({ entry, influencerName, onClose, onShare, onReport, onDelete 
 
         {/* Inside this Modal, so it opens above the viewer on both platforms. */}
         <ReportSheet visible={reporting} onClose={() => setReporting(false)} onSubmit={onReport} />
+
+        {/* "Preparing to share…": the one mounted in the navigator is behind this Modal. */}
+        <ShareStatusHost placement="top" />
       </Screen>
     </Modal>
   )

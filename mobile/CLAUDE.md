@@ -284,7 +284,15 @@ Every failure a person sees is a sentence from `core/errors.js`, never a raw
 - **The generator's refusals are not our API's.** `refusal(res)` in the provider
   rethrows our API's error as written and words KIE's numeric codes with
   `generatorMessage()`.
-- **"Save or share" goes through `shareMedia`** (`src/lib/share.js`).
+- **"Save or share" goes through `shareMedia`** (`src/lib/share.js`). It used to take 20–30 s: the share
+  sheet needs a file, so it downloaded the picture (megabytes) every time, with nothing on screen.
+  Now a picture the app already showed is taken from expo-image's disk cache (`loadedCopyOf`, keyed
+  like `MediaImage`) and opens at once; what must be downloaded shows a pill ("Preparing to share…
+  42%", a cross to stop it; `ShareStatusHost`, state in `lib/shareStatus.js`, words in
+  `core/media/shareProgress.js`), one share at a time. **The pill is mounted twice**: in the navigator,
+  and inside the gallery viewer's `Modal` (`placement="top"`) — a Modal is its own window, drawn above
+  everything else, so the navigator's copy is hidden behind it. A new full-screen Modal with a Share
+  button needs its own copy.
 - `src/components/ErrorBoundary.js` wraps the app.
 
 ## Message boxes, the cost note and "Saved to Gallery"
