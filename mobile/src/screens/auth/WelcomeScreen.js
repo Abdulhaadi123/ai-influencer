@@ -7,6 +7,7 @@
  * in is worse than no button.
  */
 
+import { useState } from 'react'
 import { View, Text, Image, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -16,14 +17,16 @@ import { useAuth } from '@core/auth/AuthContext'
 import { useTheme, space, font, layout } from '../../theme'
 import { Button } from '../../components/ui'
 import LegalNote from '../../components/LegalNote'
+import GoogleSignInButton from '../../components/GoogleSignInButton'
 import { LogoMark } from '../../components/brand'
 import { welcomeHero } from '../../assets/heroes'
-import { FormNotice } from './parts'
+import { FormNotice, FormError } from './parts'
 
 export default function WelcomeScreen({ navigation }) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const { notice } = useAuth()
+  const [googleError, setGoogleError] = useState(null)
 
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
@@ -46,9 +49,13 @@ export default function WelcomeScreen({ navigation }) {
         <Text style={[styles.welcome, font('regular'), { color: colors.textPrimary }]}>Welcome to</Text>
         <Text style={[styles.brand, font('bold'), { color: colors.textPrimary }]} accessibilityRole="header">Influenza Ai</Text>
 
-        <View style={styles.notice}><FormNotice>{notice}</FormNotice></View>
+        <View style={styles.notice}>
+          <FormNotice>{notice}</FormNotice>
+          <FormError>{googleError}</FormError>
+        </View>
 
         <View style={styles.buttons}>
+          <GoogleSignInButton onError={setGoogleError} />
           <Button title="Sign in with email" variant="dark" onPress={() => navigation.navigate('SignIn')} />
           <Button title="Create an account" variant="neutral" onPress={() => navigation.navigate('SignUp')} />
         </View>

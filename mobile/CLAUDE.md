@@ -100,6 +100,30 @@ has an account is refused at sign-up (`EMAIL_TAKEN`), and one with no account at
 forgot-password (`ACCOUNT_NOT_FOUND`, with a **Sign up** link) — said on the form,
 not answered with "check your email".
 
+### Continue with Google
+
+One tap signs in or makes the account (`signInWithGoogle` in `core/auth/index.js`; server: `backend/api/auth/oauth.js`,
+README "Sign in with Google"). Google's account picker gives an ID token; the app sends it to `/api/auth/oauth`; the
+session that comes back is like any other.
+
+- **Switched on by one value**, `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (the Web application client ID from Google Cloud
+  Console, `…apps.googleusercontent.com`; public, not a secret). Unset, the buttons are not drawn and email sign-in is
+  all there is. The same ID goes in the server's `GOOGLE_CLIENT_IDS`: the server accepts only tokens made for it. The
+  *Android* clients (package + signing-key SHA-1) never appear in the code; they are how Google recognises the app
+  itself. A Play-installed app is signed with Google's key, so ITS SHA-1 (Play Console → App signing) must be one of them,
+  or Google answers DEVELOPER_ERROR (`core/auth/googleErrors.js` turns that and the other failures into plain words).
+- `core/platform/googleSignIn.native.js` is the only file that touches the library (`@react-native-google-signin`, the
+  free "Original" API), and requires it inside its functions so a build without the native part loses only the button.
+  `googleSignIn.js` is the web stand-in. `GoogleSignInButton` (white pill, Google's own "G") is on the welcome, sign-in
+  and sign-up screens; closing the picker (`GOOGLE_CANCELLED`) shows nothing.
+- **An account made with Google has no password** (`user.hasPassword === false`; `useAuth().hasPassword`, treated as
+  true when the field is missing, as in a session stored by an older version). Settings then shows "Set a password"
+  (sends the reset-by-email link) instead of "Change Password", and deleting the account asks for Google again
+  instead of a password (`deleteAccount({ google: true })`; the server checks it is THIS account's Google).
+- **Testing without Google:** `EXPO_PUBLIC_GOOGLE_DEV_TOKEN_URL` (dev builds only: `__DEV__` is false in a release, so the
+  value is '' there and Metro drops the branch) points at a local server that hands out a really-signed token in place
+  of the picker. The sandbox in the test notes does: `/fake-google-token`, `/google-identity`, `/jwks`.
+
 ## Data
 
 The server scopes every read and write to the signed-in user; nothing in the app

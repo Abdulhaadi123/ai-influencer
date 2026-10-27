@@ -82,6 +82,7 @@ export function AuthProvider({ children }) {
 
   const signIn = useCallback((...args) => auth.signIn(...args), [])
   const signUp = useCallback((...args) => auth.signUp(...args), [])
+  const signInWithGoogle = useCallback(() => auth.signInWithGoogle(), [])
   const signOut = useCallback(() => auth.signOut(), [])
   const deleteAccount = useCallback((...args) => auth.deleteAccount(...args), [])
   const requestPasswordReset = useCallback((...args) => auth.requestPasswordReset(...args), [])
@@ -112,8 +113,13 @@ export function AuthProvider({ children }) {
     notice,
     clearNotice,
     isSignedIn: !!session,
+    // An account made with Google has no password: no "change password", and deleting it asks Google. Only an
+    // explicit `false` counts, so a session stored by an older version of the app (no field) is treated as before.
+    hasPassword: user ? user.hasPassword !== false : true,
+    googleAvailable: auth.googleAvailable(),
     signIn,
     signUp,
+    signInWithGoogle,
     signOut,
     deleteAccount,
     requestPasswordReset,
@@ -122,7 +128,7 @@ export function AuthProvider({ children }) {
     refreshProfile,
   }), [
     session, user, initialising, configError, notice, clearNotice,
-    signIn, signUp, signOut, deleteAccount,
+    signIn, signUp, signInWithGoogle, signOut, deleteAccount,
     requestPasswordReset, resendConfirmation, changePassword, refreshProfile,
   ])
 

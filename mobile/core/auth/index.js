@@ -28,9 +28,15 @@
  */
 
 import { apiFetch } from '../api/client'
+import { requestGoogleIdToken, signOutOfGoogle, googleSignInAvailable } from '../platform/googleSignIn'
 import {
   setSession, clearSession, loadSession, getCurrentSession, onSessionChange, updateStoredUser,
 } from './session'
+
+export { GOOGLE_CANCELLED, GOOGLE_FAILED } from './googleErrors'
+
+/** Whether this build offers "Continue with Google" (it has the Web client ID). */
+export const googleAvailable = googleSignInAvailable
 
 // ── Password policy ──────────────────────────────────────────────────────────
 //
@@ -112,6 +118,27 @@ export async function signIn({ email, password }) {
 }
 
 /**
+ * Sign in (or sign up: the same tap) with Google. Google's account picker names the person; the server
+ * checks the answer and says which account that is — an existing one with the same address, joined to
+ * this Google account, or a new one with no password (backend api/auth/oauth.js). The session that comes
+ * back is like any other.
+ *
+ * Closing the picker throws an error with `code` GOOGLE_CANCELLED, which is not a failure: show nothing.
+ *
+ * @returns {Promise<{user: object, isNewAccount: boolean}>}
+ */
+export async function signInWithGoogle() {
+  const idToken = await requestGoogleIdToken()
+  const json = await apiFetch('/api/auth/oauth', {
+    method: 'POST',
+    auth: false,
+    body: { provider: 'google', idToken },
+  })
+  await setSession(json.session, 'SIGNED_IN')
+  return { user: json.session.user, isNewAccount: !!json.isNewAccount }
+}
+
+/**
  * Sign out this device.
  *
  * The local session goes first, so signing out holds even with no connection —
@@ -121,6 +148,8 @@ export async function signIn({ email, password }) {
 export async function signOut() {
   const session = getCurrentSession()
   await clearSession('SIGNED_OUT')
+  // So the next "Continue with Google" on this phone shows the account picker, not the last account.
+  signOutOfGoogle().catch(() => {})
   if (session?.refreshToken) {
     apiFetch('/api/auth/logout', { method: 'POST', auth: false, body: { refreshToken: session.refreshToken } })
       .catch(e => console.warn('[auth] server sign-out did not complete:', e?.message ?? e))
@@ -160,13 +189,23 @@ export async function changePassword({ currentPassword, newPassword }) {
 }
 
 /**
- * Permanently delete the signed-in account and everything in it. The server
- * checks the password before deleting anything.
+ * Permanently delete the signed-in account and everything in it. The server checks who is asking before
+ * deleting anything: the password, or — for an account made with Google, which has none — a fresh Google
+ * sign-in that must be this account's own Google account.
+ *
+ * @param {{password?: string, google?: boolean}} proof
  */
-export async function deleteAccount({ password }) {
-  if (!password) throw new Error('Enter your password to continue.')
-  await apiFetch('/api/account/delete', { method: 'POST', body: { password }, timeoutMs: 120_000 })
+export async function deleteAccount({ password, google = false } = {}) {
+  let body
+  if (google) {
+    body = { oauth: { provider: 'google', idToken: await requestGoogleIdToken() } }
+  } else {
+    if (!password) throw new Error('Enter your password to continue.')
+    body = { password }
+  }
+  await apiFetch('/api/account/delete', { method: 'POST', body, timeoutMs: 120_000 })
   await clearSession('SIGNED_OUT')
+  signOutOfGoogle().catch(() => {})
 }
 
 /** Re-read the user from the server — also how a stored session is checked at launch. */

@@ -20,6 +20,7 @@ import { userMessage } from '@core/errors'
 
 import { space } from '../../theme'
 import LegalNote from '../../components/LegalNote'
+import GoogleSignInButton from '../../components/GoogleSignInButton'
 import {
   AuthShell, Field, PrimaryButton, LinkButton, FormError,
   emailProps, passwordProps,
@@ -150,6 +151,9 @@ export default function SignUpScreen({ navigation, route }) {
 
       {/* Creating the account is agreeing to these; both are readable before it is made. */}
       <LegalNote style={styles.legal} />
+
+      {/* The same tap signs in or makes the account, so there is no separate "sign up with Google". */}
+      <GoogleSignInButton divider onError={setError} />
 
       {taken ? (
         <View style={styles.takenActions}>

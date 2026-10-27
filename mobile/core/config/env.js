@@ -37,3 +37,20 @@ export function isApiConfigured() {
  */
 export const REVENUECAT_ANDROID_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY || ''
 export const REVENUECAT_TEST_KEY = process.env.EXPO_PUBLIC_REVENUECAT_TEST_KEY || ''
+
+/**
+ * Sign in with Google. The Web application client ID from Google Cloud Console (ending in
+ * `.apps.googleusercontent.com`): public, like the keys above — it names this app to Google, and the
+ * server accepts a sign-in only if it was made for this same ID (backend GOOGLE_CLIENT_IDS). Empty: the
+ * "Continue with Google" buttons are not drawn and email sign-in is all there is.
+ */
+export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || ''
+
+/**
+ * DEVELOPMENT ONLY: an address that hands out a Google ID token, in place of Google's account picker,
+ * so the whole sign-in can be run against a local test server on an emulator with no Google account.
+ * Like the RevenueCat test key above it is dead in a release build: `__DEV__` is false there, so this is
+ * '' and Metro drops the branch that reads it (core/platform/googleSignIn.native.js).
+ */
+export const GOOGLE_DEV_TOKEN_URL =
+  typeof __DEV__ !== 'undefined' && __DEV__ ? process.env.EXPO_PUBLIC_GOOGLE_DEV_TOKEN_URL || '' : ''
