@@ -67,13 +67,18 @@ export function hashToken(token) {
   return createHash('sha256').update(String(token)).digest('hex')
 }
 
-/** What the app is told about a user. Never includes the password hash. */
+/**
+ * What the app is told about a user. Never includes the password hash — only whether there is one: an
+ * account made with Google has none (migration 012), and the app then offers no "change password".
+ * A row from a join has `has_password`; a whole users row has `password_hash` itself.
+ */
 export function publicUser(row) {
   return {
     id: row.id,
     email: row.email,
     displayName: row.display_name ?? null,
     emailConfirmed: !!row.email_confirmed_at,
+    hasPassword: row.has_password ?? row.password_hash != null,
   }
 }
 
@@ -116,7 +121,8 @@ export async function createSession(user, { userAgent = null, scope = 'app' } = 
  */
 export async function findSessionByAccessToken(accessToken) {
   const { rows } = await query(
-    `select s.id as session_id, s.scope, s.last_used_at, u.id, u.email, u.display_name, u.email_confirmed_at, u.role, u.status
+    `select s.id as session_id, s.scope, s.last_used_at, u.id, u.email, u.display_name, u.email_confirmed_at, u.role, u.status,
+            u.password_hash is not null as has_password
        from sessions s
        join users u on u.id = s.user_id
       where s.access_hash = $1 and s.access_expires_at > now()`,
@@ -147,7 +153,7 @@ export async function refreshSession(refreshToken, { userAgent = null } = {}) {
 
   return transaction(async client => {
     let { rows } = await client.query(
-      `select s.id, s.user_id, s.scope, u.email, u.display_name, u.email_confirmed_at
+      `select s.id, s.user_id, s.scope, u.email, u.display_name, u.email_confirmed_at, u.password_hash is not null as has_password
          from sessions s
          join users u on u.id = s.user_id
         where s.refresh_hash = $1 and s.refresh_expires_at > now() and u.status = 'active'
@@ -158,7 +164,7 @@ export async function refreshSession(refreshToken, { userAgent = null } = {}) {
 
     if (!session) {
       ;({ rows } = await client.query(
-        `select s.id, s.user_id, s.scope, u.email, u.display_name, u.email_confirmed_at,
+        `select s.id, s.user_id, s.scope, u.email, u.display_name, u.email_confirmed_at, u.password_hash is not null as has_password,
                 s.rotated_at > now() - $2::int * interval '1 second' as within_grace
            from sessions s
            join users u on u.id = s.user_id
@@ -194,7 +200,7 @@ export async function refreshSession(refreshToken, { userAgent = null } = {}) {
     )
 
     return issued(
-      { id: session.user_id, email: session.email, display_name: session.display_name, email_confirmed_at: session.email_confirmed_at },
+      { id: session.user_id, email: session.email, display_name: session.display_name, email_confirmed_at: session.email_confirmed_at, has_password: session.has_password },
       accessToken,
       nextRefreshToken,
     )

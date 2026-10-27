@@ -292,7 +292,12 @@ export const changePassword = userRoute(async (req, res, user) => {
   enforceLimit(passwordChecksByUser, `user:${user.id}`)
 
   const row = await one('select password_hash from users where id = $1', [user.id])
-  if (!(await verifyPassword(row?.password_hash ?? null, currentPassword))) {
+  // An account made with Google has no password to be "current". Its owner can set one by the usual
+  // route (Forgot password: a link to the address they have already proved), so nothing is lost.
+  if (!row?.password_hash) {
+    throw badRequest('This account signs in with Google and has no password to change. To set one, use "Forgot password" on the sign-in screen.', 'NO_PASSWORD')
+  }
+  if (!(await verifyPassword(row.password_hash, currentPassword))) {
     throw new HttpError(403, 'Your current password is incorrect.', 'WRONG_PASSWORD')
   }
 

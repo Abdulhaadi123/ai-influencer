@@ -29,7 +29,31 @@ async function legacyDatabase() {
 
 test('the migrations are numbered in order with no gaps', () => {
   const files = readdirSync(migrations).filter(f => f.endsWith('.sql')).sort()
-  assert.deepEqual(files, ['001_schema.sql', '002_moderation_admin.sql', '003_provider_refusals.sql', '004_admin_list_indexes.sql', '005_billing.sql', '006_sealed_uploads.sql', '007_credit_ledger_created_idx.sql', '008_session_scope.sql', '009_task_owners.sql', '010_launch_packs.sql', '011_thumbnails.sql'])
+  assert.deepEqual(files, ['001_schema.sql', '002_moderation_admin.sql', '003_provider_refusals.sql', '004_admin_list_indexes.sql', '005_billing.sql', '006_sealed_uploads.sql', '007_credit_ledger_created_idx.sql', '008_session_scope.sql', '009_task_owners.sql', '010_launch_packs.sql', '011_thumbnails.sql', '012_oauth_identities.sql'])
+})
+
+test('012 lets an account have no password, leaves every existing one as it is, and an identity goes with its user', async () => {
+  const db = await legacyDatabase()
+  for (const file of ['002_moderation_admin.sql', '003_provider_refusals.sql', '004_admin_list_indexes.sql', '005_billing.sql', '006_sealed_uploads.sql', '012_oauth_identities.sql']) await db.exec(sql(file))
+
+  assert.deepEqual(
+    (await db.query(`select email, password_hash from users order by email`)).rows,
+    [{ email: 'old@test.example', password_hash: 'x' }, { email: 'other@test.example', password_hash: 'x' }],
+    'existing accounts keep their passwords',
+  )
+  const { rows: [user] } = await db.query(`insert into users (email, password_hash) values ('google@x.test', null) returning id`)
+  await db.query(`insert into auth_identities (user_id, provider, subject, email) values ($1, 'google', 'g-1', 'google@x.test')`, [user.id])
+  await assert.rejects(
+    db.query(`insert into auth_identities (user_id, provider, subject) values ($1, 'google', 'g-1')`, [USER]),
+    /unique|duplicate/i, 'one Google account belongs to one user',
+  )
+  await assert.rejects(
+    db.query(`insert into auth_identities (user_id, provider, subject) values ($1, 'facebook', 'f-1')`, [USER]),
+    /check|violates/i, 'only providers the server knows',
+  )
+  await db.query('delete from users where id = $1', [user.id])
+  assert.equal((await db.query('select count(*)::int as n from auth_identities')).rows[0].n, 0)
+  await db.close()
 })
 
 test('011 adds the preview columns to a live table without touching a row, and every old file waits for the worker', async () => {

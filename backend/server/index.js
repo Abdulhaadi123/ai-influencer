@@ -26,6 +26,7 @@ import { emailConfigured, emailLogOnly } from '../api/_lib/email.js'
 
 import * as account from '../api/auth/account.js'
 import * as pages from '../api/auth/pages.js'
+import * as oauth from '../api/auth/oauth.js'
 import deleteAccount from '../api/account/delete.js'
 import * as influencers from '../api/influencers/index.js'
 import deleteInfluencer from '../api/influencers/delete.js'
@@ -102,6 +103,7 @@ export function createApp() {
   // ── Accounts ─────────────────────────────────────────────────────────────
   app.post('/api/auth/signup', account.signUp)
   app.post('/api/auth/login', account.signIn)
+  app.post('/api/auth/oauth', oauth.oauthSignIn)
   app.post('/api/auth/refresh', account.refresh)
   app.post('/api/auth/logout', account.signOut)
   app.get('/api/auth/me', account.me)

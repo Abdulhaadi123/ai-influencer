@@ -417,6 +417,36 @@ working (reviewers, staff) credits from the panel.
 
 ---
 
+## Sign in with Google
+
+`POST /api/auth/oauth { provider: 'google', idToken }` → `{ session, isNewAccount }` (`api/auth/oauth.js`). The app
+asks Google's account picker who the person is and sends the ID token it gets back; this checks it and gives the
+usual session (the same tokens, rules and sign-out as a password sign-in). It signs in AND signs up. Turn it on by
+putting the **Web application** client ID from Google Cloud Console in `.env` as `GOOGLE_CLIENT_IDS` (several,
+comma-separated, are allowed; not a secret, and there is no client secret to set), then `docker compose up -d --force-recreate api`.
+Empty, the endpoint answers 503 `OAUTH_NOT_CONFIGURED` and email sign-in works as before.
+
+- **What is believed** (`api/_lib/oauth/google.js`): a token signed with one of Google's published keys (fetched and
+  cached by `jose`; RS256 only), issued by Google, **made for one of our client IDs** (`aud`), not expired, with
+  `email_verified`. A token made for some other app is a real token and still refused. Google's keys being unreachable
+  answers 503 `OAUTH_UNAVAILABLE` ("try again"), never "your token is bad"; the reason a token was refused goes to the log,
+  not to the caller (401 `OAUTH_TOKEN_INVALID`). `GOOGLE_JWKS_URL` exists only so tests can stand in for Google.
+- **Which account** (migration 012, `auth_identities`): the one already joined to this Google account (its `sub`, which
+  never changes; the email can), else the one with the same verified email (joined to it), else a new account, confirmed
+  from the start and with **no password**. Joining has one trap, closed: an account whose email was never confirmed is
+  taken over by the person who has now proved the address (its password erased, its tokens spent, its sessions ended), so
+  someone who signed up with another person's address cannot keep a working password to it. A confirmed account is
+  joined and keeps its password. An administrator's account is never joined or signed in this way; a suspended one is refused.
+- **An account with no password** (`users.password_hash` is null): no password ever matches it (same slow check as a wrong one);
+  `change-password` answers 400 `NO_PASSWORD`; "Forgot password" works as it does for anyone, and following the link
+  sets one. `publicUser` carries `hasPassword`, so the app shows "Set a password" instead of "Change Password".
+- **Deleting it** (`api/account/delete.js`): `{ oauth: { provider, idToken } }` in place of `{ password }`, and the token must
+  be a Google account joined to THIS account (403 `WRONG_ACCOUNT` otherwise). With neither, 400 `REAUTH_REQUIRED` (no
+  password) or `PASSWORD_REQUIRED`. The identity is deleted with the user.
+- Apple, later, adds `api/_lib/oauth/apple.js` and a `provider` value; the table and the endpoint do not change.
+
+---
+
 ## Security model
 
 **Who is calling, and as what.** The caller never says who they are.
@@ -735,7 +765,7 @@ edit shows on reload.
 
 | Area | Endpoints |
 |---|---|
-| Accounts | `POST /api/auth/signup` `login` `refresh` `logout` `change-password` `forgot-password` `resend-confirmation`; `GET/POST /api/auth/me`; `POST /api/account/delete` |
+| Accounts | `POST /api/auth/signup` `login` `oauth` `refresh` `logout` `change-password` `forgot-password` `resend-confirmation`; `GET/POST /api/auth/me`; `POST /api/account/delete` |
 | Email pages | `GET/POST /auth/confirm-email`, `GET/POST /auth/reset-password` |
 | Influencers | `GET /api/influencers`; `POST /api/influencers/create` `update` `delete` |
 | Gallery | `GET /api/generations/by-asset` `by-influencer`; `POST /api/generations/add` `delete` |

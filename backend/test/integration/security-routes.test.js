@@ -56,7 +56,7 @@ function listRoutes(app) {
 /** Open on purpose: they exist to be reached by someone who has no session. */
 const PUBLIC = new Set([
   'GET /health',
-  'POST /api/auth/signup', 'POST /api/auth/login', 'POST /api/auth/refresh', 'POST /api/auth/logout',
+  'POST /api/auth/signup', 'POST /api/auth/login', 'POST /api/auth/oauth', 'POST /api/auth/refresh', 'POST /api/auth/logout',
   'POST /api/auth/forgot-password', 'POST /api/auth/resend-confirmation',
   'GET /auth/confirm-email', 'POST /auth/confirm-email', 'GET /auth/reset-password', 'POST /auth/reset-password',
 ])

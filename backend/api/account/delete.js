@@ -15,17 +15,34 @@
  * empty prefix and finishes the job.
  */
 
-import { query } from '../_lib/db.js'
+import { one, query } from '../_lib/db.js'
 import { userRoute, badRequest, HttpError } from '../_lib/http.js'
 import { deleteUserObjects } from '../_lib/s3.js'
 import { checkPasswordForUser } from '../auth/account.js'
+import { verifyOauthProof } from '../auth/oauth.js'
 
 export default userRoute(async (req, res, user) => {
   const password = req.body?.password
-  if (typeof password !== 'string' || !password) throw badRequest('Enter your password to continue.', 'PASSWORD_REQUIRED')
+  const oauth = req.body?.oauth
 
-  if (!(await checkPasswordForUser(user, password))) {
-    throw new HttpError(403, 'Incorrect password.', 'WRONG_PASSWORD')
+  if (typeof password === 'string' && password) {
+    if (!(await checkPasswordForUser(user, password))) {
+      throw new HttpError(403, 'Incorrect password.', 'WRONG_PASSWORD')
+    }
+  } else if (oauth && typeof oauth === 'object') {
+    // An account made with Google has no password to type, so it proves itself the way it signed in:
+    // a fresh Google sign-in, and it must be THIS account's Google identity, not just any Google account.
+    const proof = await verifyOauthProof(req, oauth.provider, oauth.idToken)
+    const theirs = await one(
+      'select 1 from auth_identities where user_id = $1 and provider = $2 and subject = $3',
+      [user.id, proof.provider, proof.subject],
+    )
+    if (!theirs) throw new HttpError(403, 'That Google account is not the one this account signs in with.', 'WRONG_ACCOUNT')
+  } else {
+    const row = await one('select password_hash from users where id = $1', [user.id])
+    throw row?.password_hash
+      ? badRequest('Enter your password to continue.', 'PASSWORD_REQUIRED')
+      : badRequest('Sign in with Google again to confirm.', 'REAUTH_REQUIRED')
   }
 
   const deletedObjects = await deleteUserObjects(user.id)
