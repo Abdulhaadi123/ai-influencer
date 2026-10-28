@@ -45,6 +45,10 @@ export const INPUT_LIMITS = Object.freeze({
   scene: 900,
   /** Motion Copy's scene direction, sent to KIE as typed: exactly what Kling Motion Control takes. */
   sceneDirection: 2500,
+  /** The line a person adds to an outfit change ("sleeves rolled up"). It rides inside a long prompt, not on its own. */
+  outfitNote: 200,
+  /** What a saved outfit is called: one line under its photo, and part of the gallery label. */
+  wardrobeName: 40,
 })
 
 /**

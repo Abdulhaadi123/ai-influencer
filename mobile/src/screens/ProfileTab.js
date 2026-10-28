@@ -44,6 +44,8 @@ import { IMAGE_MODEL_ID } from '@core/config/generation'
 import { Section, Row, Button, Collapsible, Field, Chip, PillInput } from '../components/ui'
 import Icon from '../components/icons'
 import IdentityRefs from '../components/IdentityRefs'
+import WardrobeSection from '../components/WardrobeSection'
+import OutfitSheet from '../components/OutfitSheet'
 import { pickImageWithPrompt } from '../lib/picker'
 import { usePendingResult } from '../hooks/usePendingResult'
 
@@ -69,6 +71,8 @@ export default function ProfileTab({ influencer, navigation }) {
   const [deleting, setDeleting] = useState(false)
   /** A regenerated image that outlived the foreground poll, watched until it lands. */
   const [pendingTaskId, setPendingTaskId] = useState(null)
+  /** The "Change outfit" sheet, and the outfit it opens on (null: the first one). */
+  const [outfitSheet, setOutfitSheet] = useState({ open: false, outfitId: null })
 
   // The name is edited locally and written on blur. Patching on every keystroke
   // would be a request per character.
@@ -280,6 +284,13 @@ export default function ProfileTab({ influencer, navigation }) {
                 </View>
               </View>
               <Button
+                title="Change outfit"
+                size="sm"
+                variant="soft"
+                onPress={() => setOutfitSheet({ open: true, outfitId: null })}
+                disabled={regenerating || storingHero || !!pendingTaskId}
+              />
+              <Button
                 title="Share"
                 size="sm"
                 variant="secondary"
@@ -298,6 +309,19 @@ export default function ProfileTab({ influencer, navigation }) {
       </Section>
 
       <IdentityRefs influencer={influencer} />
+
+      <WardrobeSection
+        influencer={influencer}
+        onTryOn={outfit => setOutfitSheet({ open: true, outfitId: outfit.id })}
+      />
+      {/* Stays mounted: closing it does not stop a picture being made, and reopening shows the result. */}
+      <OutfitSheet
+        visible={outfitSheet.open}
+        influencer={influencer}
+        initialOutfitId={outfitSheet.outfitId}
+        onClose={() => setOutfitSheet(s => ({ ...s, open: false }))}
+        onUseAsMain={setMainImage}
+      />
 
       <Section title="Identity">
         <Row

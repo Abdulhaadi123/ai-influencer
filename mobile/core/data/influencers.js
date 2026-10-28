@@ -20,6 +20,7 @@
 
 import { apiFetch } from '../api/client'
 import { resolveUrls, thumbUrlFor } from './assets'
+import { storedSlots } from '../wardrobe'
 
 /**
  * API row → the object screens consume.
@@ -159,6 +160,9 @@ function toRow(patch) {
   for (const [appKey, column] of Object.entries(map)) {
     if (Object.prototype.hasOwnProperty.call(patch, appKey)) row[column] = patch[appKey]
   }
+  // The slots a screen shows carry the link their photo is drawn from (`image`, signed, good for ten
+  // minutes). The server keeps whatever it is given, so only what is durable is sent (core/wardrobe.js).
+  if (Array.isArray(row.wardrobe_slots)) row.wardrobe_slots = storedSlots(row.wardrobe_slots)
   return row
 }
 

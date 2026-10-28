@@ -205,6 +205,32 @@ in `videoModels.js` maps the request onto its own model's fields, and
 `maxImages: 0` (MiniMax text-to-video) means the model cannot be shown the
 influencer at all — the studio warns before anyone spends credits on it.
 
+### Wardrobe and "Change outfit" — `core/wardrobe.js`
+
+An influencer keeps up to 8 saved outfit PHOTOS (`wardrobeSlots`: `{id, name, asset_id}`, JSON on the
+server) and can be dressed in one: Nano Banana Pro gets `[main image, outfit photo]`
+(`image_input`, in that order) with `aspect_ratio: 'auto'` (the shape of image 1), and the prompt
+(`core/prompts/outfitPrompt.js`) says which picture is which, what must not change, and to take only
+the clothes from a photo of someone wearing them. UI: `WardrobeSection` (Profile tab) and
+`OutfitSheet` (the "Change outfit" Modal); state and phone/network work in `hooks/useWardrobe.js`.
+
+- **A slot read from the server carries `image`, a signed link good for ten minutes.** It is for the
+  screen only: `data/influencers.js` `toRow` strips it from every write (`storedSlots`), because the
+  server keeps whatever it is given. Never save slots without going through `updateInfluencer`.
+- **Only slots with a photo count.** A new influencer starts with three empty ones ("Wardrobe 1".."3");
+  the first outfit added replaces them, and removing an outfit removes the slot.
+- **The result is filed in the Gallery as "Outfit change · <name>" and never becomes the main image by
+  itself** — every video and sheet is made from the main image. "Use as main image" asks first and
+  replaces it exactly as Regenerate does (the old file is deleted unless the Gallery holds it).
+- The sheet stays mounted by the Profile tab: closing it does not stop a picture being made, and a
+  picture that outlives the foreground poll is watched until it lands (`usePendingResult`).
+- It needs no server change: the price row is Nano Banana Pro's, the server's content checks already
+  read every image in the request, and the worker files a result that lands while the app is shut.
+  A different model needs a price row, its own field name for the images (`image_input`,
+  `image_urls`, `input_urls`) and, if it has one, `nsfw_checker` in `kieFilters.js`.
+- How good the likeness and the garment come out is the model's, not the code's: not measured. A
+  short test with real outfit photos should come before any promise about logos or small print.
+
 ### Scene and script — `core/prompts/videoPrompt.js`
 
 Two different inputs. `dialogue` is what she SAYS; `scene` is what is SEEN —
@@ -316,7 +342,7 @@ Every failure a person sees is a sentence from `core/errors.js`, never a raw
   `core/media/shareProgress.js`), one share at a time. **The pill is mounted twice**: in the navigator,
   and inside the gallery viewer's `Modal` (`placement="top"`) — a Modal is its own window, drawn above
   everything else, so the navigator's copy is hidden behind it. A new full-screen Modal with a Share
-  button needs its own copy.
+  button needs its own copy (the gallery viewer and the outfit sheet have one).
 - `src/components/ErrorBoundary.js` wraps the app.
 
 ## Message boxes, the cost note and "Saved to Gallery"
