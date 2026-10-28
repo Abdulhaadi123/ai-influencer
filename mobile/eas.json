@@ -19,7 +19,8 @@
       },
       "environment": "preview",
       "env": {
-        "EXPO_PUBLIC_API_BASE": "https://ai-influencer.backed.dexterztechnologies.com"
+        "EXPO_PUBLIC_API_BASE": "https://ai-influencer.backed.dexterztechnologies.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "349276607721-ngvq04jq4i35jn464ssccplqeil79bh4.apps.googleusercontent.com"
       }
     },
     "production": {
@@ -29,7 +30,8 @@
       },
       "environment": "production",
       "env": {
-        "EXPO_PUBLIC_API_BASE": "https://ai-influencer.backed.dexterztechnologies.com"
+        "EXPO_PUBLIC_API_BASE": "https://ai-influencer.backed.dexterztechnologies.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "349276607721-ngvq04jq4i35jn464ssccplqeil79bh4.apps.googleusercontent.com"
       },
       "autoIncrement": true
     }
