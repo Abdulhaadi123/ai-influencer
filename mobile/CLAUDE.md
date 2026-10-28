@@ -366,6 +366,26 @@ Every failure a person sees is a sentence from `core/errors.js`, never a raw
 - **Test tooling:** `uiautomator dump` returns nothing while anything animates forever (the badge's
   pulse), so a script driving the emulator taps by position while a badge is showing.
 
+## What Google Play reads from the Android build
+
+- **The camera is optional** (`plugins/withOptionalCamera.js`, listed first in `app.json` `plugins`). A
+  manifest with the CAMERA permission and nothing more is read as "needs a camera and autofocus", and Play
+  hides the app from every device without them (the release page showed 18,958 supported devices). The
+  plugin declares both features with `required="false"`; a photo can always come from the library.
+- **`SYSTEM_ALERT_WINDOW` is blocked** (`android.blockedPermissions`). Expo adds it to every build as a
+  default permission; it is React Native's debug overlay and a sensitive permission for Play.
+- Check a change with `expo prebuild` in a scratch copy and read `android/app/src/main/AndroidManifest.xml`;
+  the merged result of the real build is `app/build/intermediates/merged_manifests/release/.../AndroidManifest.xml`.
+- **Code shrinking (R8) is off**, so Play warns "DEX code optimization is below our threshold (Obfuscation
+  3%)", fix by Feb 2027. On 2026-10-28 a local release build with `expo-build-properties`
+  (`enableMinifyInReleaseBuilds`, `enableShrinkResourcesInReleaseBuilds`) built and was 8 MB smaller (34.6
+  against 42.5 MB, x86_64), with no crash or missing-class error in the log — but the emulator drew every
+  release build unreliably (a stuck splash, a black screen, Modals not drawn, with and without shrinking),
+  so it could not be shown to work and was left off. Turn it on only after the same build has been used on
+  a real phone (an EAS preview build): every Modal, Share, the gallery's video, sign-in.
+- A release build refuses plain `http`, so a local release test against the sandbox needs
+  `android:usesCleartextTraffic="true"` in the scratch copy's manifest (never in the repo).
+
 ## Legal pages inside the app
 
 Google Play's User Data policy asks for the privacy policy in Play Console **and** "a privacy policy link

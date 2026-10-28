@@ -24,12 +24,16 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
       "backgroundColor": "#FFFFFF"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withOptionalCamera",
       "expo-sharing",
       "expo-video",
       "expo-sqlite",
