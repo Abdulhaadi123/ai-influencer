@@ -11,16 +11,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { View } from 'react-native'
 
 import { useAuth } from '@core/auth/AuthContext'
-import { EMAIL_NOT_CONFIRMED } from '@core/auth'
+import { EMAIL_NOT_CONFIRMED, socialHint } from '@core/auth'
 
 import { userMessage } from '@core/errors'
 
-import GoogleSignInButton from '../../components/GoogleSignInButton'
+import SocialSignInButtons from '../../components/SocialSignInButtons'
 import { AuthShell, Field, PrimaryButton, LinkButton, FormError, FormNotice, emailProps, passwordProps } from './parts'
 
 export default function SignInScreen({ navigation, route }) {
   // `notice` explains a sign-out the app did, not the user — a session that ended.
-  const { signIn, notice, clearNotice, resendConfirmation, googleAvailable } = useAuth()
+  const { signIn, notice, clearNotice, resendConfirmation, googleAvailable, appleAvailable } = useAuth()
 
   // Arriving from "An account with this email already exists" on the sign-up form carries the address
   // along, so the person types only the password.
@@ -52,14 +52,14 @@ export default function SignInScreen({ navigation, route }) {
       // session lands, so pushing a route here would fight it.
     } catch (e) {
       setUnconfirmed(e?.code === EMAIL_NOT_CONFIRMED)
-      // An account made with Google has no password, and the server answers it exactly as it answers a wrong
+      // An account made with Google or Apple has no password, and the server answers it exactly as it answers a wrong
       // one (it must not say which addresses exist), so the hint is general, not about this address.
-      const hint = googleAvailable && e?.code === 'INVALID_CREDENTIALS' ? ' Made your account with Google? Use Continue with Google below.' : ''
+      const hint = e?.code === 'INVALID_CREDENTIALS' ? socialHint({ googleAvailable, appleAvailable }) : ''
       setError(userMessage(e, 'Unable to sign in. Please try again.') + hint)
     } finally {
       setBusy(false)
     }
-  }, [busy, email, password, signIn, googleAvailable])
+  }, [busy, email, password, signIn, googleAvailable, appleAvailable])
 
   const resend = useCallback(async () => {
     if (resending) return
@@ -127,7 +127,7 @@ export default function SignInScreen({ navigation, route }) {
         />
       </View>
 
-      <GoogleSignInButton divider onError={setError} />
+      <SocialSignInButtons divider onError={setError} />
     </AuthShell>
   )
 }

@@ -16,9 +16,14 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 import { AccessibilityInfo, Animated, Dimensions, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme, space, font } from '../theme'
-import { subscribeDialogs, currentDialog, closeDialog } from '../lib/dialog'
+import { subscribeDialogs, currentDialog, closeDialog, DRAWS_OWN_DIALOGS } from '../lib/dialog'
 import Icon from './icons'
 import { Button } from './ui'
+
+/** On an iPhone the system alert draws every dialog instead (lib/dialog.js says why), so nothing is mounted. */
+export default function DialogHost() {
+  return DRAWS_OWN_DIALOGS ? <AppDialog /> : null
+}
 
 /** Icon and colours for each tone, from the theme so Light and Dark both work. */
 function look(tone, colors) {
@@ -30,7 +35,7 @@ function look(tone, colors) {
   }
 }
 
-export default function DialogHost() {
+function AppDialog() {
   const { colors } = useTheme()
   const dialog = useSyncExternalStore(subscribeDialogs, currentDialog)
 

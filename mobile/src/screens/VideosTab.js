@@ -317,6 +317,9 @@ export default function VideosTab({ influencer }) {
     <ScrollView
       contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
       keyboardShouldPersistTaps="handled"
+      // iOS: the keyboard covers the page rather than shrinking it, so the page makes room and keeps
+      // the field being typed in visible. Android resizes the window itself and ignores this.
+      automaticallyAdjustKeyboardInsets
       showsVerticalScrollIndicator={false}
     >
       <Block title="Script" footer={`What ${influencer.name} says in the video. Leave blank for a video without speech.`}>

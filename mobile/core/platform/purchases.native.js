@@ -24,22 +24,28 @@
  *
  * ── Keys ─────────────────────────────────────────────────────────────────────
  *
- * The Google Play key for real builds. The Test Store key (simulated purchases, no
- * store) only in a development build: RevenueCat's SDK deliberately crashes when a release
- * build is configured with it, so it must never be reachable there — `__DEV__` is false
+ * For real builds, the key of the phone's own store: the App Store key (`appl_…`) on an iPhone,
+ * the Google Play key (`goog_…`) on Android. A key belongs to one store, so an iPhone given the
+ * Play key could not sell anything; with no key for its store, a build says buying is not set up
+ * (purchasesAvailable) instead of failing at the first tap. The Test Store key (simulated
+ * purchases, no store) only in a development build: RevenueCat's SDK deliberately crashes when a
+ * release build is configured with it, so it must never be reachable there — `__DEV__` is false
  * in a release build, which makes that true by construction.
  */
 
+import { Platform } from 'react-native'
 import Purchases from 'react-native-purchases'
 
-import { REVENUECAT_ANDROID_KEY, REVENUECAT_TEST_KEY } from '../config/env'
+import { REVENUECAT_ANDROID_KEY, REVENUECAT_IOS_KEY, REVENUECAT_TEST_KEY } from '../config/env'
 import { AppError, NETWORK_MESSAGE } from '../errors'
 
 // Read off the class: the SDK's own docs name it that way, and it is the one spelling both its platforms agree on.
 const { LOG_LEVEL, PURCHASES_ERROR_CODE } = Purchases
 
+const STORE_KEY = Platform.OS === 'ios' ? REVENUECAT_IOS_KEY : REVENUECAT_ANDROID_KEY
+
 function sdkKey() {
-  return __DEV__ && REVENUECAT_TEST_KEY ? REVENUECAT_TEST_KEY : REVENUECAT_ANDROID_KEY
+  return __DEV__ && REVENUECAT_TEST_KEY ? REVENUECAT_TEST_KEY : STORE_KEY
 }
 
 /** Whether this build can sell anything (a key was provided). */

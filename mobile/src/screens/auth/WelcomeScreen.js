@@ -2,9 +2,9 @@
  * Welcome — the first screen a signed-out person sees.
  *
  * A full-bleed picture with a white sheet rising over its lower part: "Welcome to Influenza
- * Ai", then the two ways in. The design offers Google and Facebook as well; this app has
- * email-and-password accounts only, so those are not drawn — a button that cannot sign anyone
- * in is worse than no button.
+ * Ai", then the ways in: Apple (on an iPhone) or Google (on Android) where the phone can offer
+ * them, then email. The design offers Facebook as well; this app has no such sign-in, so it is
+ * not drawn — a button that cannot sign anyone in is worse than no button.
  */
 
 import { useState } from 'react'
@@ -17,6 +17,7 @@ import { useAuth } from '@core/auth/AuthContext'
 import { useTheme, space, font, layout } from '../../theme'
 import { Button } from '../../components/ui'
 import LegalNote from '../../components/LegalNote'
+import AppleSignInButton from '../../components/AppleSignInButton'
 import GoogleSignInButton from '../../components/GoogleSignInButton'
 import { LogoMark } from '../../components/brand'
 import { welcomeHero } from '../../assets/heroes'
@@ -26,7 +27,7 @@ export default function WelcomeScreen({ navigation }) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const { notice } = useAuth()
-  const [googleError, setGoogleError] = useState(null)
+  const [socialError, setSocialError] = useState(null)
 
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
@@ -51,11 +52,13 @@ export default function WelcomeScreen({ navigation }) {
 
         <View style={styles.notice}>
           <FormNotice>{notice}</FormNotice>
-          <FormError>{googleError}</FormError>
+          <FormError>{socialError}</FormError>
         </View>
 
         <View style={styles.buttons}>
-          <GoogleSignInButton onError={setGoogleError} />
+          {/* Apple first: its guidelines want it at least as prominent as any other way in. Each draws only where it can work. */}
+          <AppleSignInButton onError={setSocialError} />
+          <GoogleSignInButton onError={setSocialError} />
           <Button title="Sign in with email" variant="dark" onPress={() => navigation.navigate('SignIn')} />
           <Button title="Create an account" variant="neutral" onPress={() => navigation.navigate('SignUp')} />
         </View>

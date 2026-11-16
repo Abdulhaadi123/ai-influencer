@@ -10,6 +10,7 @@
  * shared generation pipeline, which uploads base64 to KIE.
  */
 
+import { Platform } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { File } from 'expo-file-system'
 import { Alert } from './dialog'
@@ -26,6 +27,10 @@ async function ensurePermission(source) {
     if (!granted) Alert.alert('Camera access required', 'Allow camera access in your device settings to continue.')
     return granted
   }
+  // iOS: the library picker (PHPicker) runs outside the app and hands back only what the person chose,
+  // so it needs no permission and the library does not check one. Asking anyway put up "allow access to
+  // your photos", and a "Don't Allow" there would have blocked choosing a photo for good.
+  if (Platform.OS === 'ios') return true
   const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync()
   if (!granted) Alert.alert('Photo access required', 'Allow photo access in your device settings to continue.')
   return granted

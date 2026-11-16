@@ -83,11 +83,14 @@ async function persist() {
 /** Store what the server issued at sign-in or refresh. */
 export async function setSession(issued, event = 'SIGNED_IN') {
   await loadSession()
+  // Only a sign-in with Google/Apple and GET /api/auth/me say how the account signs in (`providers`); a refresh
+  // does not, so it keeps what was known.
+  const providers = issued.user?.providers ?? (event === 'TOKEN_REFRESHED' ? current?.user?.providers : undefined)
   current = {
     accessToken: issued.accessToken,
     refreshToken: issued.refreshToken,
     expiresAt: Date.now() + Number(issued.expiresIn || 0) * 1000,
-    user: issued.user,
+    user: providers ? { ...issued.user, providers } : issued.user,
   }
   await persist()
   emit(event)
@@ -95,7 +98,9 @@ export async function setSession(issued, event = 'SIGNED_IN') {
 
 export async function updateStoredUser(user) {
   if (!current || !user) return
-  current = { ...current, user }
+  // The answer to a rename does not say how the account signs in; GET /api/auth/me does. Keep what was known.
+  const providers = user.providers ?? current.user?.providers
+  current = { ...current, user: providers ? { ...user, providers } : user }
   await persist()
   emit('USER_UPDATED')
 }

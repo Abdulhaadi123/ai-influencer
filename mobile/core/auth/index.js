@@ -29,14 +29,20 @@
 
 import { apiFetch } from '../api/client'
 import { requestGoogleIdToken, signOutOfGoogle, googleSignInAvailable } from '../platform/googleSignIn'
+import { requestAppleCredential, appleSignInAvailable } from '../platform/appleSignIn'
 import {
   setSession, clearSession, loadSession, getCurrentSession, onSessionChange, updateStoredUser,
 } from './session'
 
 export { GOOGLE_CANCELLED, GOOGLE_FAILED } from './googleErrors'
+export { APPLE_CANCELLED, APPLE_FAILED } from './appleErrors'
+export { confirmMethod, methodLabel, socialHint } from './signInMethod'
 
 /** Whether this build offers "Continue with Google" (it has the Web client ID). */
 export const googleAvailable = googleSignInAvailable
+
+/** Whether this phone offers "Continue with Apple": an iPhone. */
+export const appleAvailable = appleSignInAvailable
 
 // ── Password policy ──────────────────────────────────────────────────────────
 //
@@ -139,6 +145,28 @@ export async function signInWithGoogle() {
 }
 
 /**
+ * Sign in (or sign up: the same tap) with Apple. Apple's sheet names the person; the server checks the answer —
+ * the identity token and the nonce it was made with — and says which account that is: an existing one with the
+ * same address, joined to this Apple Account, or a new one with no password (backend api/auth/oauth.js). Apple
+ * gives the person's name only the first time ever, so it is passed along with the token. The session that comes
+ * back is like any other.
+ *
+ * Closing the sheet throws an error with `code` APPLE_CANCELLED, which is not a failure: show nothing.
+ *
+ * @returns {Promise<{user: object, isNewAccount: boolean}>}
+ */
+export async function signInWithApple() {
+  const credential = await requestAppleCredential()
+  const json = await apiFetch('/api/auth/oauth', {
+    method: 'POST',
+    auth: false,
+    body: { provider: 'apple', idToken: credential.idToken, nonce: credential.nonce, fullName: credential.fullName },
+  })
+  await setSession(json.session, 'SIGNED_IN')
+  return { user: json.session.user, isNewAccount: !!json.isNewAccount }
+}
+
+/**
  * Sign out this device.
  *
  * The local session goes first, so signing out holds even with no connection —
@@ -190,14 +218,19 @@ export async function changePassword({ currentPassword, newPassword }) {
 
 /**
  * Permanently delete the signed-in account and everything in it. The server checks who is asking before
- * deleting anything: the password, or — for an account made with Google, which has none — a fresh Google
- * sign-in that must be this account's own Google account.
+ * deleting anything: the password, or — for an account made with Google or Apple, which has none — a fresh
+ * sign-in with that provider, which must be this account's own. An Apple sign-in also brings the one-time
+ * authorization code the server needs to REVOKE the person's Apple tokens, which the App Store requires when
+ * an account is deleted.
  *
- * @param {{password?: string, google?: boolean}} proof
+ * @param {{password?: string, google?: boolean, apple?: boolean}} proof
  */
-export async function deleteAccount({ password, google = false } = {}) {
+export async function deleteAccount({ password, google = false, apple = false } = {}) {
   let body
-  if (google) {
+  if (apple) {
+    const credential = await requestAppleCredential()
+    body = { oauth: { provider: 'apple', idToken: credential.idToken, nonce: credential.nonce, authorizationCode: credential.authorizationCode } }
+  } else if (google) {
     body = { oauth: { provider: 'google', idToken: await requestGoogleIdToken() } }
   } else {
     if (!password) throw new Error('Enter your password to continue.')

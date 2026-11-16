@@ -120,9 +120,50 @@ session that comes back is like any other.
   true when the field is missing, as in a session stored by an older version). Settings then shows "Set a password"
   (sends the reset-by-email link) instead of "Change Password", and deleting the account asks for Google again
   instead of a password (`deleteAccount({ google: true })`; the server checks it is THIS account's Google).
+- **Android only for now.** On an iPhone `googleSignInAvailable()` is false (the buttons are not drawn) and
+  nothing calls the library: iOS needs an iOS OAuth client (the library's config plugin with `iosUrlScheme`,
+  and `iosClientId` in `configure()`; without the URL scheme Google's SDK stops the app when the picker
+  opens), and App Review wants Sign in with Apple next to it (guideline 4.8), which the app now has (next
+  section). Turn it on only with those two in place.
 - **Testing without Google:** `EXPO_PUBLIC_GOOGLE_DEV_TOKEN_URL` (dev builds only: `__DEV__` is false in a release, so the
   value is '' there and Metro drops the branch) points at a local server that hands out a really-signed token in place
   of the picker. The sandbox in the test notes does: `/fake-google-token`, `/google-identity`, `/jwks`.
+
+### Continue with Apple
+
+iPhone only. One tap signs in or makes the account (`signInWithApple` in `core/auth/index.js`; server:
+`backend/api/auth/oauth.js` and `api/_lib/oauth/apple.js`, README "Sign in with Apple"). Apple's own sheet gives an
+identity token; the app sends it to `/api/auth/oauth` with the nonce it started with and, the first time only, the
+person's name; the session that comes back is like any other.
+
+- **The button is Apple's own native control** (`AppleSignInButton`, `expo-apple-authentication`): the App Store
+  requires its look, so only the style (black on the light theme, white on the dark one) and the corner radius are
+  ours. It sits above the Google button on the welcome, sign-in and sign-up screens (`SocialSignInButtons` puts one
+  "or" line above both, and draws nothing where neither exists), and only when `useAuth().appleAvailable` (an
+  iPhone). Closing the sheet (`APPLE_CANCELLED`) shows nothing; `core/auth/appleErrors.js` turns every other
+  failure into plain words.
+- **The nonce:** the app invents a random string (`core/platform/appleSignIn.native.js`, `expo-crypto`), gives Apple
+  its SHA-256 and the server the string itself; the server checks the hash against the token, so a token taken from
+  anywhere else is useless. Apple gives the NAME once, at the very first sign-in with an Apple Account, never again
+  and never in the token, so `signInWithApple` passes it on at once (`core/auth/appleCredential.js`, pure and tested).
+- **Switched on at the server** by `APPLE_CLIENT_IDS=app.influenza.ai` (the bundle id; not a secret). The app needs no
+  setting. The BUILD needs the "Sign in with Apple" entitlement, which `app.json` gives it (`ios.usesAppleSignIn`
+  and the `expo-apple-authentication` plugin); EAS switches the capability on for the App ID while it makes the
+  signing credentials. Without either, Apple answers an "unknown failure".
+- **An account made with Apple has no password**, like one made with Google: Settings says "Sign-in: Apple" and
+  offers "Set a password". The server says how an account signs in (`user.providers`, kept in the stored session
+  across refreshes: `core/auth/session.js`) and `confirmMethod` (`core/auth/signInMethod.js`) picks what a deletion
+  asks for.
+- **Deleting such an account asks for Apple again** (`deleteAccount({ apple: true })`). The fresh sign-in brings a
+  one-time authorization code, which the server uses to REVOKE the person's Apple tokens — the App Store requires it
+  of an app with Sign in with Apple (guideline 5.1.1(v)). That needs the server's Sign in with Apple key
+  (`APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`); without it the account is still deleted and the server's
+  log says nothing was revoked.
+- **Hide My Email:** a person may share an Apple relay address (`…@privaterelay.appleid.com`). Mail to it is only
+  delivered if the server's sending domain is registered at Apple (backend README), or confirmation and
+  password-reset emails to those people are lost.
+- Not run on an iPhone before the first TestFlight build that has it. The logic around it is tested here
+  (`appleErrors`, `appleCredential`, `signInMethod`) and on the server (`backend/test/integration/oauth-apple.test.js`).
 
 ## Data
 
@@ -288,9 +329,12 @@ purchases.
   (`waitForCredits`); nothing it does could add one.
 - **RevenueCat is always told OUR account id** (`logIn(userId)`), never an anonymous one — a
   purchase on an id the server does not know cannot be credited. `logOut` is never called.
-- **Keys:** `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` (`goog_…`) for real builds;
-  `EXPO_PUBLIC_REVENUECAT_TEST_KEY` (`test_…`, simulated purchases) only in a dev build — the SDK
-  crashes a release build that holds it, and `__DEV__` keeps it out of one. Both are public values.
+- **Keys:** `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` (`goog_…`) for real Android builds and
+  `EXPO_PUBLIC_REVENUECAT_IOS_KEY` (`appl_…`) for real iPhone builds, picked by platform in
+  `purchases.native.js` (a key works only with its own store; with none, the build says buying is not
+  set up); `EXPO_PUBLIC_REVENUECAT_TEST_KEY` (`test_…`, simulated purchases) only in a dev build — the SDK
+  crashes a release build that holds it, and `__DEV__` keeps it out of one. All are public values, set in
+  the EAS environment, not in `eas.json`.
 - **Credits are shown only when they matter** (`creditsVisible`): charging is on, the account holds
   or owes some, or it is a dev build. While the server is only watching, nobody sees "0 credits".
 - **The offer is an offer, not a gate.** The design's two payment screens sell a subscription plan; this
@@ -353,6 +397,11 @@ Every failure a person sees is a sentence from `core/errors.js`, never a raw
   more (an icon of its own, a table of `facts`). One at a time, the same words twice shown once;
   the system alert is only the fallback when no host is mounted. The pure rules are
   `core/ui/dialogModel.js`.
+- **On an iPhone every dialog is the system alert** (`DRAWS_OWN_DIALOGS` in `lib/dialog.js`; same queue,
+  same rules, facts become lines). An iOS Modal cannot appear while another Modal is up, and DialogHost
+  is a Modal next to the navigator, so its card would never show over the gallery viewer, the outfit
+  sheet or Settings' dialogs, and the queue would wait for an answer nobody can give. Keep calling
+  `Alert`/`showDialog` from `lib/dialog`; never mount a second DialogHost inside a Modal.
 - **"Not enough credits"** is `showDialog` with `outOfCreditsDialog` (`core/billing/shortfall.js`):
   what it needs, what you have, how short. `CostNote` uses the same `creditShortfall`, so the card
   above Generate and the dialog never disagree.
@@ -385,6 +434,33 @@ Every failure a person sees is a sentence from `core/errors.js`, never a raw
   a real phone (an EAS preview build): every Modal, Share, the gallery's video, sign-in.
 - A release build refuses plain `http`, so a local release test against the sandbox needs
   `android:usesCleartextTraffic="true"` in the scratch copy's manifest (never in the repo).
+
+## What the App Store reads from the iOS build
+
+Never built for iOS before 2026-10-29; nothing below has run on an iPhone yet. `ios/` is gitignored and made
+by EAS, so every iOS setting lives in `app.json` `ios`:
+
+- **iPhone only** (`supportsTablet: false`): with iPads the App Store wants iPad screenshots and an app that
+  works at iPad sizes.
+- **Export compliance answered** (`config.usesNonExemptEncryption: false`, only HTTPS), so uploads do not
+  stop on Apple's encryption question.
+- **`NSPhotoLibraryAddUsageDescription`** (`infoPlist`): Share opens the system sheet, whose "Save Image" /
+  "Save Video" writes to Photos, and iOS ends an app that does that without this text. The image picker's
+  plugin sets only the read, camera and microphone texts.
+- **Privacy manifest** (`privacyManifests`): the "required reason" APIs React Native itself uses (user
+  defaults, file timestamps, boot time). Libraries ship their own. If Apple's upload email names another,
+  add it here.
+- **Keyboard:** iOS covers the page instead of shrinking the window, so screens with text fields either sit
+  in a `KeyboardAvoidingView` (`behavior="padding"` on iOS) or their ScrollView has
+  `automaticallyAdjustKeyboardInsets` (Videos, Profile, Motion copy). A new screen with fields needs one.
+- **The photo library asks no permission on iOS** (`lib/picker.js`): its picker (PHPicker) needs none and
+  expo-image-picker does not check one, so asking only put up "allow access to your photos", and a "Don't
+  Allow" there blocked choosing photos. The camera still asks.
+- **Google sign-in is off on iOS, Sign in with Apple is on (the entitlement is in `app.json`), and every dialog is
+  the system alert:** see their sections above.
+- **Build from Windows:** `npx eas-cli build -p ios --profile production` (EAS builds on its Macs; the first
+  run asks for the Apple account), `npx eas-cli submit -p ios` to TestFlight, test on a real iPhone. Needs
+  `EXPO_PUBLIC_REVENUECAT_IOS_KEY` in the EAS environment for purchases.
 
 ## Legal pages inside the app
 

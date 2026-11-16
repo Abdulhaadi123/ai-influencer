@@ -23,7 +23,7 @@ import {
 } from 'react-native'
 
 import { useAuth } from '@core/auth/AuthContext'
-import { validatePassword, MIN_PASSWORD_LENGTH, GOOGLE_CANCELLED } from '@core/auth'
+import { validatePassword, MIN_PASSWORD_LENGTH, GOOGLE_CANCELLED, APPLE_CANCELLED, methodLabel } from '@core/auth'
 import { userMessage } from '@core/errors'
 
 import { useBottomInset } from '../hooks/useBottomInset'
@@ -41,7 +41,7 @@ export default function SettingsScreen({ navigation }) {
   const { colors, preference, setPreference } = useTheme()
   const credits = useCredits()
   const bottomInset = useBottomInset()
-  const { user, profile, signOut, deleteAccount, changePassword, requestPasswordReset, hasPassword } = useAuth()
+  const { user, profile, signOut, deleteAccount, changePassword, requestPasswordReset, hasPassword, confirmWith } = useAuth()
 
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [passwordOpen, setPasswordOpen] = useState(false)
@@ -83,7 +83,7 @@ export default function SettingsScreen({ navigation }) {
             <View style={styles.cardPad}>
               <Row label="Name" value={profile?.display_name || '—'} />
               <Row label="Email" value={user?.email || '—'} />
-              {hasPassword ? null : <Row label="Sign-in" value="Google" />}
+              {hasPassword ? null : <Row label="Sign-in" value={methodLabel(confirmWith) || 'Google'} />}
               <View style={styles.buttons}>
                 {hasPassword ? (
                   <Button title="Change Password" size="sm" onPress={() => setPasswordOpen(true)} />
@@ -152,6 +152,7 @@ export default function SettingsScreen({ navigation }) {
         visible={deleteOpen}
         email={user?.email}
         hasPassword={hasPassword}
+        confirmWith={confirmWith}
         onClose={() => setDeleteOpen(false)}
         onDelete={deleteAccount}
       />
@@ -181,7 +182,7 @@ function Dialog({ visible, onClose, title, children }) {
  * password lives in this component's state while it is open and nowhere else:
  * cleared on close, never logged, never stored.
  */
-function DeleteAccountDialog({ visible, email, hasPassword = true, onClose, onDelete }) {
+function DeleteAccountDialog({ visible, email, hasPassword = true, confirmWith = 'google', onClose, onDelete }) {
   const { colors } = useTheme()
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -194,8 +195,10 @@ function DeleteAccountDialog({ visible, email, hasPassword = true, onClose, onDe
     onClose()
   }, [busy, onClose])
 
-  // An account made with Google has no password: it confirms by signing in with Google again, and the
-  // server checks that it is THIS account's Google (core/auth/index.js deleteAccount).
+  // An account made with Google or Apple has no password: it confirms by signing in with that provider again,
+  // and the server checks that it is THIS account's own (core/auth/index.js deleteAccount). An Apple
+  // sign-in also lets the server revoke the person's Apple tokens, which the App Store requires.
+  const provider = methodLabel(confirmWith) || 'Google'
   const ready = hasPassword ? !!password : true
 
   const confirm = useCallback(async () => {
@@ -203,25 +206,25 @@ function DeleteAccountDialog({ visible, email, hasPassword = true, onClose, onDe
     setBusy(true)
     setError(null)
     try {
-      await onDelete(hasPassword ? { email, password } : { email, google: true })
+      await onDelete(hasPassword ? { email, password } : { email, [confirmWith === 'apple' ? 'apple' : 'google']: true })
       setPassword('')
       // Signing out swaps the navigator to the sign-in screen, which unmounts
       // this dialog — the alert is what tells the user it worked.
       Alert.alert('Account deleted', 'Your account has been permanently deleted.')
     } catch (e) {
-      // Closing Google's account picker is changing one's mind, not a failure.
-      if (e?.code !== GOOGLE_CANCELLED) setError(userMessage(e, 'Unable to delete your account. Please try again.'))
+      // Closing Google's account picker or Apple's sheet is changing one's mind, not a failure.
+      if (e?.code !== GOOGLE_CANCELLED && e?.code !== APPLE_CANCELLED) setError(userMessage(e, 'Unable to delete your account. Please try again.'))
     } finally {
       setBusy(false)
     }
-  }, [busy, ready, hasPassword, password, email, onDelete])
+  }, [busy, ready, hasPassword, confirmWith, password, email, onDelete])
 
   return (
     <Dialog visible={visible} onClose={close} title="Delete account">
       <Text style={[styles.dialogBody, { color: colors.textSecondary }]}>
         This will permanently delete your account, including all influencers, images and
         videos, and any credits you have left. Any generations in progress will be lost.
-        {hasPassword ? ' Enter your password to continue.' : ' Confirm with Google to continue.'}
+        {hasPassword ? ' Enter your password to continue.' : ` Confirm with ${provider} to continue.`}
       </Text>
 
       {hasPassword ? (
@@ -249,7 +252,7 @@ function DeleteAccountDialog({ visible, email, hasPassword = true, onClose, onDe
         </View>
       ) : (
         <View style={styles.dialogActions}>
-          <Button title={hasPassword ? 'Delete account' : 'Confirm with Google and delete'} variant="danger" onPress={confirm} disabled={!ready} />
+          <Button title={hasPassword ? 'Delete account' : `Confirm with ${provider} and delete`} variant="danger" onPress={confirm} disabled={!ready} />
           <Button title="Cancel" variant="neutral" onPress={close} />
         </View>
       )}

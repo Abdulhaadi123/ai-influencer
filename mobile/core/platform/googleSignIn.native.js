@@ -16,15 +16,30 @@
  *
  * The library is required inside the functions, not at the top: a build made without its native part
  * (an old development build) then only loses the Google button's work instead of failing to start.
+ *
+ * ── Not on iPhone yet ────────────────────────────────────────────────────────
+ *
+ * Android only, for now. On iOS the library needs an iOS OAuth client: its reversed ID as a URL scheme in
+ * the Info.plist (the library's config plugin, `iosUrlScheme`) and the ID itself as `iosClientId` in
+ * configure(). Without the URL scheme Google's SDK stops the app the moment the picker is asked for. And
+ * App Review wants a privacy-respecting login next to Google (guideline 4.8), in practice Sign in with
+ * Apple. So on an iPhone the buttons are not drawn and nothing here touches the library; people sign in
+ * with email. The development token server needs none of the native parts, so it still works there.
  */
+
+import { Platform } from 'react-native'
 
 import { AppError, NETWORK_MESSAGE } from '../errors'
 import { GOOGLE_WEB_CLIENT_ID, GOOGLE_DEV_TOKEN_URL } from '../config/env'
 import { explainGoogleError, GOOGLE_CANCELLED, GOOGLE_FAILED } from '../auth/googleErrors'
 
+/** Whether the native library may be used on this phone (see "Not on iPhone yet" above). */
+const NATIVE_GOOGLE = Platform.OS !== 'ios'
+
 /** Whether this build can offer Google sign-in: it was given the Web client ID (or the development stand-in). */
 export function googleSignInAvailable() {
-  return GOOGLE_WEB_CLIENT_ID !== '' || GOOGLE_DEV_TOKEN_URL !== ''
+  if (GOOGLE_DEV_TOKEN_URL !== '') return true
+  return NATIVE_GOOGLE && GOOGLE_WEB_CLIENT_ID !== ''
 }
 
 let configured = false
@@ -63,6 +78,11 @@ export async function requestGoogleIdToken() {
     }
   }
 
+  // The buttons are not drawn on an iPhone, but deleting an account made with Google also asks for it.
+  if (!NATIVE_GOOGLE) {
+    throw new AppError('Google sign-in is not available in the iPhone app yet.', { code: GOOGLE_FAILED })
+  }
+
   let lib
   try {
     lib = sdk()
@@ -90,7 +110,7 @@ export async function requestGoogleIdToken() {
  * instead of quietly reusing it. Best effort: signing out of the app must not wait on it.
  */
 export async function signOutOfGoogle() {
-  if (GOOGLE_DEV_TOKEN_URL) return
+  if (GOOGLE_DEV_TOKEN_URL || !NATIVE_GOOGLE) return
   try {
     await sdk().GoogleSignin.signOut()
   } catch (e) {
