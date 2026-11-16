@@ -443,7 +443,40 @@ Empty, the endpoint answers 503 `OAUTH_NOT_CONFIGURED` and email sign-in works a
 - **Deleting it** (`api/account/delete.js`): `{ oauth: { provider, idToken } }` in place of `{ password }`, and the token must
   be a Google account joined to THIS account (403 `WRONG_ACCOUNT` otherwise). With neither, 400 `REAUTH_REQUIRED` (no
   password) or `PASSWORD_REQUIRED`. The identity is deleted with the user.
-- Apple, later, adds `api/_lib/oauth/apple.js` and a `provider` value; the table and the endpoint do not change.
+- Apple uses the same endpoint and the same table with `provider: 'apple'`: see the next section.
+
+---
+
+## Sign in with Apple
+
+`POST /api/auth/oauth { provider: 'apple', idToken, nonce, fullName? }` → `{ session, isNewAccount }` (`api/auth/oauth.js`; the same
+endpoint, table and session as Google). The iPhone app asks Apple's own sheet who the person is and sends the identity token it gets back,
+the random string `nonce` whose SHA-256 it gave Apple, and — the very first time only (Apple never repeats it and never puts it in the
+token) — the person's name as `fullName: { givenName, familyName }`. It signs in AND signs up. Turn it on with
+`APPLE_CLIENT_IDS=app.influenza.ai` in `.env` (the app's bundle id; not a secret; signing in needs nothing else), then
+`docker compose up -d --force-recreate api`. Empty, Apple answers 503 `OAUTH_NOT_CONFIGURED` and everything else works as before.
+
+- **What is believed** (`api/_lib/oauth/apple.js`): a token signed with one of Apple's published keys (RS256 only), issued by
+  `https://appleid.apple.com`, **made for one of our client ids**, not expired, carrying the **nonce** this sign-in began with
+  (`SHA-256(nonce)` must equal the token's `nonce`, so a token lifted from anywhere else is useless), and with a verified email if it
+  names one. The reason a token was refused goes to the log, never to the caller (401 `OAUTH_TOKEN_INVALID`); Apple's keys being
+  unreachable is 503 `OAUTH_UNAVAILABLE`. `APPLE_JWKS_URL` exists only so tests can stand in for Apple.
+- **Which account:** exactly as for Google (`sub` first, then the same verified email, then a new account with no password), with the
+  same takeover rule for an address that was never confirmed. **Hide My Email** gives a relay address (`…@privaterelay.appleid.com`):
+  a verified address like any other, which never matches an account made with the real one, so that person gets a new account.
+  Apple can also leave the email out of a token: an account that exists is found by `sub` and signs in; with none yet the answer is 422
+  `OAUTH_EMAIL_MISSING` (stop using Sign in with Apple for the app in the phone's Settings, then try again).
+  **Mail to a relay address is only delivered if the sending domain is registered** at developer.apple.com → Certificates,
+  Identifiers & Profiles → Services → *Sign in with Apple for Email Communication*: register the domain the server's email
+  comes from (SPF/DKIM aligned), or confirmation and password-reset emails to those people are lost.
+- **Deleting it** (`api/account/delete.js`): `{ oauth: { provider: 'apple', idToken, nonce, authorizationCode } }` from a FRESH Apple sign-in
+  that must be this account's own (403 `WRONG_ACCOUNT` otherwise). The App Store requires an app with Sign in with Apple to **revoke the
+  person's Apple tokens** when it deletes their account (guideline 5.1.1(v)): the one-time `authorizationCode` is traded for Apple's tokens
+  and they are revoked, using a client secret signed (ES256) with a Sign in with Apple key — `APPLE_TEAM_ID`, `APPLE_KEY_ID`,
+  `APPLE_PRIVATE_KEY` (the .p8; `.env.example` says how to make it). Revoking is best effort: without those three, or if Apple does
+  not answer, the account is still deleted and the log says why nothing was revoked.
+- **How an account signs in:** `GET /api/auth/me` and the sign-in answer carry `providers` (`['apple']`, `['google']`, both, or `[]`), so the
+  app says how an account with no password signs in and asks the right one to confirm a deletion.
 
 ---
 

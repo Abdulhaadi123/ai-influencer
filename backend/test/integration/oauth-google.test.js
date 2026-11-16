@@ -223,8 +223,8 @@ test('a token that is not Google\'s, not ours, not valid or not verified gets no
   }
 })
 
-test('only Google is a way in so far', async () => {
-  const res = await signInWith(await idToken(), { provider: 'apple' })
+test('only Google and Apple are ways in so far', async () => {
+  const res = await signInWith(await idToken(), { provider: 'facebook' })
   assert.equal(res.status, 400)
   assert.equal(res.body.code, 'UNSUPPORTED_PROVIDER')
   const none = await stack.api('POST', '/api/auth/oauth', { body: { idToken: await idToken() }, headers: { 'x-forwarded-for': nextIp() } })

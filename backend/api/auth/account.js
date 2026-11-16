@@ -258,7 +258,9 @@ export const me = userRoute(async (req, res, user) => {
   noStore(res)
   // role, status and scope are for the server's own checks, not for the app.
   const { sessionId, role, status, scope, ...visible } = user
-  res.json({ user: visible })
+  // Which outside accounts (Apple, Google) this one signs in with: the app asks the right one to confirm a deletion.
+  const providers = (await query('select provider from auth_identities where user_id = $1 order by provider', [user.id])).rows.map(r => r.provider)
+  res.json({ user: { ...visible, providers } })
 }, { audience: 'shared' })
 
 /** POST /api/auth/me  { displayName } → { user } */
@@ -292,10 +294,10 @@ export const changePassword = userRoute(async (req, res, user) => {
   enforceLimit(passwordChecksByUser, `user:${user.id}`)
 
   const row = await one('select password_hash from users where id = $1', [user.id])
-  // An account made with Google has no password to be "current". Its owner can set one by the usual
+  // An account made with Google or Apple has no password to be "current". Its owner can set one by the usual
   // route (Forgot password: a link to the address they have already proved), so nothing is lost.
   if (!row?.password_hash) {
-    throw badRequest('This account signs in with Google and has no password to change. To set one, use "Forgot password" on the sign-in screen.', 'NO_PASSWORD')
+    throw badRequest('This account signs in with Google or Apple and has no password to change. To set one, use "Forgot password" on the sign-in screen.', 'NO_PASSWORD')
   }
   if (!(await verifyPassword(row.password_hash, currentPassword))) {
     throw new HttpError(403, 'Your current password is incorrect.', 'WRONG_PASSWORD')

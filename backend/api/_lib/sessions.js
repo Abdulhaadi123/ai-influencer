@@ -79,6 +79,9 @@ export function publicUser(row) {
     displayName: row.display_name ?? null,
     emailConfirmed: !!row.email_confirmed_at,
     hasPassword: row.has_password ?? row.password_hash != null,
+    // The outside accounts joined to this one ('apple', 'google'), only where the caller looked them up
+    // (a sign-in with one, and GET /api/auth/me): the app says how an account with no password signs in.
+    ...(Array.isArray(row.providers) ? { providers: row.providers } : {}),
   }
 }
 
