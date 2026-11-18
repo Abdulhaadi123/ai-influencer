@@ -43,6 +43,7 @@ import deleteAsset from '../api/storage/delete.js'
 import kie from '../api/kie.js'
 import kieCallback, { CALLBACK_PATH, webhooksConfigured } from '../api/kie-callback.js'
 import promptAssist from '../api/prompt-assist.js'
+import directorPrompt from '../api/director-prompt.js'
 import report from '../api/reports/index.js'
 import * as billing from '../api/billing/index.js'
 import revenueCatWebhook, { REVENUECAT_PATH, revenueCatConfigured, sandboxAccepted } from '../api/revenuecat-webhook.js'
@@ -164,6 +165,8 @@ export function createApp() {
     return kie(req, res)
   })
   app.all('/api/prompt-assist', promptAssist)
+  // Director Mode's writer: an idea in, a finished Seedance prompt out (api/director-prompt.js).
+  app.post('/api/director-prompt', directorPrompt)
 
   // ── Reporting and administration ─────────────────────────────────────────
   app.post('/api/reports', report)

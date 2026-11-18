@@ -133,6 +133,12 @@ what goes in and what comes out is checked. All of it lives in
 | A generated result | when it is stored (webhook, worker, ingest) | quarantined: hidden from its owner, kept for an admin |
 | Suggestion text (`/api/prompt-assist`) | before it is rewritten | `400 CONTENT_BLOCKED`, not a strike. Text held for review still gets its suggestion, with `notice: { code: 'REVIEW', message }` beside it; a rewriter that refuses ("I'm sorry, I can't…") gives `suggestion: null` and `notice: DECLINED`, never its refusal as the person's new text. The app draws the notice (or the 400's message) under the field — silence read as "nothing happened". |
 
+Director Mode's idea (`/api/director-prompt`) is checked the same way before the model sees it, and the prompt the
+model writes is checked again before it is handed over (a model can turn a harmless idea into something that is not):
+`400 CONTENT_BLOCKED` for the idea, `prompt: null` with `notice: DECLINED` for the written prompt. Both are
+`prompt_assist` events, so neither is a strike; the prompt that is finally sent to be generated is checked again by the
+generation proxy.
+
 The app asks for a suggestion on its own each time typing pauses, so one sentence typed in bursts is several
 requests. A `prompt_assist` event **updates** the open one of the same kind from the same person that begins the same
 way (first 12 characters, within 15 minutes) instead of adding another, so the queue — and the Moderation badge —
@@ -414,6 +420,49 @@ working (reviewers, staff) credits from the panel.
   admin price list to set what you charge; each job's real KIE cost is on the job).
 - A result removed by our own moderation after it was paid for is not refunded.
 - No subscriptions, no iOS products.
+
+---
+
+## Director Mode
+
+The app's Director Mode makes a UGC-style ad of up to 30 seconds with Seedance 2.5. `POST /api/director-prompt`
+(`api/director-prompt.js`; the pure part, tested on its own, is `api/_lib/director.js`) is its writer: an idea in, a
+finished prompt out — which reference picture is what (`@Image1: the tea cup…`), a summary, the clip shot by shot with
+timings, speech and sound, a style line and a consistency line. It is **not** the prompt assistant (`/api/prompt-assist`),
+which rewrites one line the person typed in one cheap call: this writes a whole plan, with a model that may search the web
+first, and costs real money.
+
+```
+POST /api/director-prompt   (signed in)
+{ idea, seconds?, aspect?, language?, character?: { name?, gender?, description? },
+  references?: [{ role: 'product' | 'character' | 'character_extra' | 'location' }] }   // in the order the app uploads the pictures
+→ { prompt: string|null, searched: boolean, sources: number, seconds, shots, notice?: { code: 'REVIEW'|'DECLINED', message } }
+```
+
+- **What the model writes and what code does.** The model writes the creative parts (summary, each shot's picture, speech
+  and sound, the style) and answers in JSON. Code does everything that has to be exactly right: the lines that say which
+  `@ImageN` is which are written from the app's own list of pictures (never by the model), the shots are re-timed to follow
+  each other from 0 to the clip's length with no gap, and the layout and the closing rules (no subtitles, no music) are fixed.
+  A model that wrote a hole in its timings, or an extra tag, cannot break the prompt.
+- **The model call** is OpenAI's Responses API (`POST {base}/responses`) with the `web_search` tool (`max_tool_calls` 3),
+  `store: false` and the plan asked for as JSON. A request the upstream refuses (not every model or account takes the tool,
+  and it has had two names) is asked again the next way: `web_search_preview`, then **no search at all**. An answer that
+  arrives but is not a plan skips straight to the no-search try (it is not paid for twice). A refused key or an exhausted
+  allowance (401, 403, 429) stops at once. `searched` is true only when the answer itself holds a search call.
+- **Cost.** A few cents a prompt: the tokens (small) plus OpenAI's fee for each search call, at most three. This is an
+  estimate to check against OpenAI's usage page after the first real day. It is not charged to the person in credits;
+  it is limited instead — `DIRECTOR_PER_MINUTE` (4) and `DIRECTOR_PER_DAY` (30) per account, in memory like the other
+  limits (a restart resets them). The video itself is charged as usual by the generation proxy (Seedance 2.5, per second).
+- **Failures** answer `{ error, code }`: `501 NOT_CONFIGURED` (no `OPENAI_API_KEY`), `400 IDEA_REQUIRED` / `BAD_REFERENCES`,
+  `413 TOO_LONG`, `400 CONTENT_BLOCKED`, `429 RATE_LIMITED`, `502 DIRECTOR_FAILED` (nothing the model said was a plan) and
+  `502 ASSISTANT_UNAVAILABLE`. A model that will not write the idea is a `200` with `prompt: null` and `notice: DECLINED`.
+- **Environment** (all optional but the key): `OPENAI_API_KEY`, `DIRECTOR_MODEL` (default `gpt-4o-mini`), `DIRECTOR_SEARCH`
+  (`false` turns web search off), `DIRECTOR_PER_MINUTE`, `DIRECTOR_PER_DAY`. `DIRECTOR_OPENAI_BASE_URL` exists only so tests
+  can stand in for OpenAI.
+- **Checked only against a stand-in.** `test/integration/director-prompt.test.js` runs the whole endpoint against a fake
+  Responses API; nothing has been asked of the real one yet. After deploying, ask it once with a real session (the answer
+  should have `searched: true` and a prompt that starts with the `@Image1:` lines) and look at the server log line
+  `[director] user=… searched=… sources=…`.
 
 ---
 
@@ -805,7 +854,7 @@ edit shows on reload.
 | Queue | `GET /api/jobs` `by-task` `active-count` `changes` `sync`; `POST /api/jobs/register` `remove` `clear-settled` |
 | Settings | `GET/POST /api/studio-settings`; `GET /api/creation-params` |
 | Files | `POST /api/storage/upload-url` `confirm` `download-url` `ingest` `quick-preview` `delete` |
-| Generation | `/api/kie/*` (proxy), `POST /api/prompt-assist` |
+| Generation | `/api/kie/*` (proxy), `POST /api/prompt-assist`, `POST /api/director-prompt` |
 | Reporting | `POST /api/reports` |
 
 `GET /api/jobs?active=1` returns only the running jobs (the app's half-minute sync asks for exactly those). `GET /api/jobs/changes` is what every open app polls: quick (5 s) while a job is running or just changed, 30 s when idle, and not at all while the app is in the background — the pacing is the app's (`mobile/core/data/pollPacer.js`); the server's part is keeping each answer to two queries.
