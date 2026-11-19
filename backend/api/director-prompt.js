@@ -66,6 +66,15 @@ const DECLINED = Object.freeze({
   message: 'The director could not write a prompt for this idea. Try describing it a little differently.',
 })
 
+/**
+ * Said when the plan the model wrote shows a child. Every person in a Director video is an adult; the model is told so, and
+ * the plan is checked for the words that give a child away (api/_lib/director.js childInPlan) rather than left to the model.
+ */
+const ADULTS = Object.freeze({
+  code: 'DECLINED',
+  message: 'The director only writes videos with adults in them. Describe an adult, or an idea with no person, and try again.',
+})
+
 /** Said when the prompt that was written is what failed the content check, not the idea (the server log says which categories). */
 const HELD = Object.freeze({
   code: 'DECLINED',
@@ -149,7 +158,7 @@ async function writePlan(input) {
     if (out.refusal && !out.text) return { refusal: out.refusal }
     try {
       const read = readPlan(out.text, input.seconds)
-      if (read.refusal) return { refusal: read.refusal }
+      if (read.refusal) return { refusal: read.refusal, child: read.child === true }
       return { plan: read.plan, searched: out.searched, sources: out.sources }
     } catch (e) {
       if (!(e instanceof DirectorOutputError)) throw e
@@ -203,8 +212,8 @@ export default userRoute(async (req, res, user) => {
   if (written.refusal) {
     // The model's own words go to the server log, for whoever runs it, and are not passed on: the person is told only
     // that it was declined. (Until this line existed a decline left no trace at all, so nobody could tell why.)
-    console.warn(`[director] user=${user.id} seconds=${input.seconds} the model declined this idea: ${String(written.refusal).slice(0, 240)}`)
-    return res.status(200).json({ prompt: null, searched: false, sources: 0, seconds: input.seconds, shots: 0, notice: DECLINED })
+    console.warn(`[director] user=${user.id} seconds=${input.seconds} ${written.child ? 'the written plan was held back' : 'the model declined this idea'}: ${String(written.refusal).slice(0, 240)}`)
+    return res.status(200).json({ prompt: null, searched: false, sources: 0, seconds: input.seconds, shots: 0, notice: written.child ? ADULTS : DECLINED })
   }
 
   const prompt = composePrompt(input, written.plan)

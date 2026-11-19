@@ -148,23 +148,33 @@ test('the instructions carry the length, the language and the rules — and neve
   assert.match(text, /No background music/)
   assert.match(text, /no subtitles/i)
   assert.match(text, /web/i)
-  assert.match(text, /"refusal"/)
+  assert.doesNotMatch(text, /"refusal"/, 'the model is not given a way to decline')
   assert.match(systemPrompt({ seconds: 8, language: 'English' }), /Use 2 to 3 shots/)
   assert.match(systemPrompt({ seconds: 4, language: 'English' }), /Use 1 to 2 shots/)
 })
 
-test('the instructions say when to refuse and when not to: adults by default, "girl" is not a child, a claim is left out not refused', () => {
+test('the instructions never let the model decline: every idea gets a plan, the idea\'s own look wins, unsafe parts are adapted', () => {
   const text = systemPrompt({ seconds: 15, language: 'English' })
+  // No decline button: neither a field for it nor permission to apologise or explain. (The first real run, against
+  // gpt-4o-mini, declined luxury and cinematic ideas with invented reasons: "a celebrity", "under 18", "brand guidelines".)
+  assert.doesNotMatch(text, /"refusal"/)
+  assert.match(text, /ALWAYS write the plan\. You never decline, apologise or explain/)
+  assert.match(text, /Every idea gets a plan/)
+  // A luxury, cinematic or product-only idea is not a reason to decline, and the look it asks for is the look written.
+  assert.match(text, /The idea decides the look/)
+  assert.match(text, /cinematic, luxury, polished, dramatic lighting, a product film with no person/)
+  assert.match(text, /Products, brands and luxury items are ordinary/)
+  assert.match(text, /Never decline over a brand, a price level, a look or a style/)
+  assert.match(text, /a shot may show only the product/)
+  // What must stay out of the video is adapted, not declined.
+  assert.match(text, /SAFETY: ADAPT, NEVER DECLINE/)
   assert.match(text, /Every person in the video is an adult/)
-  assert.match(text, /do not refuse because an age is missing/)
-  assert.match(text, /"Girl", "boy", "lady" and "guy"/)
-  assert.match(text, /ONLY if the idea clearly asks for: a child or teenager on screen/)
-  assert.match(text, /merely attractive, athletic, fashionable or about beauty is an ordinary ad/)
+  assert.match(text, /"Girl" and "lady" in an idea are everyday words for a young woman and "guy" for a young man/)
+  assert.match(text, /NEVER show a child/)
+  assert.match(text, /Write an adult instead \(a parent, for instance\), or leave the person out/)
+  assert.match(text, /Nothing nude or sexual, nothing violent or hateful, no weapons/)
+  assert.match(text, /write an invented character instead/)
   assert.match(text, /leave the claim out and show the product being used instead/)
-  assert.match(text, /null for every ordinary ad/)
-  // What stays refused is still there.
-  assert.match(text, /nudity or sexual content, violence or weapons, hateful or harassing content/)
-  assert.match(text, /named real person or celebrity/)
 })
 
 test('the request the model sees is plain data: the idea, the length, the character and the tags', () => {
@@ -266,6 +276,37 @@ test('a plan is read: labels in capitals, speech without quotes, empty things as
 test('a refusal is a refusal, whatever else the answer holds', () => {
   assert.deepEqual(readPlan('{"refusal": "That idea needs a real celebrity."}', 15), { refusal: 'That idea needs a real celebrity.' })
   assert.deepEqual(readPlan(JSON.stringify({ refusal: 'No.', shots: SHOTS }), 15), { refusal: 'No.' })
+})
+
+test('a plan that shows a child is held back in code, whatever the model was told; adults and everyday words are not children', () => {
+  const planWith = visual => JSON.stringify({
+    product: 'toy car', summary: 'A toy car ad.',
+    shots: [{ label: 'HOOK', start: 0, end: 15, visual, dialogue: null, tone: null, sfx: 'wheels' }],
+  })
+  // The first real run wrote "A young boy plays with a bright toy car" for an idea about a six year old.
+  for (const visual of [
+    'A young boy pushes the toy car across the rug.', 'Her six year old daughter laughs.', 'A 9-year-old holds the car.',
+    'A toddler crawls to the car.', 'A teenager reviews the car.', 'The kids race the car.', 'A little girl smiles.',
+    'Mum hands the car to her son.', 'A baby reaches for it.', 'A 17 year old tries it.', 'The BOY laughs.',
+  ]) {
+    const read = readPlan(planWith(visual), 15)
+    assert.equal(read.child, true, visual)
+    assert.match(read.refusal, /shows a child/, visual)
+    assert.equal(read.plan, undefined, visual)
+  }
+  // "Girl" is an everyday word for a young woman, and an adult's age is not a child's.
+  for (const visual of [
+    'A girl sits in her kitchen and sips tea.', 'A 24 year old woman smiles.', 'A woman in her late twenties laughs.',
+    'Mia, 18 years old, holds the cup.', 'The guy waves at the camera.', 'She is 26 years old.',
+  ]) {
+    assert.ok(readPlan(planWith(visual), 15).plan, visual)
+  }
+  // The camera is what is checked, not speech: a grown woman may say her kids love it.
+  const speech = JSON.stringify({ summary: 'An ad.', shots: [{ label: 'HOOK', start: 0, end: 15, visual: 'She smiles at the camera.', dialogue: 'My kids love this cup.', tone: null, sfx: null }] })
+  assert.ok(readPlan(speech, 15).plan)
+  // The summary is looked at too.
+  const summary = JSON.stringify({ summary: 'A boy plays.', shots: [{ label: 'HOOK', start: 0, end: 15, visual: 'A hand pushes the car.', dialogue: null, tone: null, sfx: null }] })
+  assert.equal(readPlan(summary, 15).child, true)
 })
 
 test('a placeholder in the refusal field is not a refusal, and a sentence still is', () => {

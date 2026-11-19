@@ -365,6 +365,23 @@ test('a decline leaves a line in the server log saying who and why; the person i
   assert.ok(!line.includes('sitting in the kitchen'), 'what the person typed is not logged')
 })
 
+test('a plan that shows a child is not handed over: it says adults only, and the log says why', async () => {
+  const u = await stack.createUser()
+  const withChild = { ...PLAN, shots: [{ ...PLAN.shots[0], visual: 'A young boy pushes the toy car across the rug.' }, ...PLAN.shots.slice(1)] }
+  fake.script.push({ status: 200, json: answer(withChild) })
+  const { result: res, lines } = await warned(() => ask(u.token, FULL))
+  assert.equal(res.status, 200)
+  assert.equal(res.body.prompt, null)
+  assert.equal(res.body.notice.code, 'DECLINED')
+  assert.match(res.body.notice.message, /only writes videos with adults/)
+  assert.ok(!/young boy/i.test(res.text), 'what the model wrote is not passed on')
+  const line = lines.find(l => l.includes('[director]') && l.includes('held back') && l.includes('child'))
+  assert.ok(line, `no held-back line in ${JSON.stringify(lines)}`)
+  assert.ok(line.includes(u.id))
+  // Only one try: asking again would not make the model write an adult, and every try costs.
+  assert.equal(fake.requests.length, 1)
+})
+
 test('a model that writes "none" in the refusal field has refused nothing: the prompt is handed over', async () => {
   const u = await stack.createUser()
   fake.script.push({ status: 200, json: answer({ ...PLAN, refusal: 'none' }) })

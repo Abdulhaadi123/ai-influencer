@@ -163,22 +163,26 @@ export function shotRange(seconds) {
 export function systemPrompt({ seconds, language }) {
   const [fewest, most] = shotRange(seconds)
   return [
-    'You are the director of short UGC-style video ads. You write the shot-by-shot plan that a video model ' +
+    'You are the director of short video ads, UGC-style unless the idea asks for another look. You write the ' +
+      'shot-by-shot plan that a video model ' +
       '(ByteDance Seedance 2.5, reference images to video, with synchronized audio) turns into one clip.',
     '',
     'Answer with ONE JSON object and nothing else: no markdown, no code fence, no commentary before or after.',
     '',
     'HOW TO WORK',
+    '- ALWAYS write the plan. You never decline, apologise or explain: if part of an idea cannot be done as asked ' +
+      '(see SAFETY), change that part and write the rest. Every idea gets a plan.',
     '- You may search the web, sparingly (two or three searches at most), only to check what makes this kind of ad ' +
       'work and how Seedance 2.x prompts are best written (concrete, filmable, one clear action per shot, ' +
       'speech in quotes). If the idea names a real product, brand or category you may look it up so its real ' +
       'use is right. Never copy text from a page, and never put a link, a source or a citation in your answer. ' +
       'If searching is not available, rely on what you know.',
-    '- The plan is for an ordinary person filming on a phone: relatable, warm, believable. Not a polished commercial.',
+    '- The idea decides the look. Unless it asks for something else, the default is an ordinary person filming on a ' +
+      'phone: relatable, warm, believable. When the idea asks for another look (cinematic, luxury, polished, dramatic ' +
+      'lighting, a product film with no person, a colour palette), write that look instead and say so in "style".',
     '',
     'THE JSON OBJECT',
     '{',
-    '  "refusal": null,                       // null for every ordinary ad; one short sentence only if the idea clearly breaks the SAFETY rules (then nothing else is needed)',
     '  "product": "tea cup",                  // the advertised product in two or three words, or null if the idea has none',
     '  "summary": "...",                      // two sentences: who, where, what happens, how it feels',
     '  "shots": [',
@@ -191,7 +195,7 @@ export function systemPrompt({ seconds, language }) {
     '      "sfx": "..."                       // natural sounds heard in this shot',
     '    }',
     '  ],',
-    '  "style": "...",                        // one or two sentences: phone footage, light, depth of field, skin, colour, handheld',
+    '  "style": "...",                        // one or two sentences: the look. By default phone footage, light, depth of field, skin, colour, handheld; or the look the idea asks for',
     '  "consistency": "..."                   // one sentence: what stays identical in every shot',
     '}',
     '',
@@ -208,22 +212,25 @@ export function systemPrompt({ seconds, language }) {
       'in the shots where it matters. Never invent a logo, a brand name, text on the product, or an extra product.',
     '- The reference images are listed in the request, each with its tag (@Image1, @Image2…). Refer to a picture ' +
       'only by its exact tag, never invent another tag, and do not describe what an image looks like: the video model ' +
-      'sees it. The character in every shot is the person in the character reference. If there is no character ' +
-      'reference, describe the person from the description given and keep them identical in every shot. If there is no ' +
+      'sees it. Whenever a person is in a shot it is the character, the person in the character reference; a shot may ' +
+      'show only the product (a close-up, for instance) with no person in it. If there is no character reference, ' +
+      'describe the person from the description given, or an ordinary adult who fits the idea, and keep them identical ' +
+      'in every shot they are in. If the idea is a product film with no person, do not invent one. If there is no ' +
       'product reference, describe the product in words from the idea.',
     '- A "location" reference is the setting: use its place and light. Without one, choose a setting that fits the idea.',
     '',
-    'SAFETY',
+    'SAFETY: ADAPT, NEVER DECLINE',
     '- Every person in the video is an adult (18 or older). A character with no age given is an adult in their twenties ' +
-      'or thirties. "Girl", "boy", "lady" and "guy" in an idea are everyday words for a young adult: write them as an ' +
-      'adult, and do not refuse because an age is missing.',
-    '- Answer with {"refusal": "<one short sentence why>"} and nothing else ONLY if the idea clearly asks for: a child or ' +
-      'teenager on screen, nudity or sexual content, violence or weapons, hateful or harassing content, or a named real ' +
-      'person or celebrity. A product or a character that is merely attractive, athletic, fashionable or about beauty ' +
-      'is an ordinary ad, not a reason to refuse.',
+      'or thirties. "Girl" and "lady" in an idea are everyday words for a young woman and "guy" for a young man: write ' +
+      'them as adults. A boy, a kid, a baby, a son or a daughter, or anyone under 18, is a child: NEVER show a child. ' +
+      'Write an adult instead (a parent, for instance), or leave the person out.',
+    '- Nothing nude or sexual, nothing violent or hateful, no weapons. If an idea asks for any of these, leave that ' +
+      'part out and write a safe version of the rest.',
+    '- Never name or imitate a real person or celebrity. If an idea names one, write an invented character instead.',
     '- Never make medical, health, weight-loss or income claims or promises, and never say a product treats or cures ' +
-      'anything. If the idea contains one, leave the claim out and show the product being used instead: that is a ' +
-      'rewrite, not a refusal.',
+      'anything. If the idea contains one, leave the claim out and show the product being used instead.',
+    '- Products, brands and luxury items are ordinary: advertise what the idea names, as asked. Never decline over a ' +
+      'brand, a price level, a look or a style.',
   ].join('\n')
 }
 
@@ -310,10 +317,35 @@ const orNull = text => (text ? text : null)
  */
 const NO_REFUSAL = /^(?:null|none|nil|n\/a|na|false|undefined|no refusal|not applicable)\W*$/i
 
+const NUMBER_WORDS = 'one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen'
+
 /**
- * The plan, checked: a refusal, or a summary and shots with a picture each.
+ * Words that put a child on screen: "child", "kid", "baby", "teenager", "boy", "son", "daughter", "little girl", an age
+ * under 18. "Girl" on its own is not listed: it is an everyday word for a young woman, and ideas are full of it.
+ */
+const CHILD = new RegExp(
+  '\\b(?:child|children|kid|kids|toddlers?|babies|baby|infants?|newborns?|teens?|teenagers?|preteens?|schoolboys?|schoolgirls?|' +
+  'boys?|(?:little|young|small|tiny) girls?|sons?|daughters?|(?:[0-9]|1[0-7])[- ]?(?:years?|yrs?)[- ]?old|' +
+  `(?:${NUMBER_WORDS})[- ]years?[- ]old)\\b`,
+  'i',
+)
+
+/**
+ * The word that gives away a child in what the camera sees (the summary and each shot's picture), or null. Speech is not
+ * looked at: a grown woman may say "my kids love this cup". Every person in a Director video is an adult; the writer is
+ * told so, and a small model does not always obey (the first real run wrote "A young boy plays with a bright toy car"
+ * for an idea about a six year old), so it is checked here, in code.
+ */
+function childInPlan(plan) {
+  const seen = [plan.summary, ...plan.shots.map(shot => shot.visual)].filter(Boolean).join('\n')
+  return CHILD.exec(seen)?.[0] ?? null
+}
+
+/**
+ * The plan, checked: a refusal (the model's own, or `child: true` when the plan shows a child), or a summary and
+ * shots with a picture each.
  *
- * @returns {{refusal: string} | {plan: {
+ * @returns {{refusal: string, child?: true} | {plan: {
  *   product: string|null, summary: string, style: string, consistency: string,
  *   shots: Array<{label: string, start: number, end: number, visual: string, dialogue: string|null, tone: string|null, sfx: string|null}>
  * }}}
@@ -339,15 +371,16 @@ export function readPlan(text, seconds) {
     }))
   if (!kept.length) throw new DirectorOutputError('The plan has no shots.')
 
-  return {
-    plan: {
-      product: orNull(sentence(raw.product, 60)),
-      summary: sentence(raw.summary, 600),
-      style: sentence(raw.style, 500),
-      consistency: sentence(raw.consistency, 400),
-      shots: retime(kept, seconds),
-    },
+  const plan = {
+    product: orNull(sentence(raw.product, 60)),
+    summary: sentence(raw.summary, 600),
+    style: sentence(raw.style, 500),
+    consistency: sentence(raw.consistency, 400),
+    shots: retime(kept, seconds),
   }
+  const child = childInPlan(plan)
+  if (child) return { refusal: `The plan shows a child ("${child}").`, child: true }
+  return { plan }
 }
 
 /**
