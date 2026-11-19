@@ -131,7 +131,7 @@ test('a request that cannot be used is refused before the model, the checker or 
     [{ idea: 'a'.repeat(2001) }, 413, 'TOO_LONG'],
     [{ idea: IDEA, references: 'product' }, 400, 'BAD_REFERENCES'],
     [{ idea: IDEA, references: [{ role: 'logo' }] }, 400, 'BAD_REFERENCES'],
-    [{ idea: IDEA, references: Array.from({ length: 10 }, () => ({ role: 'product' })) }, 400, 'BAD_REFERENCES'],
+    [{ idea: IDEA, references: Array.from({ length: 31 }, () => ({ role: 'product' })) }, 400, 'BAD_REFERENCES'],
   ]
   for (const [body, status, code] of cases) {
     const res = await ask(u.token, body)

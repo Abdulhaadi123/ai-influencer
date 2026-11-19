@@ -37,8 +37,12 @@ export const DEFAULT_ASPECT = '9:16'
 /** What a reference picture is. The app lists them in the order it uploads them; the tags follow that order. */
 export const ROLES = Object.freeze(['product', 'character', 'character_extra', 'location'])
 
-/** Seedance takes more, but the app never sends more than this (a character, her sheets, products, a place). */
-export const MAX_REFERENCES = 9
+/**
+ * What Seedance 2.5 takes: KIE's docs say reference_image_urls "Up to 30 images" (read 19 November 2026). It was nine
+ * while the app offered at most three products, a character with her sheets and a place; the app now offers a model's
+ * whole allowance, so this is the model's number. The video request is checked again by KIE itself.
+ */
+export const MAX_REFERENCES = 30
 
 export const MAX_IDEA_CHARS = 2000
 export const MAX_DESCRIPTION_CHARS = 800

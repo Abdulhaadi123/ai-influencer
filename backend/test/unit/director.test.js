@@ -117,9 +117,12 @@ test('the pictures are tagged in the order they are listed, and only the four ro
   for (const entry of [null, 'product', 5, [], {}, { role: 'logo' }, { role: '__proto__' }, { role: ['product'] }]) {
     assert.throws(() => cleanInput({ idea: 'tea cup ad', references: [entry] }), refused(400, 'BAD_REFERENCES'), JSON.stringify(entry))
   }
-  const nine = Array.from({ length: 9 }, () => ({ role: 'product' }))
-  assert.equal(cleanInput({ idea: 'tea cup ad', references: nine }).references.length, 9)
-  assert.throws(() => cleanInput({ idea: 'tea cup ad', references: [...nine, { role: 'product' }] }), refused(400, 'BAD_REFERENCES'))
+  // Seedance 2.5 takes thirty pictures; one more is refused here rather than by the video model after the credits are held.
+  const thirty = Array.from({ length: 30 }, () => ({ role: 'product' }))
+  const kept = cleanInput({ idea: 'tea cup ad', references: thirty }).references
+  assert.equal(kept.length, 30)
+  assert.equal(kept[29].tag, '@Image30')
+  assert.throws(() => cleanInput({ idea: 'tea cup ad', references: [...thirty, { role: 'product' }] }), refused(400, 'BAD_REFERENCES'))
 })
 
 // ── What the model is told ───────────────────────────────────────────────────
