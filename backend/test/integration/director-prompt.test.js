@@ -83,6 +83,18 @@ beforeEach(async () => {
 
 const ask = (token, body) => stack.api('POST', '/api/director-prompt', { token, body })
 
+/** What the server (it runs in this process) wrote with console.warn while `fn` ran. */
+async function warned(fn) {
+  const lines = []
+  const original = console.warn
+  console.warn = (...args) => { lines.push(args.map(String).join(' ')) }
+  try {
+    return { result: await fn(), lines }
+  } finally {
+    console.warn = original
+  }
+}
+
 const IDEA = 'I want a 30 sec video for the cup ads: a girl sitting in the kitchen drinking tea from that cup'
 const FULL = {
   idea: IDEA,
@@ -337,6 +349,47 @@ test('a model that will not write it is a notice, not an error', async () => {
   assert.equal(second.status, 200)
   assert.equal(second.body.prompt, null)
   assert.equal(second.body.notice.code, 'DECLINED')
+})
+
+test('a decline leaves a line in the server log saying who and why; the person is not told the model\'s words', async () => {
+  const u = await stack.createUser()
+  fake.script.push({ status: 200, json: answer({ refusal: 'That idea needs a real celebrity.' }) })
+  const { result: res, lines } = await warned(() => ask(u.token, FULL))
+  assert.equal(res.status, 200)
+  assert.equal(res.body.notice.code, 'DECLINED')
+  assert.ok(!res.text.includes('celebrity'))
+  const line = lines.find(l => l.includes('[director]') && l.includes('the model declined'))
+  assert.ok(line, `no decline line in ${JSON.stringify(lines)}`)
+  assert.ok(line.includes(u.id), 'it says whose request')
+  assert.ok(line.includes('That idea needs a real celebrity.'), 'and the model\'s reason')
+  assert.ok(!line.includes('sitting in the kitchen'), 'what the person typed is not logged')
+})
+
+test('a model that writes "none" in the refusal field has refused nothing: the prompt is handed over', async () => {
+  const u = await stack.createUser()
+  fake.script.push({ status: 200, json: answer({ ...PLAN, refusal: 'none' }) })
+  const res = await ask(u.token, FULL)
+  assert.equal(res.status, 200)
+  assert.ok(res.body.prompt, 'a good plan is not declined over a placeholder')
+  assert.equal(res.body.notice, undefined)
+})
+
+test('a written prompt the checker holds back says so apart from a refusal, and the log names what tripped it', async () => {
+  const u = await stack.createUser()
+  const bad = { ...PLAN, shots: [{ ...PLAN.shots[0], visual: 'XXX-EXPLICIT scene' }, ...PLAN.shots.slice(1)] }
+  fake.script.push({ status: 200, json: answer(bad) })
+  const { result: res, lines } = await warned(() => ask(u.token, FULL))
+  assert.equal(res.status, 200)
+  assert.equal(res.body.prompt, null)
+  assert.equal(res.body.notice.code, 'DECLINED')
+  assert.match(res.body.notice.message, /did not pass the content check/)
+  assert.ok(!/could not write a prompt/.test(res.body.notice.message), 'a different sentence from the refusal\'s')
+  assert.ok(!res.text.includes('sexual'), 'the categories are not passed on')
+  const line = lines.find(l => l.includes('[director]') && l.includes('held back by the content check'))
+  assert.ok(line, `no held-back line in ${JSON.stringify(lines)}`)
+  assert.ok(line.includes(u.id))
+  assert.match(line, /sexual 0\.95/, 'it names the category and its score')
+  assert.ok(!line.includes('XXX-EXPLICIT'), 'the text is not logged')
 })
 
 // ── The checker ──────────────────────────────────────────────────────────────

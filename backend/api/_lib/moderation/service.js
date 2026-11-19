@@ -132,7 +132,7 @@ async function blockedRefusal({ userId, decision, source, cfg, file }) {
     const { suspended } = await applyEnforcement(userId, { hardRule: decision.hardRule, config: cfg })
     if (suspended) return new ModerationRefusal(403, 'ACCOUNT_SUSPENDED', SUSPENDED_MESSAGE)
   }
-  return new ModerationRefusal(400, 'CONTENT_BLOCKED', file ? MESSAGES.blockedFile : MESSAGES.blocked)
+  return Object.assign(new ModerationRefusal(400, 'CONTENT_BLOCKED', file ? MESSAGES.blockedFile : MESSAGES.blocked), { hits: decision.hits }) // hits: for a server log only, never sent to the caller
 }
 
 /**

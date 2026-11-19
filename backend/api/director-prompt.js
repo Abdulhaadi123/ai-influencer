@@ -66,6 +66,12 @@ const DECLINED = Object.freeze({
   message: 'The director could not write a prompt for this idea. Try describing it a little differently.',
 })
 
+/** Said when the prompt that was written is what failed the content check, not the idea (the server log says which categories). */
+const HELD = Object.freeze({
+  code: 'DECLINED',
+  message: 'The prompt written for this idea did not pass the content check. Try describing it a little differently.',
+})
+
 /**
  * The ways to ask, best first. The web search tool has had two names (`web_search`, and `web_search_preview` before
  * it) and not every model takes either, and an account without the tool must still get a prompt, so a request
@@ -194,14 +200,23 @@ export default userRoute(async (req, res, user) => {
 
   const written = await writePlan(input)
   noStore(res)
-  if (written.refusal) return res.status(200).json({ prompt: null, searched: false, sources: 0, seconds: input.seconds, shots: 0, notice: DECLINED })
+  if (written.refusal) {
+    // The model's own words go to the server log, for whoever runs it, and are not passed on: the person is told only
+    // that it was declined. (Until this line existed a decline left no trace at all, so nobody could tell why.)
+    console.warn(`[director] user=${user.id} seconds=${input.seconds} the model declined this idea: ${String(written.refusal).slice(0, 240)}`)
+    return res.status(200).json({ prompt: null, searched: false, sources: 0, seconds: input.seconds, shots: 0, notice: DECLINED })
+  }
 
   const prompt = composePrompt(input, written.plan)
   try {
     await screenText({ user, text: prompt, source: 'prompt_assist' })
   } catch (e) {
     if (e instanceof ModerationRefusal && e.code === 'CONTENT_BLOCKED') {
-      return res.status(200).json({ prompt: null, searched: written.searched, sources: written.sources, seconds: input.seconds, shots: 0, notice: DECLINED })
+      // What the model wrote, not what the person typed, failed the check. The categories and scores are also on the
+      // admin panel's Moderation page (source prompt_assist); the text itself is not logged.
+      const tripped = (e.hits || []).map(h => `${h.category} ${Number(h.score).toFixed(2)}`).join(', ')
+      console.warn(`[director] user=${user.id} seconds=${input.seconds} the written prompt (${prompt.length} characters, ${written.plan.shots.length} shots) was held back by the content check${tripped ? `: ${tripped}` : ''}`)
+      return res.status(200).json({ prompt: null, searched: written.searched, sources: written.sources, seconds: input.seconds, shots: 0, notice: HELD })
     }
     throw refused(e)
   }

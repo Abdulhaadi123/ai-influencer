@@ -178,7 +178,7 @@ export function systemPrompt({ seconds, language }) {
     '',
     'THE JSON OBJECT',
     '{',
-    '  "refusal": null,                       // or one short sentence, if the idea cannot be done within the SAFETY rules (then nothing else is needed)',
+    '  "refusal": null,                       // null for every ordinary ad; one short sentence only if the idea clearly breaks the SAFETY rules (then nothing else is needed)',
     '  "product": "tea cup",                  // the advertised product in two or three words, or null if the idea has none',
     '  "summary": "...",                      // two sentences: who, where, what happens, how it feels',
     '  "shots": [',
@@ -214,9 +214,16 @@ export function systemPrompt({ seconds, language }) {
     '- A "location" reference is the setting: use its place and light. Without one, choose a setting that fits the idea.',
     '',
     'SAFETY',
-    '- Adults only. No nudity or sexual content, no violence, no medical, health or income claims, no real person or ' +
-      'celebrity, no hateful or harassing content. If the idea cannot be done within this, answer with ' +
-      '{"refusal": "<one short sentence why>"} and nothing else.',
+    '- Every person in the video is an adult (18 or older). A character with no age given is an adult in their twenties ' +
+      'or thirties. "Girl", "boy", "lady" and "guy" in an idea are everyday words for a young adult: write them as an ' +
+      'adult, and do not refuse because an age is missing.',
+    '- Answer with {"refusal": "<one short sentence why>"} and nothing else ONLY if the idea clearly asks for: a child or ' +
+      'teenager on screen, nudity or sexual content, violence or weapons, hateful or harassing content, or a named real ' +
+      'person or celebrity. A product or a character that is merely attractive, athletic, fashionable or about beauty ' +
+      'is an ordinary ad, not a reason to refuse.',
+    '- Never make medical, health, weight-loss or income claims or promises, and never say a product treats or cures ' +
+      'anything. If the idea contains one, leave the claim out and show the product being used instead: that is a ' +
+      'rewrite, not a refusal.',
   ].join('\n')
 }
 
@@ -297,6 +304,13 @@ const sentence = (value, max) => oneLine(typeof value === 'string' ? value : '',
 const orNull = text => (text ? text : null)
 
 /**
+ * What a model writes in the "refusal" field when it means there is none ("none", "N/A"): the template shows
+ * `null`, and a model that copies the field as a word has refused nothing. A real refusal is a sentence, and a
+ * bare "No." still counts as one.
+ */
+const NO_REFUSAL = /^(?:null|none|nil|n\/a|na|false|undefined|no refusal|not applicable)\W*$/i
+
+/**
  * The plan, checked: a refusal, or a summary and shots with a picture each.
  *
  * @returns {{refusal: string} | {plan: {
@@ -309,7 +323,7 @@ export function readPlan(text, seconds) {
   const raw = parseJsonObject(text)
 
   const refusal = sentence(raw.refusal, 300)
-  if (refusal) return { refusal }
+  if (refusal && !NO_REFUSAL.test(refusal)) return { refusal }
 
   const shots = Array.isArray(raw.shots) ? raw.shots : []
   const kept = shots

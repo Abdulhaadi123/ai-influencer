@@ -153,6 +153,20 @@ test('the instructions carry the length, the language and the rules — and neve
   assert.match(systemPrompt({ seconds: 4, language: 'English' }), /Use 1 to 2 shots/)
 })
 
+test('the instructions say when to refuse and when not to: adults by default, "girl" is not a child, a claim is left out not refused', () => {
+  const text = systemPrompt({ seconds: 15, language: 'English' })
+  assert.match(text, /Every person in the video is an adult/)
+  assert.match(text, /do not refuse because an age is missing/)
+  assert.match(text, /"Girl", "boy", "lady" and "guy"/)
+  assert.match(text, /ONLY if the idea clearly asks for: a child or teenager on screen/)
+  assert.match(text, /merely attractive, athletic, fashionable or about beauty is an ordinary ad/)
+  assert.match(text, /leave the claim out and show the product being used instead/)
+  assert.match(text, /null for every ordinary ad/)
+  // What stays refused is still there.
+  assert.match(text, /nudity or sexual content, violence or weapons, hateful or harassing content/)
+  assert.match(text, /named real person or celebrity/)
+})
+
 test('the request the model sees is plain data: the idea, the length, the character and the tags', () => {
   const input = cleanInput({
     idea: 'a girl drinking tea from my cup',
@@ -252,6 +266,20 @@ test('a plan is read: labels in capitals, speech without quotes, empty things as
 test('a refusal is a refusal, whatever else the answer holds', () => {
   assert.deepEqual(readPlan('{"refusal": "That idea needs a real celebrity."}', 15), { refusal: 'That idea needs a real celebrity.' })
   assert.deepEqual(readPlan(JSON.stringify({ refusal: 'No.', shots: SHOTS }), 15), { refusal: 'No.' })
+})
+
+test('a placeholder in the refusal field is not a refusal, and a sentence still is', () => {
+  for (const filler of ['none', 'None.', 'N/A', 'null', 'false', 'No refusal', 'not applicable', 'nil', 'undefined']) {
+    const read = readPlan(JSON.stringify({ refusal: filler, shots: SHOTS }), 15)
+    assert.ok(read.plan, `"${filler}" must not decline a good plan`)
+    assert.equal(read.refusal, undefined, filler)
+  }
+  assert.ok(readPlan(JSON.stringify({ refusal: '', shots: SHOTS }), 15).plan)
+  assert.ok(readPlan(JSON.stringify({ refusal: null, shots: SHOTS }), 15).plan)
+  assert.deepEqual(readPlan(JSON.stringify({ refusal: 'Not allowed.', shots: SHOTS }), 15), { refusal: 'Not allowed.' })
+  assert.deepEqual(readPlan(JSON.stringify({ refusal: 'No refusal is possible for a child.', shots: SHOTS }), 15), { refusal: 'No refusal is possible for a child.' })
+  // A placeholder and nothing else is an answer that is not a plan: asked again, not declined.
+  assert.throws(() => readPlan('{"refusal": "none"}', 15), e => e instanceof DirectorOutputError)
 })
 
 test('an answer with no usable shot is an error, not an empty video', () => {
