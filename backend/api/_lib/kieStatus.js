@@ -13,6 +13,7 @@
 import { one } from './db.js'
 import { recordProviderRefusal } from './moderation/providerRefusals.js'
 import { refundTask } from './billing.js'
+import { keyForTask, noteKeyProblem, noteKeyWorked } from './kieKeys.js'
 
 /** Overridable only so tests can stand in for KIE; production uses the default. */
 const KIE_BASE = process.env.KIE_BASE_URL || 'https://api.kie.ai'
@@ -79,26 +80,41 @@ export function resultUrlsFrom(resultJson) {
  *   as "started" or "finished".
  *   `credits` is what KIE charged (`creditsConsumed`), null when it did not say.
  */
-export async function fetchKieTaskStatus(taskId) {
-  const key = process.env.KIE_API_KEY || ''
-  if (!key) throw new Error('KIE_API_KEY is not set on the server.')
+export async function fetchKieTaskStatus(taskId, startedWith = undefined) {
+  // KIE answers about a task only for the key that started it (api/_lib/kieKeys.js). A caller that has
+  // already found the key (the worker, which also needs to know whose limit it hit) passes it in.
+  const key = startedWith === undefined ? await keyForTask(taskId) : startedWith
+  if (!key) throw new Error('No KIE API key is available on the server (KIE_API_KEY, or a key added in the admin panel).')
 
   const res = await fetch(`${KIE_BASE}/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`, {
-    headers: { Authorization: `Bearer ${key}` },
+    headers: { Authorization: `Bearer ${key.secret}` },
     // One hung connection must not stall everything waiting behind it.
     signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
   })
 
   const none = { resultUrls: [], failMsg: null, completeTime: null, progress: 0, credits: null }
-  if (res.status === 401 || res.status === 403) throw new EngineKeyRejectedError()
-  if (res.status === 429) return { state: 'ratelimited', ...none }
+  if (res.status === 401 || res.status === 403) {
+    await noteKeyProblem(key.id, 'rejected')
+    throw new EngineKeyRejectedError()
+  }
+  if (res.status === 429) {
+    await noteKeyProblem(key.id, 'rate_limited')
+    return { state: 'ratelimited', ...none }
+  }
   if (!res.ok) return { state: 'unknown', ...none }
 
   const json = await res.json().catch(() => null)
   if (!json) return { state: 'unknown', ...none }
-  if (json.code === 429) return { state: 'ratelimited', ...none }
-  if (json.code === 401 || json.code === 403) throw new EngineKeyRejectedError()
+  if (json.code === 429) {
+    await noteKeyProblem(key.id, 'rate_limited')
+    return { state: 'ratelimited', ...none }
+  }
+  if (json.code === 401 || json.code === 403) {
+    await noteKeyProblem(key.id, 'rejected')
+    throw new EngineKeyRejectedError()
+  }
   if (json.code !== 200) return { state: 'unknown', ...none }
+  await noteKeyWorked(key)
 
   const d = json.data || {}
   return {

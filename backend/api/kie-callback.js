@@ -17,6 +17,9 @@
  *   1. Every request carries an HMAC-SHA256 signature over `taskId.timestamp`,
  *      keyed with KIE_WEBHOOK_SECRET (generated at kie.ai/settings). It is
  *      compared in constant time, and a request without a valid one is refused.
+ *      Each KIE account has its own such key, so a key from another account (added in
+ *      the admin panel, api/_lib/kieKeys.js) is stored with its account's, and a
+ *      callback signed with ANY of the keys this server holds is accepted.
  *      Without the secret configured we refuse EVERY callback rather than
  *      trusting an unsigned one — an unauthenticated "this job is done, here is
  *      the file" would otherwise let anyone put any file into any account.
@@ -36,6 +39,7 @@ import { one } from './_lib/db.js'
 import { collect } from './_lib/collect.js'
 import { applyKieStatus, creditsFrom, resultUrlsFrom } from './_lib/kieStatus.js'
 import { ownerOf } from './_lib/taskOwners.js'
+import { webhookSecrets } from './_lib/kieKeys.js'
 import { createRateLimiter } from '../lib/rateLimit.js'
 
 const SECRET = process.env.KIE_WEBHOOK_SECRET || ''
@@ -69,6 +73,30 @@ function publicBase() {
 /** The absolute URL to put in `callBackUrl`, or null when not configured. */
 export function callbackUrl() {
   return webhooksConfigured() ? `${publicBase()}${CALLBACK_PATH}` : null
+}
+
+/**
+ * The `callBackUrl` for a task started with `key` (api/_lib/kieKeys.js), or null.
+ *
+ * A callback can only be accepted if this server holds the webhook key of the KIE account that sent it:
+ * KIE_WEBHOOK_SECRET for the server's own key, and the one stored with a key added in the panel for that
+ * one. A key without one asks for no callback at all; the worker collects its results instead.
+ */
+export function callbackUrlFor(key) {
+  if (!publicBase()) return null
+  const haveSecret = key?.source === 'panel' ? !!key.webhookSecret : !!SECRET
+  return haveSecret ? `${publicBase()}${CALLBACK_PATH}` : null
+}
+
+/** Every secret a callback may be signed with: the server's own, then those stored with panel keys. */
+async function secretsInUse() {
+  const secrets = SECRET ? [SECRET] : []
+  try {
+    secrets.push(...(await webhookSecrets()))
+  } catch (e) {
+    console.error('[webhook] could not read the stored webhook keys:', e?.message ?? e)
+  }
+  return secrets
 }
 
 export function signPayload(taskId, timestampSeconds, secret = SECRET) {
@@ -169,13 +197,19 @@ export async function processCallback(taskId, status) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  if (!webhooksConfigured()) {
-    console.error('[webhook] a callback arrived but KIE_WEBHOOK_SECRET / PUBLIC_BASE_URL are not set — refusing it')
+  if (!publicBase()) {
+    console.error('[webhook] a callback arrived but PUBLIC_BASE_URL is not set — refusing it')
     return res.status(503).json({ error: 'Callbacks are not enabled on this server.' })
   }
 
   const ip = req.ip || req.socket?.remoteAddress || 'unknown'
   if (!byIp(`ip:${ip}`).ok) return res.status(429).json({ error: 'Too many requests.' })
+
+  const secrets = await secretsInUse()
+  if (!secrets.length) {
+    console.error('[webhook] a callback arrived but no webhook key is set (KIE_WEBHOOK_SECRET, or one stored with a key) — refusing it')
+    return res.status(503).json({ error: 'Callbacks are not enabled on this server.' })
+  }
 
   const timestamp = req.headers['x-webhook-timestamp']
   const signature = req.headers['x-webhook-signature']
@@ -193,7 +227,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Stale signature.' })
   }
 
-  if (!signatureMatches(signPayload(taskId, timestamp), signature)) {
+  if (!secrets.some(secret => signatureMatches(signPayload(taskId, timestamp, secret), signature))) {
     console.warn(`[webhook] refused ${taskId}: the signature does not match`)
     return res.status(401).json({ error: 'Invalid signature.' })
   }

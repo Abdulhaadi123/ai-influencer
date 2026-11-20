@@ -44,7 +44,7 @@ Dockerfile; nothing in it imports app code, and the app knows only its URL
 ```
 app ──(access token)──►  backend API ──► PostgreSQL   users, sessions, influencers, gallery, queue
                               │      ──► S3            files (private; presigned URLs only)
-                              │      ──► api.kie.ai    generation (the only holder of the key)
+                              │      ──► api.kie.ai    generation (the only holder of the keys: KIE_API_KEY, plus more added in the admin panel, taken in turn)
                               │      ──► SMTP          confirmation and password-reset emails
                          backend worker ──► KIE + S3   collects finished jobs while the app is closed
 

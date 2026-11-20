@@ -383,6 +383,8 @@ select.control { width: auto; padding-right: 28px; }
 /* A cell with a main line and a quieter one under it. */
 .cell-main { font-weight: 550; white-space: nowrap; }
 .cell-sub { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+/* A sentence under a cell's main text (why a key is waiting): it wraps instead of widening the table. */
+.cell-note { color: var(--muted); font-size: 12.5px; max-width: 260px; margin-top: 2px; }
 .pack-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cell-clip { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note-clip { max-width: 160px; }

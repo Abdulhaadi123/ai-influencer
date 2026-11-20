@@ -24,6 +24,7 @@ const SECRETS = {
   SMTP_USER: 'smtp-user-DO-NOT-LEAK',
   SMTP_PASS: 'smtp-pass-DO-NOT-LEAK-c4410e',
   KIE_WEBHOOK_SECRET: 'kie-hook-DO-NOT-LEAK-9b2271',
+  KEY_VAULT_SECRET: 'vault-secret-DO-NOT-LEAK-6d4e19b7-0123456789',
   REVENUECAT_WEBHOOK_AUTH: 'rc-auth-DO-NOT-LEAK-0e6f13',
   PUBLIC_BASE_URL: 'https://api.test.example',
   ADMIN_EMAILS: 'boss@test.example',
@@ -82,6 +83,9 @@ test('every admin action that changes something is audited — and a write route
   const promoted = await stack.createUser({ email: 'promoted@test.example' })
   const doomed = await stack.createUser({ email: 'doomed@test.example' })
 
+  // A KIE key added in the panel, for the routes that act on one (it is removed by the last of them).
+  const spare = (await post('/api/admin/kie-keys/add', { label: 'Spare', key: 'spare-key-0123456789abcdef0123' })).body.key.id
+
   // method path → [a request that succeeds, the audit action it must leave]
   const WRITES = {
     'POST /api/admin/users/suspend': [() => ({ userId: victim.id, reason: 'testing the log' }), 'user.suspend'],
@@ -92,6 +96,10 @@ test('every admin action that changes something is audited — and a write route
     'POST /api/admin/prices/upsert': [() => ({ model: 'sec-model', unit: 'per_image', credits: 3, enabled: true }), 'price.upsert'],
     'POST /api/admin/prices/delete': [() => ({ model: 'nano-banana-pro' }), 'price.delete'],
     'POST /api/admin/billing/grant': [() => ({ userId: f.mia.id, credits: 10, note: 'a gift' }), 'billing.grant'],
+    'POST /api/admin/kie-keys/add': [() => ({ label: 'Account B', key: 'bbbb1111bbbb1111bbbb1111bbbb1111' }), 'kie-key.add'],
+    'POST /api/admin/kie-keys/update': [() => ({ id: spare, enabled: false }), 'kie-key.update'],
+    'POST /api/admin/kie-keys/check': [() => ({ id: spare }), 'kie-key.check'],
+    'POST /api/admin/kie-keys/delete': [() => ({ id: spare }), 'kie-key.delete'],
   }
   // Reads that are themselves audited, because looking at someone's file is an act.
   const AUDITED_READS = {
@@ -238,6 +246,11 @@ test('no answer from any endpoint — app, panel or public — contains a passwo
   // Everything that would be a leak if it appeared anywhere.
   const forbidden = new Set(Object.values(SECRETS).filter(v => v.includes('DO-NOT-LEAK')))
   forbidden.add('EMAIL-TOKEN-HASH-DO-NOT-LEAK')
+  // A key added in the panel, and the webhook key stored with it: shown to no one, ever again.
+  const addedKey = await post('/api/admin/kie-keys/add', { label: 'Account B', key: 'panel-key-DO-NOT-LEAK-bbbb1111bbbb1111', webhookSecret: 'panel-hook-DO-NOT-LEAK-2222' })
+  assert.equal(addedKey.status, 200, addedKey.text)
+  forbidden.add('panel-key-DO-NOT-LEAK-bbbb1111bbbb1111')
+  forbidden.add('panel-hook-DO-NOT-LEAK-2222')
   for (const row of await stack.sql('select password_hash from users')) forbidden.add(row.password_hash)
   for (const row of await stack.sql('select access_hash, refresh_hash, previous_refresh_hash from sessions')) for (const h of Object.values(row)) if (h) forbidden.add(h)
   for (const u of [admin, f.mia, other]) { forbidden.add(u.token); forbidden.add(u.refreshToken) }

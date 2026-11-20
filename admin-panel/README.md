@@ -1,7 +1,7 @@
 # Admin panel
 
 The staff page of AI Influencer Studio: accounts, generations, the moderation queue, credits
-(what people buy and spend, and what the store reported), model pricing, and the audit log. Plain HTML, CSS and JavaScript — **no build step, no framework** —
+(what people buy and spend, and what the store reported), model pricing, the KIE API keys that take turns, and the audit log. Plain HTML, CSS and JavaScript — **no build step, no framework** —
 in its own folder, with its own tests.
 
 It is served by the backend at `https://<your-domain>/admin` and talks to the backend's
@@ -16,7 +16,7 @@ admin-panel/
   index.html  app.css  main.js     the page, its styles, the shell (routing, sign-in gate)
   fonts/                           the typeface (Inter) and its licence
   lib/                             api client, DOM helpers, components, formatting, icons, router
-  views/                           one file per screen: overview, users, jobs (Generations), moderation, credits, prices (Pricing), settings, audit, login
+  views/                           one file per screen: overview, users, jobs (Generations), moderation, credits, prices (Pricing), keys (API keys), settings, audit, login
   test/                            the panel's tests (node:test + happy-dom)
 ```
 

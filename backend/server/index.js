@@ -52,6 +52,7 @@ import { registerAdminRoutes } from '../api/admin/routes.js'
 import { adminUiAvailable, adminUiDir } from '../api/admin/ui.js'
 import { promoteConfiguredAdmins } from '../api/_lib/admin.js'
 import { describeModeration } from '../api/_lib/moderation/config.js'
+import { describeKeyPool } from '../api/_lib/kieKeys.js'
 
 export function createApp() {
   const app = express()
@@ -238,6 +239,16 @@ async function main() {
   for (const { level, text } of describeModeration()) {
     const log = level === 'info' ? console.log : level === 'warn' ? console.warn : console.error
     log(`[server] ${text}`)
+  }
+
+  // Which KIE keys take turns (api/_lib/kieKeys.js). Never stops the server from starting.
+  try {
+    for (const { level, text } of await describeKeyPool()) {
+      const log = level === 'info' ? console.log : console.error
+      log(`[server] ${text}`)
+    }
+  } catch (e) {
+    console.error('[server] could not read the KIE keys:', e?.message ?? e)
   }
 
   console.log(

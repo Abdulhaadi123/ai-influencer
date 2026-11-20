@@ -116,7 +116,7 @@ test('every code the server can send has words — no raw code reaches a screen'
   for (const action of ['blocked', 'review']) assert.notEqual(actionLabel(action), action)
   for (const category of [...Object.keys(CATEGORY_LABELS), 'unverifiable', 'flagged-by-generator', 'other']) assert.notEqual(categoryLabel(category), category, category)
   for (const state of ['waiting', 'queuing', 'generating', 'success', 'fail']) assert.notEqual(stateLabel(state), state)
-  for (const action of ['user.suspend', 'user.unsuspend', 'user.set-role', 'user.delete', 'moderation.dismiss', 'moderation.confirm', 'moderation.view-media', 'price.upsert', 'price.delete']) {
+  for (const action of ['user.suspend', 'user.unsuspend', 'user.set-role', 'user.delete', 'moderation.dismiss', 'moderation.confirm', 'moderation.view-media', 'price.upsert', 'price.delete', 'kie-key.add', 'kie-key.update', 'kie-key.check', 'kie-key.delete']) {
     assert.notEqual(auditLabel(action), action, action)
   }
 })

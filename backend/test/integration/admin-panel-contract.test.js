@@ -36,3 +36,16 @@ test('the price form applies the same rules as the server', { skip }, async () =
     assert.ok(text.includes('1_000_000'), `the price ceiling in ${name}`)
   }
 })
+
+test('the add-a-key form applies the same rules as the server', { skip }, async () => {
+  // Written twice, in the panel's form and in api/admin/kieKeys.js. This keeps the two from drifting.
+  const server = readFileSync(new URL('../../api/admin/kieKeys.js', import.meta.url), 'utf8')
+  const form = readFileSync(panelFile('views/keys.js'), 'utf8')
+  for (const [name, text] of [['the server', server], ['the form', form]]) {
+    assert.ok(text.includes(String.raw`/^[\x21-\x7e]+$/`), `the visible-characters pattern in ${name}`)
+    assert.ok(text.includes('256'), `the longest key in ${name}`)
+  }
+  assert.ok(server.includes("'The name', 60") && form.includes('LABEL_MAX = 60'), 'the longest name')
+  assert.ok(server.includes("'The key', { min: 16 }") && form.includes('KEY_MIN = 16'), 'the shortest key')
+  assert.ok(server.includes("'The webhook key', { min: 8 }") && form.includes('HOOK_MIN = 8'), 'the shortest webhook key')
+})

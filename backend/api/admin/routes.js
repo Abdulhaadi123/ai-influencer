@@ -13,6 +13,7 @@ import * as jobs from './jobs.js'
 import * as moderation from './moderation.js'
 import * as prices from './prices.js'
 import * as billing from './billing.js'
+import * as kieKeys from './kieKeys.js'
 import { serveAdminUi, ADMIN_UI_PATHS } from './ui.js'
 
 export function registerAdminRoutes(app) {
@@ -40,6 +41,12 @@ export function registerAdminRoutes(app) {
   app.get('/api/admin/prices', prices.list)
   app.post('/api/admin/prices/upsert', prices.upsert)
   app.post('/api/admin/prices/delete', prices.remove)
+
+  app.get('/api/admin/kie-keys', kieKeys.list)
+  app.post('/api/admin/kie-keys/add', kieKeys.add)
+  app.post('/api/admin/kie-keys/update', kieKeys.update)
+  app.post('/api/admin/kie-keys/check', kieKeys.check)
+  app.post('/api/admin/kie-keys/delete', kieKeys.remove)
 
   app.get('/api/admin/billing/summary', billing.summary)
   app.get('/api/admin/billing/activity', billing.activity)

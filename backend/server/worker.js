@@ -20,8 +20,12 @@
  * ── Pacing ───────────────────────────────────────────────────────────────────
  *
  * KIE allows 20 new generations per 10 seconds and answers 429 when pushed.
- * Polling is serial with a gap between calls, and a 429 backs the whole cycle
- * off. Run exactly ONE worker; two would double the rate against that limit.
+ * Polling is serial with a gap between calls, and a 429 backs the cycle off.
+ * Run exactly ONE worker; two would double the rate against that limit.
+ *
+ * With more than one KIE key (api/_lib/kieKeys.js) the limit belongs to each key's
+ * account, and a task is asked about with the key that started it. A 429 therefore
+ * pauses only the jobs of THAT key for the rest of the cycle; the others carry on.
  *
  * ── Who collects what ────────────────────────────────────────────────────────
  *
@@ -43,6 +47,7 @@ import { fileURLToPath } from 'node:url'
 import { many, query, closeDb } from '../api/_lib/db.js'
 import { collect } from '../api/_lib/collect.js'
 import { fetchKieTaskStatus, applyKieStatus, ACTIVE_STATES } from '../api/_lib/kieStatus.js'
+import { keyForTask } from '../api/_lib/kieKeys.js'
 import { refundTask, sweepUnsettledSpends } from '../api/_lib/billing.js'
 import { moderationConfig } from '../api/_lib/moderation/config.js'
 import { listUncheckedResults, moderateGeneratedResult } from '../api/_lib/moderation/service.js'
@@ -53,6 +58,9 @@ const CYCLE_MS = Number(process.env.WORKER_CYCLE_MS || 15_000)
 
 /** Gap between individual KIE calls inside one cycle. */
 const CALL_GAP_MS = 400
+
+/** How long to wait after KIE rate-limited a key, before the next cycle asks again. */
+const RATE_LIMIT_BACKOFF_MS = Number(process.env.WORKER_RATE_LIMIT_BACKOFF_MS || 10_000)
 
 /** Most jobs to ask KIE about per cycle. */
 const BATCH = 25
@@ -306,18 +314,25 @@ export async function cycle() {
   const liveIds = new Set(live.map(j => j.id))
   for (const id of lastChecked.keys()) if (!liveIds.has(id)) lastChecked.delete(id)
 
+  // Keys KIE has rate-limited during this cycle. The limit is per account, so the next job of the same
+  // key would be refused too; jobs of other keys are not affected.
+  const limited = new Set()
+  let withoutKey = 0
+
   for (const job of pickFairBatch(live, lastChecked)) {
     lastChecked.set(job.id, Date.now())
 
     try {
-      const status = await fetchKieTaskStatus(job.kie_task_id)
+      const key = await keyForTask(job.kie_task_id)
+      if (!key) { withoutKey++; continue }
+      if (limited.has(key.id)) continue
+
+      const status = await fetchKieTaskStatus(job.kie_task_id, key)
 
       if (status.state === 'ratelimited') {
-        // Back off the whole cycle — the limit is per account, so the next job
-        // would be refused too.
-        console.warn('[worker] rate limited; backing off')
-        await sleep(10_000)
-        return
+        console.warn(`[worker] rate limited on the key "${key.label}"; leaving its other jobs for the next cycle`)
+        limited.add(key.id)
+        continue
       }
 
       if (status.state !== 'unknown') {
@@ -336,12 +351,18 @@ export async function cycle() {
 
     await sleep(CALL_GAP_MS)
   }
+
+  if (withoutKey) console.warn(`[worker] ${withoutKey} running job(s) cannot be asked about: no KIE API key is available (set KIE_API_KEY, or add a key in the admin panel)`)
+
+  // Back off before the next cycle if any key was limited: asking again at once would only be refused again.
+  if (limited.size) await sleep(RATE_LIMIT_BACKOFF_MS)
 }
 
 async function main() {
   if (!process.env.KIE_API_KEY) {
-    console.error('[worker] KIE_API_KEY is not set — nothing to poll with. Exiting.')
-    process.exit(1)
+    // Not fatal any more: keys can also be added in the admin panel (api/_lib/kieKeys.js). The cycle
+    // finds out whether there is one to use, and says so each time it has jobs to ask about.
+    console.warn('[worker] KIE_API_KEY is not set — only keys added in the admin panel can be used to poll.')
   }
 
   console.log(`[worker] started; cycle ${CYCLE_MS}ms, batch ${BATCH}`)

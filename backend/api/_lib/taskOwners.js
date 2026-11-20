@@ -10,6 +10,9 @@
  *
  * A task with no recorded owner (one from before the table existed, that nothing could be backfilled for)
  * is left as it was: refusing it would strand work the account has already paid for.
+ *
+ * The row also says which KIE key started the task (migration 013), because KIE only answers about a task
+ * for that key (api/_lib/kieKeys.js). A task with no key recorded was started with the server's own key.
  */
 
 import { one, many, query } from './db.js'
@@ -17,12 +20,15 @@ import { forbidden } from './http.js'
 
 export const TASK_NOT_YOURS_MESSAGE = 'This generation belongs to another account.'
 
-/** Remember that `userId` started `taskId`. Idempotent; the first account to be recorded keeps it. */
-export async function recordTaskOwner(userId, taskId) {
+/**
+ * Remember that `userId` started `taskId`, with the KIE key `keyId` (null: the server's own).
+ * Idempotent; the first account to be recorded keeps it.
+ */
+export async function recordTaskOwner(userId, taskId, keyId = null) {
   if (!userId || typeof taskId !== 'string' || !taskId) return
   await query(
-    'insert into task_owners (kie_task_id, user_id) values ($1, $2) on conflict (kie_task_id) do nothing',
-    [taskId.slice(0, 200), userId],
+    'insert into task_owners (kie_task_id, user_id, kie_key_id) values ($1, $2, $3) on conflict (kie_task_id) do nothing',
+    [taskId.slice(0, 200), userId, keyId],
   )
 }
 

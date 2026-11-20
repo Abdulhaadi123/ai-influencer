@@ -29,7 +29,7 @@ async function legacyDatabase() {
 
 test('the migrations are numbered in order with no gaps', () => {
   const files = readdirSync(migrations).filter(f => f.endsWith('.sql')).sort()
-  assert.deepEqual(files, ['001_schema.sql', '002_moderation_admin.sql', '003_provider_refusals.sql', '004_admin_list_indexes.sql', '005_billing.sql', '006_sealed_uploads.sql', '007_credit_ledger_created_idx.sql', '008_session_scope.sql', '009_task_owners.sql', '010_launch_packs.sql', '011_thumbnails.sql', '012_oauth_identities.sql'])
+  assert.deepEqual(files, ['001_schema.sql', '002_moderation_admin.sql', '003_provider_refusals.sql', '004_admin_list_indexes.sql', '005_billing.sql', '006_sealed_uploads.sql', '007_credit_ledger_created_idx.sql', '008_session_scope.sql', '009_task_owners.sql', '010_launch_packs.sql', '011_thumbnails.sql', '012_oauth_identities.sql', '013_kie_api_keys.sql'])
 })
 
 test('012 lets an account have no password, leaves every existing one as it is, and an identity goes with its user', async () => {

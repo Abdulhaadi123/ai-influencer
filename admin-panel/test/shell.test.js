@@ -322,8 +322,8 @@ test('signing in again as someone else starts clean', async () => {
 test('the sidebar lists every page in order, links to each, and names who is signed in', async () => {
   await bootSignedIn()
   const links = all(document, 'a.nav-link')
-  assert.deepEqual(links.map(l => text(l).replace(/\d+\+?$/, '')), ['Overview', 'Accounts', 'Generations', 'Moderation', 'Credits', 'Pricing', 'Audit log', 'Settings'])
-  assert.deepEqual(links.map(l => l.getAttribute('href')), ['#/overview', '#/users', '#/jobs', '#/moderation', '#/credits', '#/prices', '#/audit', '#/settings'])
+  assert.deepEqual(links.map(l => text(l).replace(/\d+\+?$/, '')), ['Overview', 'Accounts', 'Generations', 'Moderation', 'Credits', 'Pricing', 'API keys', 'Audit log', 'Settings'])
+  assert.deepEqual(links.map(l => l.getAttribute('href')), ['#/overview', '#/users', '#/jobs', '#/moderation', '#/credits', '#/prices', '#/keys', '#/audit', '#/settings'])
   assert.deepEqual(VIEW_DEFS.map(v => v.id), links.map(l => l.dataset.view))
   assert.equal(text(document.querySelector('.me-email')), ME.email)
   assert.match(text(document.querySelector('.me')), /Administrator/)

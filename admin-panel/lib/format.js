@@ -235,6 +235,10 @@ const AUDIT_LABELS = {
   'moderation.view-media': 'Viewed a flagged file',
   'price.upsert': 'Set a model price',
   'price.delete': 'Removed a model price',
+  'kie-key.add': 'Added a KIE key',
+  'kie-key.update': 'Changed a KIE key',
+  'kie-key.check': 'Checked a KIE key',
+  'kie-key.delete': 'Removed a KIE key',
   'billing.grant': 'Changed an account’s credits',
 }
 export const auditLabel = key => label(AUDIT_LABELS, key)

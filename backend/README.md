@@ -118,6 +118,51 @@ restart. The API says so at startup when callbacks are off.
 
 ---
 
+## More than one KIE key (round-robin)
+
+KIE limits how much one **account** may start at once (the worker's notes say 20 new
+generations per 10 seconds) and answers 429 past it. With one key that is the whole
+studio's ceiling. Keys from more KIE accounts are kept in a pool, and every new
+request takes the next one in turn.
+
+- **Where keys come from.** `KIE_API_KEY` in `.env` is always the first key: add no
+  others and nothing changes. More are added in the admin panel (**API keys**); each
+  is checked with KIE before it is kept.
+- **Round-robin.** The key used longest ago goes next (`api/_lib/kieKeys.js`), decided
+  and recorded in one SQL statement (`FOR UPDATE SKIP LOCKED`), so requests that arrive
+  together get different keys and the order survives a restart.
+- **A refused key is skipped.** If KIE answers a rate limit (429), no credits (402) or
+  "not accepted" (401/403) — as the status or as the `code` inside a 200 — nothing was
+  started, so the same request goes to the next key, and the refused one waits at the back
+  of the line (10 s for a rate limit, 5 min for credits or a rejection; **Check** in the
+  panel clears it at once). Only when every key has refused does the person see KIE's
+  answer. A dropped connection or a timeout is **never** retried on another key: the task
+  might already exist, and a second one would be paid for twice.
+- **A task stays with its key.** KIE answers about a task only for the key that started
+  it, so `task_owners.kie_key_id` (migration 013) records it, and the proxy's `recordInfo`,
+  `/api/jobs/sync` and the worker all use that key. A task with no key recorded was started
+  with `KIE_API_KEY`. A paused key still finishes the tasks it started; a key with running
+  tasks cannot be removed.
+- **Keys are stored sealed.** AES-256-GCM under a key derived from `KEY_VAULT_SECRET`
+  (`openssl rand -hex 32`; at least 32 characters; the `api` and the `worker` both need it,
+  and both read `.env`). A database dump or the S3 backup holds ciphertext only. Without the
+  secret keys cannot be added and added ones cannot be read; the panel and the start-up log
+  say so. Changing it makes stored keys unreadable: they are skipped (not an outage) and
+  are added again. A key is typed once; the panel keeps only its last four characters, and
+  no response, log line or audit entry carries it.
+- **Callbacks.** Each KIE account has its own *Webhook HMAC key*. Add it with the key (or
+  later with Edit) and a callback signed with it is accepted, like one signed with
+  `KIE_WEBHOOK_SECRET`. A key without one asks for no callback, and the worker collects its
+  results within a minute or so.
+- **Use keys from different KIE accounts.** The limit belongs to the account; keys made
+  inside one account share it and add nothing.
+- **The worker.** A 429 on one key pauses only that key's jobs for the rest of the cycle
+  (`WORKER_RATE_LIMIT_BACKOFF_MS`, default 10 s); the others carry on.
+- **Endpoints** (admin session): `GET /api/admin/kie-keys`; `POST …/add` `update` `check`
+  `delete`. Every write is audited (`kie-key.add|update|check|delete`).
+
+---
+
 ## Content moderation
 
 The app makes images and video of people from text and photos users supply, so
@@ -297,6 +342,8 @@ what you filtered by live in the address (`#/users?q=mia&status=suspended`,
   - *Pricing* (`#/prices`) — credits per model and an on/off switch that is enforced at once;
     turning a model off asks first. Says whether charging is on. Models used without a price
     are listed (a price kept for one mode of a model, `<model>:<mode>`, prices the model).
+  - *API keys* (`#/keys`) — the KIE keys that take turns (see "More than one KIE key"):
+    add, pause, rename, check what is left on one, remove. A key is typed once and never shown again.
   - *Audit log* — filter by family of action and by admin. Append-only.
   - *Settings* — how moderation and KIE are configured. Read-only.
 - **Safety.** Every admin action is written to `admin_audit_log` in the same
@@ -406,7 +453,7 @@ app ──createTask──► /api/kie ──gate: take the price──► KIE �
 |---|---|
 | `BILLING_ENFORCED` | Exactly `true` charges and refuses. Anything else is **shadow mode**: nothing is taken, nobody is stopped, and the log says `[billing] shadow: … would be refused`. |
 | `REVENUECAT_WEBHOOK_AUTH` | The `Authorization` value set on RevenueCat's webhook. Keep it in the server's secret store. |
-| `REVENUECAT_ACCEPT_SANDBOX` | Default `true`: RevenueCat test purchases are credited. Set `false` when real sales start. |
+| `REVENUECAT_ACCEPT_SANDBOX` | Default `true`: RevenueCat test purchases are credited. Leave it `true` after launch: Apple's App Review buys in the sandbox for every version submitted (with `false` the reviewer gets no credits and the app is rejected), and TestFlight testers and Play licence testers buy there too. Only people we invite can make sandbox purchases. |
 
 Before enforcing: price **every** model in use (an unpriced model is refused once enforced —
 the overview lists them); read the shadow log for a week; give the accounts that must keep
@@ -456,6 +503,18 @@ POST /api/director-prompt   (signed in)
 - **Failures** answer `{ error, code }`: `501 NOT_CONFIGURED` (no `OPENAI_API_KEY`), `400 IDEA_REQUIRED` / `BAD_REFERENCES`,
   `413 TOO_LONG`, `400 CONTENT_BLOCKED`, `429 RATE_LIMITED`, `502 DIRECTOR_FAILED` (nothing the model said was a plan) and
   `502 ASSISTANT_UNAVAILABLE`. A model that will not write the idea is a `200` with `prompt: null` and `notice: DECLINED`.
+- **Why a decline happened** is in the server log, not in the answer (the model's own words are never passed on).
+  `docker compose logs api | grep "\[director\]"` shows one of: `the model declined this idea: <its reason>` (a refusal anyway,
+  or OpenAI's own safety), `the written plan was held back: The plan shows a child ("boy")` (every person in a Director video is
+  an adult, and the plan is checked in code for words that give a child away; the notice says "only writes videos with adults"),
+  or `the written prompt (…) was held back by the content check: <category score>` (the same event is on the admin panel's
+  Moderation page, source `prompt_assist`).
+- **The model is never given a way to decline.** The first real run (2026-11-19, gpt-4o-mini) declined a "premium cinematic
+  watch commercial" idea 6 times in 7 with invented reasons ("a celebrity", "under 18", "brand guidelines") while the content
+  check scored it below 0.01: the instructions said UGC-only and offered a `refusal` field. They now say to always write the plan,
+  that the idea's own look wins, and that anything unsafe is adapted (an adult for a child, an invented character for a real
+  person, a health or income claim left out). Safety is the content check before and after the writing, plus the child check.
+  A health claim is only softened by the model, not enforced in code. A `"refusal": "none"` placeholder is read as no refusal.
 - **Environment** (all optional but the key): `OPENAI_API_KEY`, `DIRECTOR_MODEL` (default `gpt-4o-mini`), `DIRECTOR_SEARCH`
   (`false` turns web search off), `DIRECTOR_PER_MINUTE`, `DIRECTOR_PER_DAY`. `DIRECTOR_OPENAI_BASE_URL` exists only so tests
   can stand in for OpenAI.
@@ -730,6 +789,7 @@ cp .env.example .env && nano .env
 
 - `POSTGRES_PASSWORD` — letters and digits only: `openssl rand -hex 32`
 - `PUBLIC_BASE_URL`, SMTP, S3 and KIE values — see the comments in the file
+- `KEY_VAULT_SECRET` — only needed to add more KIE keys in the admin panel: `openssl rand -hex 32`
 
 Edit `Caddyfile` and replace `api.example.com` with your domain.
 
@@ -860,7 +920,7 @@ edit shows on reload.
 `GET /api/jobs?active=1` returns only the running jobs (the app's half-minute sync asks for exactly those). `GET /api/jobs/changes` is what every open app polls: quick (5 s) while a job is running or just changed, 30 s when idle, and not at all while the app is in the background — the pacing is the app's (`mobile/core/data/pollPacer.js`); the server's part is keeping each answer to two queries.
 
 **The gallery and the queue come in pages** (`api/_lib/paging.js`), newest first, by keyset — never OFFSET, which skips or repeats a row whenever one is added mid-scroll. Every row carries a `cursor` (its `created_at` to the microsecond, `|`, its id) and every page says `hasMore` and `nextCursor`; pass a cursor back as `?cursor=` to continue after that row. The cursor is not the row's `created_at`: that leaves as a JavaScript Date, milliseconds only, and rows written by one statement (a job batch) share a moment to the microsecond — a cursor cut short skipped all but the first of them. `GET /api/generations/by-influencer?kind=image|video` pages one kind (the gallery's filters); `GET /api/jobs?summary=1` adds the account's totals (`active`, `ready`, `settled`), which a screen holding one page cannot count. `beforeAt` + `beforeId` on `by-influencer` is the older, millisecond form, still answered for app builds that send it. No new index: the existing `(…, created_at desc)` ones serve both lists, and the cursor condition is written so they bound the scan.
-| Admin | `/admin` (the page and its files); `GET /api/admin/stats` `usage?days=` `audit?action=&admin=` `config` `users?q=&status=&sort=&dir=` `users/detail?userId=` `jobs` `moderation?status=&source=&action=&userId=` `moderation/item?eventId=` `moderation/media?eventId=` `prices` `billing/summary?days=` `billing/activity?kind=&q=&userId=` `billing/store-events?outcome=&problems=` `billing/ledger?userId=`; `POST /api/admin/users/suspend` `unsuspend` `set-role` `delete`, `moderation/resolve`, `prices/upsert` `delete`, `billing/grant` |
+| Admin | `/admin` (the page and its files); `GET /api/admin/stats` `usage?days=` `audit?action=&admin=` `config` `users?q=&status=&sort=&dir=` `users/detail?userId=` `jobs` `moderation?status=&source=&action=&userId=` `moderation/item?eventId=` `moderation/media?eventId=` `prices` `kie-keys` `billing/summary?days=` `billing/activity?kind=&q=&userId=` `billing/store-events?outcome=&problems=` `billing/ledger?userId=`; `POST /api/admin/users/suspend` `unsuspend` `set-role` `delete`, `moderation/resolve`, `prices/upsert` `delete`, `kie-keys/add` `update` `check` `delete`, `billing/grant` |
 | Callbacks | `POST /webhooks/kie` (signed by KIE, no session), `POST /webhooks/revenuecat` (shared secret, no session) |
 
 ---

@@ -27,6 +27,7 @@ import { renderJobs } from './views/jobs.js'
 import { renderModeration } from './views/moderation.js'
 import { renderCredits } from './views/credits.js'
 import { renderPrices } from './views/prices.js'
+import { renderKeys } from './views/keys.js'
 import { renderAudit } from './views/audit.js'
 import { renderSettings } from './views/settings.js'
 
@@ -41,6 +42,7 @@ export const VIEW_DEFS = [
   { id: 'moderation', label: 'Moderation', icon: 'moderation', render: renderModeration, badge: 'moderation', group: 'Manage' },
   { id: 'credits', label: 'Credits', icon: 'coins', render: renderCredits, badge: 'billing', group: 'Money' },
   { id: 'prices', label: 'Pricing', icon: 'prices', render: renderPrices, group: 'Money' },
+  { id: 'keys', label: 'API keys', icon: 'key', render: renderKeys, group: 'System' },
   { id: 'audit', label: 'Audit log', icon: 'audit', render: renderAudit, group: 'System' },
   { id: 'settings', label: 'Settings', icon: 'settings', render: renderSettings, group: 'System' },
 ]

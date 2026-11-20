@@ -53,6 +53,7 @@ export const PANEL_FILES = Object.freeze({
   'views/audit.js': JS,
   'views/credits.js': JS,
   'views/jobs.js': JS,
+  'views/keys.js': JS,
   'views/login.js': JS,
   'views/moderation.js': JS,
   'views/overview.js': JS,

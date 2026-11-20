@@ -64,7 +64,12 @@ const byIp = createRateLimiter([{ windowMs: 10_000, max: 120 }])
 
 const secret = () => (process.env.REVENUECAT_WEBHOOK_AUTH || '').trim()
 
-/** Are test purchases (RevenueCat's SANDBOX environment) credited? Off it at launch. */
+/**
+ * Are test purchases (RevenueCat's SANDBOX environment) credited? Keep it on after launch too: Apple's
+ * App Review buys in the sandbox for EVERY version submitted, TestFlight testers and Play's licence
+ * testers buy there as well, and with it off their purchases add nothing (for Apple, a rejection).
+ * Only people we let in can buy in the sandbox. A Test Store product must never share a pack's id.
+ */
 export const sandboxAccepted = () => String(process.env.REVENUECAT_ACCEPT_SANDBOX ?? 'true').toLowerCase() !== 'false'
 const acceptSandbox = sandboxAccepted
 

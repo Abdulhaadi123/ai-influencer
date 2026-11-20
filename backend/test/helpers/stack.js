@@ -103,6 +103,10 @@ function fakeKie() {
     tasks: new Map(),     // taskId → the `data` recordInfo answers with
     created: 0,
     createStatus: null,   // set { status, body } to make createTask fail
+    // The key pool (api/_lib/kieKeys.js): what a given key (the bearer token) is answered with.
+    byKey: new Map(),     // token → { answer: { status, body } } refuses every call it makes; { drop: true } cuts the connection
+    taskKeys: new Map(),  // taskId → the token that started it
+    strictKeys: false,    // true: recordInfo answers only for the key that started the task, as KIE does
   }
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x')
@@ -113,15 +117,23 @@ function fakeKie() {
 
     const json = (status, payload) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(payload)) }
 
+    const bearer = String(req.headers.authorization || '').replace(/^Bearer /, '')
+    const scripted = state.byKey.get(bearer)
+    if (scripted?.drop) return req.socket.destroy()
+    if (scripted?.answer) return json(scripted.answer.status, scripted.answer.body)
+
     if (url.pathname === '/api/v1/jobs/createTask' || url.pathname === '/api/v1/veo/generate') {
       if (state.createStatus) return json(state.createStatus.status, state.createStatus.body)
       const taskId = `task-${++state.created}`
+      state.taskKeys.set(taskId, bearer)
       return json(200, { code: 200, msg: 'success', data: { taskId } })
     }
     if (url.pathname === '/api/file-base64-upload') {
       return json(200, { code: 200, data: { downloadUrl: `https://tempfile.aiquickdraw.com/uploads/${++state.created}.bin` } })
     }
     if (url.pathname === '/api/v1/jobs/recordInfo' || url.pathname === '/api/v1/veo/record-info') {
+      const asked = url.searchParams.get('taskId')
+      if (state.strictKeys && state.taskKeys.has(asked) && state.taskKeys.get(asked) !== bearer) return json(200, { code: 422, msg: 'not found' })
       const data = state.tasks.get(url.searchParams.get('taskId'))
       return json(200, data ? { code: 200, msg: 'success', data } : { code: 422, msg: 'not found' })
     }
@@ -347,6 +359,10 @@ export async function startStack({ env = {} } = {}) {
       await db.query('truncate table users cascade')
       s3.objects.clear(); s3.log.length = 0; s3.behaviour.failCopy = false
       kie.state.requests.length = 0; kie.state.tasks.clear(); kie.state.created = 0; kie.state.createStatus = null
+      kie.state.byKey.clear(); kie.state.taskKeys.clear(); kie.state.strictKeys = false
+      // The key pool: only the server's own key stays, and starts again from the same place.
+      await db.query(`delete from kie_api_keys where source = 'panel'`)
+      await db.query(`update kie_api_keys set enabled = true, last_used_at = null, uses = 0, cooldown_until = null, problem = null, problem_at = null, balance = null, balance_at = null`)
       openai.state.requests.length = 0; openai.state.chat.length = 0; openai.state.maxInflight = 0; Object.assign(openai.state.chatMode, { status: null, content: undefined })
       Object.assign(openai.state.mode, { status: null, shape: 'per-item', delayMs: 0 })
     },
