@@ -27,7 +27,11 @@ test('a value moved to another row, altered, or opened under another secret does
   const sealed = seal('secret-value-1234567', 'row-1')
   assert.throws(() => unseal(sealed, 'row-2'), e => e instanceof VaultError && e.code === 'VAULT_UNREADABLE')
   const [v, nonce, tag, body] = sealed.split('.')
-  const flipped = `${v}.${nonce}.${tag}.${body.slice(0, -1)}${body.endsWith('A') ? 'B' : 'A'}`
+  // Change one character in the MIDDLE of the ciphertext. Not the last one: the sealed text is unpadded base64url, whose last
+  // character holds two bits that are not data, so swapping 'A' for 'B' there (1 time in 16) changes no byte and the value still opens.
+  const at = Math.floor(body.length / 2)
+  const flipped = `${v}.${nonce}.${tag}.${body.slice(0, at)}${body[at] === 'A' ? 'B' : 'A'}${body.slice(at + 1)}`
+  assert.notDeepEqual(Buffer.from(flipped.split('.')[3], 'base64url'), Buffer.from(body, 'base64url'), 'the test really changed a byte')
   assert.throws(() => unseal(flipped, 'row-1'), VaultError)
   assert.throws(() => unseal(`${v}.${nonce}.${tag.slice(2)}.${body}`, 'row-1'), VaultError, 'a tag of the wrong length')
   for (const junk of ['', 'v1', 'v1...', 'v2.a.b.c', null, undefined, 42, 'v1.a.b.c.d']) {

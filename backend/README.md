@@ -539,9 +539,14 @@ POST /api/director-prompt   (signed in)
 - **Environment** (all optional but the key): `OPENAI_API_KEY`, `DIRECTOR_MODEL` (default `gpt-4o-mini`), `DIRECTOR_SEARCH`
   (`false` turns web search off), `DIRECTOR_PER_MINUTE`, `DIRECTOR_PER_DAY`. `DIRECTOR_OPENAI_BASE_URL` exists only so tests
   can stand in for OpenAI.
-- **A stronger writer is one setting away.** `DIRECTOR_MODEL` takes any model the Responses API offers (the web search tool
-  needs one that supports it): a plan costs a fraction of a cent on `gpt-4o-mini` and about a cent on a larger one such as
-  `gpt-4.1`, next to a video that costs dollars. Not tried here: do not set a reasoning model without a try.
+- **A stronger writer is one setting away, and a wrong name cannot take the director down.** `DIRECTOR_MODEL` takes a model the
+  Responses API offers (one that supports the web search tool). It is tried first; if the account has no such model (404), may not use it (403),
+  or the model writes no plan, `gpt-4o-mini` (the model the real runs used) is asked after it, and the log says
+  `"…" gave no plan; trying "gpt-4o-mini"`. A key that is refused or an allowance used up (401, 429) stops at once. **`gpt-4.1` is the one to
+  try**, not a reasoning model (`gpt-5…`, `o…`): those spend the 3,000-token output limit here on thinking and can cut the plan short. It costs
+  about a cent a plan against a fraction of one, and it really uses web search (up to 3 searches: a few cents and 10 to 20 seconds more), which
+  `gpt-4o-mini` never did. A link a search leaves in the writing is taken out before the prompt is built (`withoutLinks`). Not run against the real
+  API: after changing the setting, try one idea and read `docker compose logs api | grep "\[director\]"`.
 - **Checked only against a stand-in.** `test/integration/director-prompt.test.js` runs the whole endpoint against a fake
   Responses API; nothing has been asked of the real one since the 2026-11-23 rewrite (the 2026-11-19 runs were the old prompt). After deploying, ask it once with a real session (the answer
   should have `searched: true` and a prompt that starts with the `@Image1:` lines) and look at the server log line

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import {
   SECONDS, DEFAULT_SECONDS, MAX_IDEA_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS,
   DirectorInputError, DirectorOutputError,
-  cleanInput, shotRange, beatSheet, speechWords, speechCap, countWords, fitSpeech,
+  cleanInput, shotRange, beatSheet, speechWords, speechCap, countWords, fitSpeech, withoutLinks,
   systemPrompt, userMessage, extractOutput, parseJsonObject, readPlan, retime,
   referenceLines, composePrompt, limitMessage,
 } from '../../api/_lib/director.js'
@@ -378,6 +378,35 @@ test('a plan is read: labels in capitals, speech without quotes, empty things as
   assert.equal(plan.shots[2].dialogue, null)
   assert.equal(plan.shots[2].sfx, null)
   assert.equal(plan.shots[1].tone, null)
+})
+
+test('a link the model let slip in, as a web search leaves them, is taken out of everything it wrote', () => {
+  const { plan } = readPlan(JSON.stringify({
+    product: 'tea cup [site](https://a.test/p)',
+    summary: 'Mia drinks tea from the cup ([wired.com](https://www.wired.com/story/tea?utm_source=openai)).',
+    voice: 'A warm voice (https://example.test/voices).',
+    style: 'Soft window light https://c.test/light.',
+    consistency: 'The same kitchen ([source](https://d.test/k)).',
+    shots: [{
+      camera: 'MCU, 28mm https://e.test/lens',
+      visual: 'She lifts the cup [source](https://a.test/x) to the lens, see https://b.test/y?z=1 for more.',
+      dialogue: 'Try it, https://shop.test/cup today.', tone: 'warm', sfx: 'a clink ([x](https://f.test))',
+    }],
+  }), 8)
+  assert.equal(plan.summary, 'Mia drinks tea from the cup.')
+  assert.equal(plan.voice, 'A warm voice.')
+  assert.equal(plan.product, 'tea cup')
+  assert.equal(plan.consistency, 'The same kitchen.')
+  assert.equal(plan.shots[0].dialogue, 'Try it, today.')
+  assert.equal(plan.shots[0].sfx, 'a clink')
+  assert.doesNotMatch(JSON.stringify(plan), /https?:|\]\(|utm_source/, 'no link is left anywhere in the plan')
+  assert.doesNotMatch(composePrompt(cleanInput({ idea: 'a tea cup ad' }), plan), /https?:|\]\(|utm_source/)
+  // Text with no link comes back exactly as it was, spacing and all, and a bracket or a parenthesis is not a link.
+  for (const text of ['She holds it (handle toward the lens).', 'Spaced  words .', 'see [1] and (2)', 'brand.com is fine', '', 'नमस्ते (दोस्तों)']) {
+    assert.equal(withoutLinks(text), text, text)
+  }
+  assert.equal(withoutLinks(null), '')
+  assert.equal(withoutLinks(undefined), '')
 })
 
 test('the camera and the voice are read and tidied, and a camera or voice that is empty or missing is null', () => {

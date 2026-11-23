@@ -31,7 +31,8 @@
  *
  * Environment (all optional but the key, which is the one the prompt assistant and the moderation use):
  *   OPENAI_API_KEY          without it: 501 NOT_CONFIGURED, and the app hides Director Mode's writer
- *   DIRECTOR_MODEL          default gpt-4o-mini
+ *   DIRECTOR_MODEL          default gpt-4o-mini. Tried first; if the account has no such model, or it gives no plan, gpt-4o-mini is tried
+ *                           after it (a line in the log says so), so a mistyped or unavailable name cannot take the director down
  *   DIRECTOR_SEARCH         false turns web search off altogether (default on)
  *   DIRECTOR_PER_MINUTE     default 4
  *   DIRECTOR_PER_DAY        default 30
@@ -47,7 +48,11 @@ import {
 } from './_lib/director.js'
 
 const apiKey = () => process.env.OPENAI_API_KEY || ''
-const model = () => process.env.DIRECTOR_MODEL || 'gpt-4o-mini'
+/** The model the real runs of 2026-11-19 used: the one that is known to answer. What DIRECTOR_MODEL names is tried before it. */
+const FALLBACK_MODEL = 'gpt-4o-mini'
+const model = () => (process.env.DIRECTOR_MODEL || '').trim() || FALLBACK_MODEL
+/** The models to try, in order: the one asked for, then the known one (only once when they are the same). */
+const models = () => [...new Set([model(), FALLBACK_MODEL])]
 const baseUrl = () => (process.env.DIRECTOR_OPENAI_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '')
 const searchOn = () => String(process.env.DIRECTOR_SEARCH ?? 'true').toLowerCase() !== 'false'
 
@@ -97,9 +102,9 @@ function ways() {
 }
 
 /** One request to OpenAI's Responses API. Resolves with the Response; throws on a network failure or a timeout. */
-function ask({ system, text, way, ms }) {
+function ask({ system, text, way, ms, modelName }) {
   const body = {
-    model: model(),
+    model: modelName,
     instructions: system,
     input: text,
     max_output_tokens: 3000,
@@ -121,7 +126,7 @@ function ask({ system, text, way, ms }) {
 }
 
 /**
- * Get a usable plan out of the model, trying the ways in turn.
+ * Get a usable plan out of the model, trying the ways in turn, and the known model after the one asked for.
  * @returns {Promise<{refusal: string}|{plan: object, searched: boolean, sources: number}>}
  */
 async function writePlan(input) {
@@ -130,42 +135,52 @@ async function writePlan(input) {
   const deadline = Date.now() + ALL_MS
 
   let unusable = false          // the last answer arrived but was not a plan
-  let skipSearch = false        // an answer that cost a search and was not a plan: do not pay for another
-  for (const way of ways()) {
-    if (skipSearch && way.tools) continue
-    const left = deadline - Date.now()
-    if (left < 5_000) break
+  const tried = models()
+  for (const [index, modelName] of tried.entries()) {
+    let skipSearch = false      // an answer that cost a search and was not a plan: do not pay for another
+    let halt = false            // our key is refused, or we are being limited: another model would meet the same answer
+    unusable = false
 
-    let upstream
-    try {
-      upstream = await ask({ system, text, way, ms: Math.min(TRY_MS, left) })
-    } catch (e) {
-      console.error('[director] upstream did not answer:', e?.name || e?.message || e)
-      unusable = false
-      continue
+    for (const way of ways()) {
+      if (skipSearch && way.tools) continue
+      const left = deadline - Date.now()
+      if (left < 5_000) break
+
+      let upstream
+      try {
+        upstream = await ask({ system, text, way, ms: Math.min(TRY_MS, left), modelName })
+      } catch (e) {
+        console.error('[director] upstream did not answer:', e?.name || e?.message || e)
+        unusable = false
+        continue
+      }
+
+      if (!upstream.ok) {
+        const detail = await upstream.text().catch(() => '')
+        console.error('[director] upstream', upstream.status, `(${modelName})`, detail.slice(0, 200))
+        unusable = false
+        if ([401, 429].includes(upstream.status)) { halt = true; break }
+        // No such model for this account (404) or not allowed to use it (403): its other ways would meet the same answer.
+        if ([403, 404].includes(upstream.status)) break
+        continue
+      }
+
+      const out = extractOutput(await upstream.json().catch(() => null))
+      if (out.refusal && !out.text) return { refusal: out.refusal }
+      try {
+        const read = readPlan(out.text, input.seconds)
+        if (read.refusal) return { refusal: read.refusal, child: read.child === true }
+        return { plan: read.plan, searched: out.searched, sources: out.sources }
+      } catch (e) {
+        if (!(e instanceof DirectorOutputError)) throw e
+        console.error('[director] the answer was not a plan:', e.message, out.incomplete ? '(cut short)' : '', `(${modelName})`)
+        unusable = true
+        if (way.tools) skipSearch = true
+      }
     }
 
-    if (!upstream.ok) {
-      const detail = await upstream.text().catch(() => '')
-      console.error('[director] upstream', upstream.status, detail.slice(0, 200))
-      unusable = false
-      // Our key is refused, or we are being limited: another way would meet the same answer.
-      if ([401, 403, 429].includes(upstream.status)) break
-      continue
-    }
-
-    const out = extractOutput(await upstream.json().catch(() => null))
-    if (out.refusal && !out.text) return { refusal: out.refusal }
-    try {
-      const read = readPlan(out.text, input.seconds)
-      if (read.refusal) return { refusal: read.refusal, child: read.child === true }
-      return { plan: read.plan, searched: out.searched, sources: out.sources }
-    } catch (e) {
-      if (!(e instanceof DirectorOutputError)) throw e
-      console.error('[director] the answer was not a plan:', e.message, out.incomplete ? '(cut short)' : '')
-      unusable = true
-      if (way.tools) skipSearch = true
-    }
+    if (halt) break
+    if (index < tried.length - 1) console.warn(`[director] "${modelName}" gave no plan; trying "${tried[index + 1]}"`)
   }
 
   throw unusable

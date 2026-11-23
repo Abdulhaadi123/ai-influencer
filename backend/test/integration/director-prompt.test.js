@@ -231,6 +231,70 @@ test('the model, and search, are the server\'s to choose', async () => {
   assert.equal(fake.requests[0].body.max_tool_calls, undefined)
 })
 
+test('a stray space or line break around the model name in the settings does not matter', async () => {
+  const u = await stack.createUser()
+  process.env.DIRECTOR_MODEL = '  gpt-test-model \n'
+  const res = await ask(u.token, FULL)
+  assert.equal(res.status, 200, res.text)
+  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-test-model'])
+})
+
+test('a model the account does not have is not the end: the known model answers instead, after one try, not one per way', async () => {
+  const u = await stack.createUser()
+  process.env.DIRECTOR_MODEL = 'gpt-typo-9'
+  fake.script.push({ status: 404, json: { error: { message: 'The model `gpt-typo-9` does not exist or you do not have access to it.', code: 'model_not_found' } } })
+  const { result: res, lines } = await warned(() => ask(u.token, FULL))
+  assert.equal(res.status, 200, res.text)
+  assert.ok(res.body.prompt.startsWith('@Image1'))
+  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-typo-9', 'gpt-4o-mini'])
+  assert.ok(lines.some(l => l.includes('[director]') && l.includes('"gpt-typo-9" gave no plan; trying "gpt-4o-mini"')), JSON.stringify(lines))
+  assert.ok(!res.text.includes('gpt-'), 'the person is not told which model')
+})
+
+test('a model that writes no plan gives way to the known one, which writes it', async () => {
+  const u = await stack.createUser()
+  process.env.DIRECTOR_MODEL = 'gpt-test-model'
+  fake.script.push(
+    { status: 200, json: answer(PLAN, { text: 'Sure! Here is a great ad idea for you.' }) },
+    { status: 200, json: answer(PLAN, { text: 'Still no JSON.', search: false }) },
+  )
+  const res = await ask(u.token, FULL)
+  assert.equal(res.status, 200, res.text)
+  assert.ok(res.body.prompt)
+  // The first model: the search way (not a plan, so search is not paid for again), then the way with no search. Then the known model.
+  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-test-model', 'gpt-test-model', 'gpt-4o-mini'])
+})
+
+test('when the known model fails too, the person is told to try again, with the codes it always had, and nothing of the upstream leaks', async () => {
+  const u = await stack.createUser()
+  process.env.DIRECTOR_MODEL = 'gpt-test-model'
+  fake.script.push({ status: 500 }, { status: 500 }, { status: 500 }, { status: 500 }, { status: 500 }, { status: 500 })
+  const res = await ask(u.token, FULL)
+  assert.equal(res.status, 502)
+  assert.equal(res.body.code, 'ASSISTANT_UNAVAILABLE')
+  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-test-model', 'gpt-test-model', 'gpt-test-model', 'gpt-4o-mini', 'gpt-4o-mini', 'gpt-4o-mini'])
+  assert.ok(!/scripted|OpenAI|openai|gpt-/.test(res.text))
+
+  fake.requests.length = 0
+  fake.script.push({ status: 200, json: answer(PLAN, { text: 'no json' }) }, { status: 200, json: answer(PLAN, { text: 'no json', search: false }) },
+    { status: 200, json: answer(PLAN, { text: 'no json' }) }, { status: 200, json: answer(PLAN, { text: 'no json', search: false }) })
+  const unusable = await ask(u.token, FULL)
+  assert.equal(unusable.status, 502)
+  assert.equal(unusable.body.code, 'DIRECTOR_FAILED', 'no plan from either model is "could not finish", as before')
+})
+
+test('a refused key or an exhausted allowance stops at once even when another model was named: the known one would meet the same answer', async () => {
+  const u = await stack.createUser()
+  process.env.DIRECTOR_MODEL = 'gpt-test-model'
+  for (const status of [401, 429]) {
+    fake.requests.length = 0
+    fake.script.push({ status, json: { error: { message: 'nope' } } })
+    const res = await ask(u.token, FULL)
+    assert.equal(res.status, 502, `upstream ${status}`)
+    assert.equal(fake.requests.length, 1, `upstream ${status} was asked once`)
+  }
+})
+
 test('"searched" is only what the answer shows: asking for the tool does not make it so', async () => {
   const u = await stack.createUser()
   fake.script.push({ status: 200, json: answer(PLAN, { search: false, annotations: [] }) })

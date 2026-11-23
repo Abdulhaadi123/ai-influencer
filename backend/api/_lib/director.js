@@ -398,7 +398,21 @@ export function parseJsonObject(text) {
   }
 }
 
-const sentence = (value, max) => oneLine(typeof value === 'string' ? value : '', max)
+/**
+ * A link that slipped into the model's writing, the way a web search leaves them ("([wired.com](https://www.wired.com/story?utm_source=openai))",
+ * or a bare address). The instructions say never to put one in, but the prompt must hold none whatever the model did: the video model would try
+ * to say it or show it. Text without a link is returned exactly as it was.
+ */
+const MARKDOWN_LINK = /\(?\[[^\]]{0,300}\]\(\s*https?:\/\/[^)\s]{0,600}\s*\)\)?/gi
+const BARE_LINK = /https?:\/\/[^\s)\]"]+/gi
+export function withoutLinks(text) {
+  const source = String(text ?? '')
+  const cleaned = source.replace(MARKDOWN_LINK, ' ').replace(BARE_LINK, ' ')
+  if (cleaned === source) return source
+  return cleaned.replace(/\(\s*\)/g, ' ').replace(/\s+([,.;:!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim()
+}
+
+const sentence = (value, max) => oneLine(withoutLinks(typeof value === 'string' ? value : ''), max)
 const orNull = text => (text ? text : null)
 
 /**
