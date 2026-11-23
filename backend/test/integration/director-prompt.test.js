@@ -16,8 +16,9 @@ const PLAN = {
   refusal: null,
   product: 'tea cup',
   summary: 'A relatable UGC-style ad filmed on a phone. A young woman sips tea from the cup in her kitchen.',
+  voice: 'A warm, relaxed voice in her late twenties',
   shots: [
-    { label: 'HOOK', start: 0, end: 3, visual: 'Selfie close-up. She lifts the cup toward the lens.', dialogue: 'Okay, I need to show you my new favorite cup.', tone: 'excited, casual', sfx: 'soft kitchen room tone' },
+    { label: 'HOOK', start: 0, end: 3, camera: 'MCU, 28mm, handheld, slight sway', visual: 'Selfie close-up. She lifts the cup toward the lens.', dialogue: 'Okay, I need to show you my new favorite cup.', tone: 'excited, casual', sfx: 'soft kitchen room tone' },
     { label: 'PRODUCT REVEAL', start: 3, end: 9, visual: 'She turns the cup to show the handle.', dialogue: 'Look at this. The shape, it feels so premium.', tone: 'warm', sfx: 'gentle ceramic tap' },
     { label: 'CTA', start: 9, end: 15, visual: 'Back to selfie framing, she smiles.', dialogue: 'Get yours before they sell out.', tone: 'friendly', sfx: 'soft exhale' },
   ],
@@ -173,15 +174,19 @@ test('an idea becomes a finished prompt: the pictures named from our list, the s
   assert.equal(res.body.notice, undefined)
 
   const lines = prompt.split('\n')
-  assert.match(lines[0], /^@Image1: the tea cup \(the product being advertised\)\./)
-  assert.match(lines[1], /^@Image2: Mia, the main character\. Keep her face, hair and outfit identical in every shot\./)
+  assert.match(lines[0], /^@Image1: the tea cup, the product being advertised\./)
+  assert.match(lines[1], /^@Image2: Mia, the main character\. Her face, hair, skin tone and outfit are identical in every shot/)
   assert.match(lines[2], /^@Image3: the location\./)
-  assert.ok(prompt.includes('SHOT 1 [0-3s] (HOOK): Selfie close-up. She lifts the cup toward the lens.'))
+  assert.ok(prompt.includes('Format: 15 seconds, vertical 9:16, 3 shots joined by hard cuts.'))
+  assert.ok(prompt.includes('SHOT 1 [0-3s] (HOOK)\nCamera: MCU, 28mm, handheld, slight sway.\nAction: Selfie close-up. She lifts the cup toward the lens.'))
   assert.ok(prompt.includes('Dialogue (Mia, excited, casual): "Okay, I need to show you my new favorite cup."'))
   assert.ok(prompt.includes('SHOT 3 [9-15s] (CTA)'), 'the last shot ends where the clip does')
   assert.ok(prompt.includes('Style: Shot on iPhone, vertical 9:16, natural window light.'))
   assert.ok(prompt.includes('Consistency: Same cup, same girl, same kitchen in all shots.'))
-  assert.equal(lines.at(-1), 'No subtitles. No on-screen text. No background music: natural sounds only. Spoken language: English.')
+  assert.ok(prompt.includes('Voice: A warm, relaxed voice in her late twenties. The same voice in every shot.'))
+  assert.match(prompt, /\nRules: The shots are joined by hard cuts[^\n]*No subtitles\. No on-screen text\. No background music: natural sounds only\.\n/)
+  assert.equal(lines.at(-2), 'Ending: in the last second Mia holds a final pose, mouth closed, nothing else moving.')
+  assert.equal(lines.at(-1), 'Spoken language: English.')
 })
 
 test('the model is asked once, with the key, the search tool, nothing stored, and plain data — never the person\'s account', async () => {
@@ -236,11 +241,11 @@ test('"searched" is only what the answer shows: asking for the tool does not mak
   assert.equal(res.body.sources, 0)
 })
 
-test('no pictures and no character: the prompt starts at the summary, and the model is told there is nothing to refer to', async () => {
+test('no pictures and no character: the prompt starts at the format line, and the model is told there is nothing to refer to', async () => {
   const u = await stack.createUser()
   const res = await ask(u.token, { idea: IDEA, seconds: 8, language: 'Hindi' })
   assert.equal(res.status, 200)
-  assert.ok(res.body.prompt.startsWith('Summary: '), res.body.prompt.slice(0, 50))
+  assert.ok(res.body.prompt.startsWith('Format: 8 seconds, vertical 9:16, 3 shots joined by hard cuts.\nSummary: '), res.body.prompt.slice(0, 90))
   assert.ok(res.body.prompt.endsWith('Spoken language: Hindi.'))
   const data = JSON.parse(fake.requests[0].body.input)
   assert.deepEqual(data.references, [])
@@ -464,6 +469,7 @@ test('a person who asks too often is slowed down, and nobody else is', async () 
   assert.equal(slowed.status, 429)
   assert.equal(slowed.body.code, 'RATE_LIMITED')
   assert.ok(Number(slowed.headers.get('retry-after')) >= 1)
+  assert.match(slowed.body.error, /wait a minute|about \d+ minutes|about \d+ hours/, 'the message names the wait')
   assert.equal(fake.requests.length, 8, 'the ninth never reached the model')
   assert.equal((await ask(other.token, FULL)).status, 200)
 })

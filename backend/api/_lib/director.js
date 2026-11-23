@@ -4,21 +4,26 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *
  * Director Mode turns an idea ("a 30 second ad for my tea cup, a girl in her kitchen drinking tea from it")
- * into the prompt Seedance 2.5 is given: which reference image is what, a summary, then the clip shot by shot
- * with timings, what is said and what is heard, a style line and a consistency line.
+ * into the prompt Seedance is given: which reference image is what, a summary, then the clip shot by shot (the
+ * camera, the action, what is said, what is heard), a style line, a consistency line, the voice, and the rules
+ * that close it.
  *
  * It is NOT the prompt assistant (api/prompt-assist.js), which rewrites what a person typed into a better
  * version of the same thing. This one writes a whole plan, and a model that may search the web writes it.
  *
  * What is left to the model, and what is not
  *
- *   The model writes the creative parts: the summary, each shot's picture, speech and sound, the style.
- *   Everything that has to be exactly right is done here, in code, so a model that is "usually right" cannot
+ *   The model writes the creative parts: the summary, each shot's camera, picture, speech and sound, the style, the
+ *   voice. Everything that has to be exactly right is done here, in code, so a model that is "usually right" cannot
  *   break it:
- *     • which `@ImageN` is which — the lines that say so are written from the list the app sent, in the order
- *       the app will upload the pictures, never by the model;
- *     • the timings — shots are re-timed so they follow each other with no gap from 0 to the clip's length;
- *     • the layout, the speaker labels and the closing rules (no subtitles, no music).
+ *     • how the clip is cut: the beats of an ad and how long each runs are ours (`beatSheet`), told to the model and
+ *       enforced again when its answer is read (`retime`);
+ *     • how much is said: each shot has a word range that fits its seconds, and speech that cannot be said in the
+ *       time a shot has is cut back to whole sentences that can (`fitSpeech`);
+ *     • which `@ImageN` is which, and what each picture may and may not bring into the video — the lines that say so
+ *       are written from the list the app sent, in the order the app will upload the pictures, never by the model;
+ *     • the locks that keep one person and one product through every shot, the closing rules (no subtitles, no
+ *       music, no phone in a hand, a still last frame), and the layout.
  *   The model answers in JSON, and what comes back is parsed and checked, not pasted.
  *
  * Nothing in this file talks to the network or the database, so every part of it is tested on its own
@@ -27,7 +32,7 @@
 
 // ── What the endpoint accepts ────────────────────────────────────────────────
 
-/** The lengths Seedance 2.5 takes (mobile/core/config/videoModels.js). A request is moved to the nearest. */
+/** The lengths Seedance takes (mobile/core/config/videoModels.js: 2.5 takes up to 30 s, 2.0 up to 15 s). A request is moved to the nearest. */
 export const SECONDS = Object.freeze([4, 5, 6, 8, 10, 12, 15, 20, 25, 30])
 export const DEFAULT_SECONDS = 15
 
@@ -148,7 +153,7 @@ export function cleanInput(body) {
   return { idea, seconds, aspect, language, character, references }
 }
 
-// ── What the model is told ───────────────────────────────────────────────────
+// ── How an ad is cut ─────────────────────────────────────────────────────────
 
 /** How many shots suit a clip of this length: enough to keep it moving, few enough that each one can be shown. */
 export function shotRange(seconds) {
@@ -159,13 +164,72 @@ export function shotRange(seconds) {
   return [5, 7]
 }
 
+/**
+ * The beats of a short ad at each length, in order, with how many seconds each runs: the hook first, the call to action
+ * last, the product shown and used in between. The times are ours and not the model's: an ad that is cut the same way
+ * every time reads the same way every time, and no shot is left too short to show anything (never under two seconds).
+ * The model may rename a beat if its idea needs another one; it keeps the times. Every row adds up to its clip's length
+ * and has a number of shots `shotRange` allows (both checked in the tests).
+ */
+const BEATS = Object.freeze({
+  4: [['HOOK', 4]],
+  5: [['HOOK', 2], ['CTA', 3]],
+  6: [['HOOK', 3], ['CTA', 3]],
+  8: [['HOOK', 3], ['PRODUCT REVEAL', 3], ['CTA', 2]],
+  10: [['HOOK', 3], ['PRODUCT REVEAL', 4], ['CTA', 3]],
+  12: [['HOOK', 3], ['PRODUCT REVEAL', 3], ['USE', 3], ['CTA', 3]],
+  15: [['HOOK', 3], ['PRODUCT REVEAL', 4], ['USE', 5], ['CTA', 3]],
+  20: [['HOOK', 3], ['PRODUCT REVEAL', 4], ['USE', 5], ['BENEFIT', 4], ['CTA', 4]],
+  25: [['HOOK', 3], ['PRODUCT REVEAL', 4], ['USE', 5], ['BENEFIT', 5], ['LIFESTYLE', 4], ['CTA', 4]],
+  30: [['HOOK', 3], ['PRODUCT REVEAL', 5], ['USE', 6], ['BENEFIT', 6], ['LIFESTYLE', 5], ['CTA', 5]],
+})
+
+/** What each beat is for, as the model is told it. */
+const BEAT_JOBS = Object.freeze({
+  HOOK: 'the scroll-stopper, with energy from the first frame: the person speaks straight to the camera, or the product is shown at once. It makes sense with the sound off.',
+  'PRODUCT REVEAL': 'the product enters the frame on purpose and is seen clearly, its label toward the camera.',
+  USE: 'the product in use: one concrete action.',
+  BENEFIT: 'what the person gets from it, shown or said in plain words (no health, weight-loss or income claims).',
+  LIFESTYLE: 'the product in an everyday moment: looser and observational, the person at ease.',
+  CTA: 'a friendly call to action with the product in view; the shot ends calm, the person settled.',
+})
+
+/**
+ * What a person can say in `seconds` and still sound like a person: the fewest words a talking shot should carry, and the
+ * most. About 1.6 to 2.6 words a second, with room for a breath before and a look after.
+ */
+export function speechWords(seconds) {
+  return [Math.round(seconds * 1.6), Math.floor(seconds * 2.6)]
+}
+
+/**
+ * The cut of an ad of this length: each shot's beat, its times and the words of speech it can carry.
+ * @returns {Array<{label: string, start: number, end: number, words: [number, number]}>}
+ */
+export function beatSheet(seconds) {
+  const known = Object.keys(BEATS).map(Number)
+  const beats = BEATS[seconds] ?? BEATS[nearest(Number(seconds) || DEFAULT_SECONDS, known)]
+  let at = 0
+  return beats.map(([label, length]) => {
+    const beat = { label, start: at, end: at + length, words: speechWords(length) }
+    at += length
+    return beat
+  })
+}
+
+// ── What the model is told ───────────────────────────────────────────────────
+
 /** The director's standing instructions. `language` is checked text (see LANGUAGE), the only thing put into them. */
 export function systemPrompt({ seconds, language }) {
-  const [fewest, most] = shotRange(seconds)
+  const beats = beatSheet(seconds)
+  const end = beats.at(-1).end
+  const [fewest, most] = beats.reduce(([lo, hi], b) => [lo + b.words[0], hi + b.words[1]], [0, 0])
+  const shotLines = beats.map((b, i) => `${i + 1}. ${b.label}, ${b.start}-${b.end}s, ${b.words[0]} to ${b.words[1]} words: ${BEAT_JOBS[b.label]}`)
+
   return [
-    'You are the director of short video ads, UGC-style unless the idea asks for another look. You write the ' +
+    'You are a senior creative director for short social video ads (TikTok, Reels, Shorts). You write the ' +
       'shot-by-shot plan that a video model ' +
-      '(ByteDance Seedance 2.5, reference images to video, with synchronized audio) turns into one clip.',
+      '(ByteDance Seedance 2, reference images to video, with synchronized speech and sound) turns into one clip.',
     '',
     'Answer with ONE JSON object and nothing else: no markdown, no code fence, no commentary before or after.',
     '',
@@ -177,46 +241,73 @@ export function systemPrompt({ seconds, language }) {
       'speech in quotes). If the idea names a real product, brand or category you may look it up so its real ' +
       'use is right. Never copy text from a page, and never put a link, a source or a citation in your answer. ' +
       'If searching is not available, rely on what you know.',
-    '- The idea decides the look. Unless it asks for something else, the default is an ordinary person filming on a ' +
-      'phone: relatable, warm, believable. When the idea asks for another look (cinematic, luxury, polished, dramatic ' +
-      'lighting, a product film with no person, a colour palette), write that look instead and say so in "style".',
+    '- The idea decides the look. Unless it asks for something else, the default is authentic UGC: an ordinary ' +
+      'person filming on a phone, relatable, warm, believable. When the idea asks for another look (cinematic, luxury, ' +
+      'polished, dramatic lighting, a product film with no person, a colour palette), write that look instead and ' +
+      'say so in "style".',
     '',
     'THE JSON OBJECT',
     '{',
     '  "product": "tea cup",                  // the advertised product in two or three words, or null if the idea has none',
     '  "summary": "...",                      // two sentences: who, where, what happens, how it feels',
+    '  "voice": "...",                        // the speaker\'s voice in one line: age range, pitch, pace, energy; null if nobody speaks',
     '  "shots": [',
     '    {',
     '      "label": "HOOK",                   // HOOK, PRODUCT REVEAL, USE, BENEFIT, LIFESTYLE or CTA',
     '      "start": 0, "end": 3,              // seconds',
-    '      "visual": "...",                   // what the camera sees: framing, movement, the action, where the product is in the frame',
+    '      "camera": "MCU, 28mm, handheld, slight sway",   // one framing, one lens, one movement',
+    '      "visual": "...",                   // what happens in front of the camera: the one action, and where the product is in the frame',
     '      "dialogue": "...",                 // what the character says in this shot, or null',
     '      "tone": "excited, casual",         // how it is said, two or three words, or null',
-    '      "sfx": "..."                       // natural sounds heard in this shot',
+    '      "sfx": "..."                       // the natural sounds heard in this shot',
     '    }',
     '  ],',
-    '  "style": "...",                        // one or two sentences: the look. By default phone footage, light, depth of field, skin, colour, handheld; or the look the idea asks for',
-    '  "consistency": "..."                   // one sentence: what stays identical in every shot',
+    '  "style": "...",                        // the look, said once: lens and camera feel, the light (source, direction, colour), the colour palette, skin and material realism. By default phone footage; or the look the idea asks for',
+    '  "consistency": "..."                   // one sentence: what stays identical in every shot besides the person and the product (the place, the light, the props)',
     '}',
     '',
-    'RULES',
-    `- The clip is ${seconds} seconds long. Use ${fewest === most ? fewest : `${fewest} to ${most}`} shots. They follow each other ` +
-      `with no gap: the first starts at 0 and the last ends at ${seconds}.`,
-    '- The first shot hooks within three seconds (speaking to the camera, or the product shown at once). The last shot ' +
-      'is a friendly call to action. Do not invent prices, discounts or claims the person did not give.',
-    `- Speech is in ${language}: natural spoken sentences, contractions, a strong first line. About two to three words ` +
-      'per second of the shot, so a six second shot carries at most about fifteen words. At most two short lines per ' +
-      'shot. A shot may have no speech at all. Never put speech or text on screen: no subtitles, captions or titles.',
-    '- Sound is natural only: room tone, steps, pouring, taps, a page turning. No background music.',
-    '- Pictures: one clear action per shot, what a camera can see, realistic skin and light. Keep the product in view ' +
-      'in the shots where it matters. Never invent a logo, a brand name, text on the product, or an extra product.',
+    'THE SHOTS',
+    `- The clip is ${seconds} seconds long and has exactly ${beats.length} ${beats.length === 1 ? 'shot' : 'shots'}. They follow each other with hard cuts and no gap: the first starts at 0 and the last ends at ${end}. ` +
+      'Keep these times and word counts; rename a label only if the idea needs a different beat.',
+    ...shotLines,
+    `- Together the speech is about ${Math.round((fewest + most) / 2)} words (${fewest} to ${most}) in a talking ad. A cinematic or luxury film that asks for little talking may carry less, even none.`,
+    '',
+    'HOW EACH SHOT READS',
+    '- One action per shot, two at most, written as what a camera sees: who does what, with which hand, where the product is in the frame. ' +
+      'Facts, not mood: "she turns the cup so the handle faces the lens", never "she gracefully shows off the stunning cup". ' +
+      'Leave out adjectives that carry no picture (stunning, elegant, perfect, beautiful).',
+    '- Decide everything. One place, one light, one hand, one move: never "or", "maybe" or "something like".',
+    '- "camera" is one framing (ECU, CU, MCU, MS or WS), one lens (24 to 28mm for phone footage, 35mm, 50mm or 85mm) and one movement ' +
+      '(locked, slow push-in, slow pull-back, tracking, or handheld with a slight sway). Whenever the face matters use MCU or closer: ' +
+      'faces in wide shots turn waxy. Do not call a movement "cinematic" unless the idea asks for that look.',
+    '- The product, whenever it is on screen: large enough to read at phone size, its label or logo toward the lens, held at chest height ' +
+      'or resting where the camera sees it, never tucked into a corner.',
+    '- A short shot opens with the person already in position and then does its one action. Gestures are natural and conversational, never ' +
+      'choreographed: one gesture and one expression per shot at most.',
+    '- Never write that anyone holds, films with or puts down a phone or a camera (unless a phone or camera is the advertised product): the ' +
+      'frame is the viewpoint. For a selfie shot write that the person looks into the lens.',
+    '- Light is a physical source, not a mood: "soft window light from camera-left, warm". Say it once in "style" and keep it the same in every shot.',
+    '- Sound is natural and concrete: a spoon on ceramic, a zip, steps on a floor. Never "ambient sound", "background noise" or music. ' +
+      'No background music.',
+    '',
+    'SPEECH',
+    `- Speech is in ${language}${language === 'English' ? '' : ", written in that language's own script (never transliterated into Latin letters)"}, ` +
+      'as a real person talks: contractions, short sentences, one idea per line, a strong first line. It never sounds like an advertisement.',
+    '- Keep to each shot\'s word range: the words must fit the seconds, and a line that is too long is cut. A shot that shows only the ' +
+      'product may have no speech, or one short voice-over line. At most two short lines per shot. The same person speaks in every shot, ' +
+      'in the same voice ("voice" says what it sounds like).',
+    '- Never put speech or text on screen: no subtitles, captions or titles. Do not invent prices, discounts, ratings or claims the ' +
+      'person did not give.',
+    '',
+    'PICTURES',
     '- The reference images are listed in the request, each with its tag (@Image1, @Image2…). Refer to a picture ' +
       'only by its exact tag, never invent another tag, and do not describe what an image looks like: the video model ' +
       'sees it. Whenever a person is in a shot it is the character, the person in the character reference; a shot may ' +
       'show only the product (a close-up, for instance) with no person in it. If there is no character reference, ' +
       'describe the person from the description given, or an ordinary adult who fits the idea, and keep them identical ' +
       'in every shot they are in. If the idea is a product film with no person, do not invent one. If there is no ' +
-      'product reference, describe the product in words from the idea.',
+      'product reference, describe the product in words from the idea. Never invent a logo, a brand name, text on the ' +
+      'product, or an extra product.',
     '- A "location" reference is the setting: use its place and light. Without one, choose a setting that fits the idea.',
     '',
     'SAFETY: ADAPT, NEVER DECLINE',
@@ -331,14 +422,70 @@ const CHILD = new RegExp(
 )
 
 /**
+ * Everyday phrases that hold one of those words and show no child: a colour or a texture ("baby blue", "baby-soft skin",
+ * "baby spinach", "kid gloves"), a thing made for children ("baby stroller", "kids' lunch box", "children's book"), and the
+ * audience a product is for ("perfect for kids"). They are taken out before the check, so a skincare ad that says
+ * "baby-soft" is not held back as if it showed a baby. "A baby reaches for it" and "her kids play" still are.
+ */
+const NOT_A_CHILD = new RegExp(
+  '\\b(?:' +
+  'baby[- ](?:blue|pink|powder|oil|lotion|soft|smooth|skin|spinach|carrots?|corn|greens|tomatoes|bump|doll|steps?|faced?)|' +
+  "(?:baby|babies|kids?|children|child)(?:['’]s|s['’]|['’])?[- ](?:stroller|bottles?|monitor|carrier|crib|cot|seat|wipes?|formula|food|clothes|clothing|shoes?|toys?|books?|bag|backpack|lunch ?box|menu|room|bedroom|friendly|proof|safe|gloves?|leather)|" +
+  'for (?:the )?(?:kids|children|babies|toddlers)' +
+  ')\\b',
+  'gi',
+)
+
+/**
  * The word that gives away a child in what the camera sees (the summary and each shot's picture), or null. Speech is not
  * looked at: a grown woman may say "my kids love this cup". Every person in a Director video is an adult; the writer is
  * told so, and a small model does not always obey (the first real run wrote "A young boy plays with a bright toy car"
  * for an idea about a six year old), so it is checked here, in code.
  */
 function childInPlan(plan) {
-  const seen = [plan.summary, ...plan.shots.map(shot => shot.visual)].filter(Boolean).join('\n')
+  const seen = [plan.summary, ...plan.shots.map(shot => shot.visual)].filter(Boolean).join('\n').replace(NOT_A_CHILD, ' ')
   return CHILD.exec(seen)?.[0] ?? null
+}
+
+// ── Speech that fits its seconds ─────────────────────────────────────────────
+
+/** Words in a line of speech: runs of letters (with their marks) and digits, an apostrophe or hyphen inside a word included. */
+export function countWords(text) {
+  return (String(text ?? '').match(/[\p{L}\p{N}][\p{L}\p{M}\p{N}'’-]*/gu) || []).length
+}
+
+/**
+ * The most words a shot of this length is allowed to keep: a little over what the instructions ask for (2.6 a second), because a
+ * model is only a little over when it is over, and a quick talker really does say three words in a second.
+ */
+export const speechCap = seconds => Math.max(5, Math.floor(seconds * 3.3))
+
+/**
+ * Make a line of speech fit the seconds it has. Whole sentences are kept while the running total stays within `maxWords`,
+ * never half of one: "Okay, I need to show you my new favorite" is worse than a word too many. A first sentence that is over
+ * by no more than half again is kept whole for the same reason; one that is far too long is cut, at a comma if there is one
+ * in its second half, else at the last word that fits. Speech that already fits is returned as it is.
+ */
+export function fitSpeech(text, maxWords) {
+  const line = String(text ?? '').trim()
+  if (!line || countWords(line) <= maxWords) return line
+
+  const sentences = line.match(/[^.!?…。！？।۔؟]+[.!?…。！？।۔؟]*\s*/gu) || [line]
+  const kept = []
+  let used = 0
+  for (const one of sentences) {
+    const n = countWords(one)
+    // The first sentence may run a little over; a second one that would push the line past the cap is dropped.
+    if (used + n > maxWords && !(kept.length === 0 && n <= Math.ceil(maxWords * 1.5))) break
+    kept.push(one)
+    used += n
+  }
+  if (kept.length) return kept.join('').trim()
+
+  const head = sentences[0].trim().split(/\s+/).slice(0, maxWords).join(' ')
+  const comma = Math.max(head.lastIndexOf(','), head.lastIndexOf('،'), head.lastIndexOf('，'))
+  const cut = comma > head.length / 2 ? head.slice(0, comma) : head
+  return `${cut.replace(/[\s,;:،，-]+$/u, '')}.`
 }
 
 /**
@@ -346,8 +493,8 @@ function childInPlan(plan) {
  * shots with a picture each.
  *
  * @returns {{refusal: string, child?: true} | {plan: {
- *   product: string|null, summary: string, style: string, consistency: string,
- *   shots: Array<{label: string, start: number, end: number, visual: string, dialogue: string|null, tone: string|null, sfx: string|null}>
+ *   product: string|null, summary: string, voice: string|null, style: string, consistency: string,
+ *   shots: Array<{label: string, start: number, end: number, camera: string|null, visual: string, dialogue: string|null, tone: string|null, sfx: string|null}>
  * }}}
  * @throws {DirectorOutputError}
  */
@@ -364,6 +511,7 @@ export function readPlan(text, seconds) {
     .map(shot => ({
       label: sentence(shot.label, 28).toUpperCase() || 'SHOT',
       span: Math.max(0.5, Number(shot.end) - Number(shot.start)) || 1,
+      camera: orNull(sentence(shot.camera, 100)),
       visual: sentence(shot.visual, 900),
       dialogue: orNull(sentence(shot.dialogue, 260).replace(/["“”]/g, '')),
       tone: orNull(sentence(shot.tone, 40)),
@@ -374,9 +522,14 @@ export function readPlan(text, seconds) {
   const plan = {
     product: orNull(sentence(raw.product, 60)),
     summary: sentence(raw.summary, 600),
+    voice: orNull(sentence(raw.voice, 200)),
     style: sentence(raw.style, 500),
     consistency: sentence(raw.consistency, 400),
-    shots: retime(kept, seconds),
+    // Timed first, then each line of speech is fitted to the seconds its shot really got.
+    shots: retime(kept, seconds).map(shot => ({
+      ...shot,
+      dialogue: shot.dialogue ? orNull(fitSpeech(shot.dialogue, speechCap(shot.end - shot.start))) : null,
+    })),
   }
   const child = childInPlan(plan)
   if (child) return { refusal: `The plan shows a child ("${child}").`, child: true }
@@ -421,11 +574,16 @@ export function retime(shots, seconds) {
 // ── The prompt itself ────────────────────────────────────────────────────────
 
 const POSSESSIVE = { Female: 'her', Male: 'his' }
+const capital = text => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
 
-/** The lines that say which picture is which. Written here, from the app's own list, never by the model. */
+/** A sentence ends with one full stop, however the model left it. */
+const closed = text => `${String(text).replace(/[\s.]+$/, '')}.`
+
+/** The lines that say which picture is which, and what it may and may not bring. Written here, from the app's own list, never by the model. */
 export function referenceLines(input, product) {
   const who = input.character.name || 'the person'
   const possessive = POSSESSIVE[input.character.gender] ?? 'their'
+  const only = input.character.name ? `one ${input.character.name}` : 'one main character'
   let products = 0
   let characters = 0
 
@@ -433,52 +591,100 @@ export function referenceLines(input, product) {
     if (role === 'product') {
       products += 1
       if (products > 1) {
-        return `${tag}: another product to show. Keep its exact shape, colour and finish in every shot where it appears.`
+        return `${tag}: another product to show. Reproduce it exactly as pictured, the same object in every shot where it appears, and take only the product from this image.`
       }
-      return `${tag}: the ${product || 'product'} (the product being advertised). Keep its exact shape, colour, material and finish in every shot. Use only the product from this image and ignore the image's background.`
+      return `${tag}: the ${product || 'product'}, the product being advertised. Reproduce it exactly as pictured: same shape, colour, material, finish and any label or logo, the same object in every shot, never swapped or redesigned. Take only the product from this image; its background, lighting and any person in it do not carry over. Whenever it is on screen its label or logo faces the camera and stays legible.`
     }
     if (role === 'character') {
       characters += 1
       return characters === 1
-        ? `${tag}: ${who}, the main character. Keep ${possessive} face, hair and outfit identical in every shot.`
-        : `${tag}: another picture of the main character. Keep the same face, hair and outfit.`
+        ? `${tag}: ${who}, the main character. ${capital(possessive)} face, hair, skin tone and outfit are identical in every shot, with no drift, and there is only ever ${only} in the frame. Take only the person and the outfit from this image; its background and lighting do not carry over.`
+        : `${tag}: another picture of the main character: the same face, hair and outfit.`
     }
     if (role === 'character_extra') {
       return `${tag}: another view of the same character. Use it only to keep the face, body and outfit consistent.`
     }
-    return `${tag}: the location. Use it as the setting, layout and lighting reference.`
+    return `${tag}: the location. Use it as the setting, layout and lighting reference; nobody in it carries over.`
   })
 }
 
 const stamp = (start, end) => `${start}-${end}s`
 
+const SHAPES = { '9:16': 'vertical 9:16', '16:9': 'horizontal 16:9', '1:1': 'square 1:1' }
+
+/** A person is in the video when the app sent one (a picture or a description). A product film has none. */
+function hasPerson(input) {
+  return input.references.some(r => r.role === 'character' || r.role === 'character_extra') ||
+    Boolean(input.character.name || input.character.description)
+}
+
+/** How the voice is described when the model gave none: the same one in every shot, a native speaker of the language. */
+function fallbackVoice(input) {
+  const kind = { Female: 'female ', Male: 'male ' }[input.character.gender] ?? ''
+  return `A natural ${kind}voice of a native ${input.language} speaker, relaxed conversational pace.`
+}
+
 /**
- * The finished prompt: the reference lines, the summary, the shots, the style and the consistency line, and
- * the rules that close it.
+ * The finished prompt: the reference lines, the format, the summary, the shots (camera, action, speech, sound), the style,
+ * the consistency line and the voice, then the rules that close it.
  */
 export function composePrompt(input, plan) {
   const speaker = input.character.name || 'the character'
+  const person = hasPerson(input)
+  const talks = plan.shots.some(shot => shot.dialogue)
   const lines = []
 
   const refs = referenceLines(input, plan.product)
   if (refs.length) lines.push(...refs, '')
 
-  if (plan.summary) lines.push(`Summary: ${plan.summary}`, '')
+  const cut = plan.shots.length === 1 ? 'one shot' : `${plan.shots.length} shots joined by hard cuts`
+  lines.push(`Format: ${input.seconds} seconds, ${SHAPES[input.aspect] ?? input.aspect}, ${cut}.`)
+  if (plan.summary) lines.push(`Summary: ${plan.summary}`)
+  lines.push('')
 
   plan.shots.forEach((shot, i) => {
-    lines.push(`SHOT ${i + 1} [${stamp(shot.start, shot.end)}] (${shot.label}): ${shot.visual}`)
+    lines.push(`SHOT ${i + 1} [${stamp(shot.start, shot.end)}] (${shot.label})`)
+    if (shot.camera) lines.push(`Camera: ${closed(shot.camera)}`)
+    lines.push(`Action: ${shot.visual}`)
     if (shot.dialogue) lines.push(`Dialogue (${speaker}${shot.tone ? `, ${shot.tone}` : ''}): "${shot.dialogue}"`)
     if (shot.sfx) lines.push(`SFX: ${shot.sfx}`)
     lines.push('')
   })
 
-  const style = plan.style ||
-    `Shot on a smartphone, vertical ${input.aspect}, natural light, slight handheld shake, realistic skin texture. Authentic UGC, not a polished commercial.`
+  const style = plan.style || (person
+    ? `Phone footage, ${SHAPES[input.aspect] ?? input.aspect}: front-camera look, 28mm, soft natural light from a window, everything in focus, realistic skin texture, slight handheld sway. Authentic UGC, not a polished commercial.`
+    : `${capital(SHAPES[input.aspect] ?? input.aspect)}, clean natural light, realistic materials and textures, a steady camera, the product in sharp focus.`)
   lines.push(`Style: ${style}`)
 
-  const alike = `${speaker.charAt(0).toUpperCase()}${speaker.slice(1)} looks identical in every shot: same face, same hair, same outfit. The same product and the same place in every shot.`
+  const alike = person
+    ? `${capital(speaker)} looks identical in every shot: same face, same hair, same outfit. The same product and the same place in every shot.`
+    : 'The same product and the same place in every shot.'
   lines.push(`Consistency: ${plan.consistency || alike}`)
+  if (talks) lines.push(`Voice: ${closed(plan.voice || fallbackVoice(input))} The same voice in every shot.`)
 
-  lines.push(`No subtitles. No on-screen text. No background music: natural sounds only. Spoken language: ${input.language}.`)
+  const rules = [
+    'The shots are joined by hard cuts, with no transitions, fades or effects.',
+    ...(person ? ['Hand gestures vary naturally and never loop.', 'No phone or camera is visible in anyone\'s hands unless it is the advertised product.'] : []),
+    'No subtitles. No on-screen text. No background music: natural sounds only.',
+  ]
+  lines.push(`Rules: ${rules.join(' ')}`)
+  lines.push(person ? `Ending: in the last second ${speaker} holds a final pose, mouth closed, nothing else moving.` : 'Ending: the last frame holds still.')
+  lines.push(talks ? `Spoken language: ${input.language}.` : 'No speech.')
   return lines.join('\n')
+}
+
+// ── Asking too often ─────────────────────────────────────────────────────────
+
+/**
+ * What a person is told when the limit says no. The wait can be a minute or the rest of the day, and "wait a moment"
+ * said for a day-long wait sent people back to try again and again.
+ *
+ * @param {number} retryAfter  seconds until the oldest request in the full window stops counting
+ */
+export function limitMessage(retryAfter) {
+  const seconds = Math.max(1, Number(retryAfter) || 0)
+  if (seconds <= 90) return 'You have asked the director a lot just now. Please wait a minute and try again.'
+  const minutes = Math.ceil(seconds / 60)
+  if (minutes < 120) return `You have asked the director a lot just now. Please try again in about ${minutes} minutes.`
+  return `You have used the director's prompts for today. Please try again in about ${Math.ceil(minutes / 60)} hours.`
 }

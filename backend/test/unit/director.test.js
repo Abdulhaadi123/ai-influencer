@@ -5,10 +5,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  SECONDS, MAX_IDEA_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS,
+  SECONDS, DEFAULT_SECONDS, MAX_IDEA_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS,
   DirectorInputError, DirectorOutputError,
-  cleanInput, shotRange, systemPrompt, userMessage, extractOutput, parseJsonObject, readPlan, retime,
-  referenceLines, composePrompt,
+  cleanInput, shotRange, beatSheet, speechWords, speechCap, countWords, fitSpeech,
+  systemPrompt, userMessage, extractOutput, parseJsonObject, readPlan, retime,
+  referenceLines, composePrompt, limitMessage,
 } from '../../api/_lib/director.js'
 
 const refused = (status, code) => e => e instanceof DirectorInputError && e.status === status && e.code === code
@@ -139,18 +140,124 @@ test('the number of shots grows with the length of the clip', () => {
   }
 })
 
-test('the instructions carry the length, the language and the rules — and never the idea', () => {
+test('the instructions carry the length, the cut of the ad, the language and the rules — and never the idea', () => {
   const text = systemPrompt({ seconds: 30, language: 'Hindi' })
-  assert.match(text, /The clip is 30 seconds long\. Use 5 to 7 shots/)
+  assert.match(text, /The clip is 30 seconds long and has exactly 6 shots/)
   assert.match(text, /the first starts at 0 and the last ends at 30/)
-  assert.match(text, /Speech is in Hindi/)
+  assert.match(text, /^1\. HOOK, 0-3s, 5 to 7 words: /m)
+  assert.match(text, /^6\. CTA, 25-30s, 8 to 13 words: /m)
+  assert.match(text, /Together the speech is about 63 words \(49 to 76\)/)
+  assert.match(text, /Speech is in Hindi, written in that language's own script/)
   assert.match(text, /ONE JSON object/)
   assert.match(text, /No background music/)
   assert.match(text, /no subtitles/i)
   assert.match(text, /web/i)
   assert.doesNotMatch(text, /"refusal"/, 'the model is not given a way to decline')
-  assert.match(systemPrompt({ seconds: 8, language: 'English' }), /Use 2 to 3 shots/)
-  assert.match(systemPrompt({ seconds: 4, language: 'English' }), /Use 1 to 2 shots/)
+  assert.match(systemPrompt({ seconds: 8, language: 'English' }), /has exactly 3 shots/)
+  assert.match(systemPrompt({ seconds: 4, language: 'English' }), /has exactly 1 shot\./)
+  assert.doesNotMatch(systemPrompt({ seconds: 15, language: 'English' }), /own script/, 'English needs no word about scripts')
+})
+
+test('the instructions teach how a shot is written: a camera, one action, the product facing the lens, light as a source, no phone in a hand', () => {
+  const text = systemPrompt({ seconds: 15, language: 'English' })
+  assert.match(text, /"camera": "MCU, 28mm, handheld, slight sway"/)
+  assert.match(text, /one framing \(ECU, CU, MCU, MS or WS\), one lens/)
+  assert.match(text, /faces in wide shots turn waxy/)
+  assert.match(text, /One action per shot, two at most/)
+  assert.match(text, /never "or", "maybe" or "something like"/)
+  assert.match(text, /label or logo toward the lens/)
+  assert.match(text, /Light is a physical source, not a mood/)
+  assert.match(text, /Never write that anyone holds, films with or puts down a phone or a camera \(unless a phone or camera is the advertised product\)/)
+  assert.match(text, /"voice": "\.\.\."/)
+  assert.match(text, /Never "ambient sound"/)
+  assert.match(text, /Do not invent prices, discounts, ratings or claims/)
+  assert.match(text, /It makes sense with the sound off/)
+})
+
+test('the cut of an ad: every length has its beats, they add up to the clip, a hook comes first and a call to action last', () => {
+  for (const seconds of SECONDS) {
+    const beats = beatSheet(seconds)
+    const [few, most] = shotRange(seconds)
+    assert.ok(beats.length >= few && beats.length <= most, `${seconds}s: ${beats.length} shots, allowed ${few}-${most}`)
+    assert.equal(beats[0].start, 0)
+    assert.equal(beats.at(-1).end, seconds, `${seconds}s adds up`)
+    beats.forEach((beat, i) => {
+      assert.ok(beat.end - beat.start >= 2, `${seconds}s: a shot under two seconds`)
+      if (i) assert.equal(beat.start, beats[i - 1].end, `${seconds}s: a gap or an overlap`)
+      assert.deepEqual(beat.words, speechWords(beat.end - beat.start))
+      assert.ok(beat.words[0] >= 1 && beat.words[0] < beat.words[1])
+    })
+    assert.equal(beats[0].label, 'HOOK')
+    if (beats.length > 1) assert.equal(beats.at(-1).label, 'CTA')
+    assert.equal(new Set(beats.map(b => b.label)).size, beats.length, `${seconds}s: a beat twice`)
+  }
+  // A length that is not one of ours is read as the nearest, and nonsense as the default.
+  assert.equal(beatSheet(29).at(-1).end, 30)
+  assert.equal(beatSheet(14).at(-1).end, 15)
+  assert.equal(beatSheet(NaN).at(-1).end, DEFAULT_SECONDS)
+  assert.equal(beatSheet(undefined).at(-1).end, DEFAULT_SECONDS)
+})
+
+test('what a person can say in a shot: about 1.6 to 2.6 words a second, and a line is cut only past a little more', () => {
+  assert.deepEqual(speechWords(3), [5, 7])
+  assert.deepEqual(speechWords(6), [10, 15])
+  assert.equal(speechCap(3), 9)
+  assert.equal(speechCap(6), 19)
+  assert.equal(speechCap(1), 5, 'never fewer than five words')
+  for (const seconds of [2, 3, 4, 5, 6, 8]) assert.ok(speechCap(seconds) > speechWords(seconds)[1], `${seconds}s: the cap is above what the model is asked for`)
+})
+
+test('words are counted as a person would say them: contractions and hyphens are one, other scripts count too', () => {
+  assert.equal(countWords("Okay, I can't believe it's so soft!"), 7)
+  assert.equal(countWords('a state-of-the-art cup'), 3)
+  assert.equal(countWords('3 for 2 offer'), 4)
+  assert.equal(countWords(''), 0)
+  assert.equal(countWords(null), 0)
+  assert.equal(countWords(undefined), 0)
+  assert.equal(countWords('नमस्ते दोस्तों, यह देखिए'), 4, 'Devanagari, with its vowel signs')
+  assert.equal(countWords('یہ بہت اچھا ہے'), 4, 'Urdu')
+})
+
+test('speech is fitted to its seconds in whole sentences; only a far-too-long sentence is cut, and a line that fits is left alone', () => {
+  assert.equal(fitSpeech('Look at this.', 9), 'Look at this.')
+  assert.equal(fitSpeech('', 9), '')
+  assert.equal(fitSpeech(null, 9), '')
+  assert.equal(fitSpeech('  Look at this.  ', 9), 'Look at this.')
+  // The second sentence would push the line past the cap: it is dropped whole, not cut in half.
+  assert.equal(fitSpeech('I love this cup. It keeps my tea hot for hours and hours and hours.', 6), 'I love this cup.')
+  assert.equal(fitSpeech('I love this cup! It keeps my tea hot. Try it today.', 9), 'I love this cup! It keeps my tea hot.')
+  // A first sentence a little over the cap is kept whole: "Okay, I need to show you my new favorite" would be worse than a word too many.
+  assert.equal(fitSpeech('Okay, I need to show you my new favorite cup.', 9), 'Okay, I need to show you my new favorite cup.')
+  // One that is far too long is cut at the comma in its second half...
+  assert.equal(
+    fitSpeech('Honestly I could not believe how much I love this cup, it is so good for everything I do every day', 12),
+    'Honestly I could not believe how much I love this cup.',
+  )
+  // ...or at the last word that fits when there is none.
+  assert.equal(
+    fitSpeech('I woke up this morning and honestly I could not believe how much I love this cup so much', 8),
+    'I woke up this morning and honestly I.',
+  )
+  // Sentences end with the marks of other languages too.
+  assert.equal(fitSpeech('यह देखिए। यह बहुत अच्छा है। आज ही आज़माइए।', 6), 'यह देखिए। यह बहुत अच्छा है।')
+  assert.equal(fitSpeech('هذا رائع؟ جربه الآن. اطلبه اليوم.', 2), 'هذا رائع؟', 'Arabic has its own question mark')
+  for (const text of ['A. B. C. D. E. F. G. H.', 'one two three four five six seven eight nine ten eleven twelve']) {
+    assert.ok(countWords(fitSpeech(text, 5)) <= 5, text)
+  }
+})
+
+test('a line of speech too long for its shot is cut back when the plan is read, and one that fits is not touched', () => {
+  const text = JSON.stringify({
+    summary: 'An ad.',
+    shots: [
+      { label: 'HOOK', start: 0, end: 3, visual: 'She looks at the lens.', dialogue: 'Okay, I need to show you my new favorite cup. It keeps my tea hot all day long and it never spills. Seriously, try one.', sfx: null },
+      { label: 'CTA', start: 3, end: 30, visual: 'She smiles.', dialogue: 'Get yours today, you will love it. Link below, go on, tap it now before they sell out again.' },
+    ],
+  })
+  const { plan } = readPlan(text, 30)
+  assert.equal(plan.shots[0].end - plan.shots[0].start, 3)
+  assert.equal(plan.shots[0].dialogue, 'Okay, I need to show you my new favorite cup.', 'three seconds hold one sentence')
+  assert.equal(plan.shots[1].dialogue, 'Get yours today, you will love it. Link below, go on, tap it now before they sell out again.', 'twenty-seven seconds hold both')
 })
 
 test('the instructions never let the model decline: every idea gets a plan, the idea\'s own look wins, unsafe parts are adapted', () => {
@@ -255,7 +362,7 @@ test('the JSON is found whether or not the model wrapped it', () => {
 // ── The plan ─────────────────────────────────────────────────────────────────
 
 const SHOTS = [
-  { label: 'hook', start: 0, end: 3, visual: 'Selfie close-up. She lifts the cup to the lens.', dialogue: 'Okay, I need to show you my new favorite cup.', tone: 'excited, casual', sfx: 'soft kitchen room tone' },
+  { label: 'hook', start: 0, end: 3, camera: 'MCU, 28mm, handheld, slight sway.', visual: 'Selfie close-up. She lifts the cup to the lens.', dialogue: 'Okay, I need to show you my new favorite cup.', tone: 'excited, casual', sfx: 'soft kitchen room tone' },
   { label: 'product reveal', start: 3, end: 9, visual: 'She turns the cup to show the handle.', dialogue: 'Look at "this".', tone: null, sfx: 'gentle ceramic tap' },
   { label: 'cta', start: 9, end: 30, visual: 'Back to selfie framing, she smiles.', dialogue: null, sfx: null },
 ]
@@ -271,6 +378,18 @@ test('a plan is read: labels in capitals, speech without quotes, empty things as
   assert.equal(plan.shots[2].dialogue, null)
   assert.equal(plan.shots[2].sfx, null)
   assert.equal(plan.shots[1].tone, null)
+})
+
+test('the camera and the voice are read and tidied, and a camera or voice that is empty or missing is null', () => {
+  const { plan } = readPlan(JSON.stringify({
+    voice: ' A warm\nvoice, late twenties ',
+    shots: [{ visual: 'a', camera: ' MCU,\n28mm, locked ' }, { visual: 'b', camera: '' }, { visual: 'c' }, { visual: 'd', camera: 5 }],
+  }), 15)
+  assert.equal(plan.voice, 'A warm voice, late twenties')
+  assert.deepEqual(plan.shots.map(s => s.camera), ['MCU, 28mm, locked', null, null, null])
+  assert.equal(readPlan(JSON.stringify({ shots: [{ visual: 'a' }] }), 15).plan.voice, null)
+  assert.equal(readPlan(JSON.stringify({ voice: 'v'.repeat(900), shots: [{ visual: 'a', camera: 'c'.repeat(900) }] }), 15).plan.voice.length, 200)
+  assert.equal(readPlan(JSON.stringify({ shots: [{ visual: 'a', camera: 'c'.repeat(900) }] }), 15).plan.shots[0].camera.length, 100)
 })
 
 test('a refusal is a refusal, whatever else the answer holds', () => {
@@ -307,6 +426,31 @@ test('a plan that shows a child is held back in code, whatever the model was tol
   // The summary is looked at too.
   const summary = JSON.stringify({ summary: 'A boy plays.', shots: [{ label: 'HOOK', start: 0, end: 15, visual: 'A hand pushes the car.', dialogue: null, tone: null, sfx: null }] })
   assert.equal(readPlan(summary, 15).child, true)
+})
+
+test('everyday phrases that hold a child word but show no child do not hold a plan back; a child beside them still does', () => {
+  const planWith = visual => JSON.stringify({
+    product: 'cream', summary: 'A skincare ad.',
+    shots: [{ label: 'HOOK', start: 0, end: 15, visual, dialogue: null, tone: null, sfx: 'a soft tap' }],
+  })
+  // A colour, a texture, a thing made for children, the audience a product is for: none of them is a child on screen.
+  for (const visual of [
+    'She wears a baby blue sweater.', 'Her skin looks baby-soft.', 'A baby stroller stands by the door.', "A kids' lunch box sits on the counter.",
+    "She holds a children's book.", 'Kid gloves in soft leather lie on the table.', 'A toy that is perfect for kids sits on the shelf.',
+    'Baby spinach in a bowl.', 'A bottle of baby oil next to the cup.', 'She is baby-faced and smiling.', 'A baby monitor glows on the shelf.',
+  ]) {
+    assert.ok(readPlan(planWith(visual), 15).plan, visual)
+  }
+  // The word is only taken out where the phrase is: a child in the same sentence is found.
+  for (const visual of [
+    'A baby sits in the baby stroller.', 'Her kids play with the kids toys.', 'A boy in a baby blue sweater waves.',
+    'A baby holds the baby bottle.', "A toddler reads a children's book.", 'The baby stroller rolls and a baby laughs.',
+  ]) {
+    assert.equal(readPlan(planWith(visual), 15).child, true, visual)
+  }
+  // The summary is read the same way.
+  const summary = JSON.stringify({ summary: 'A baby-soft skincare ad.', shots: [{ label: 'HOOK', start: 0, end: 15, visual: 'She smiles.' }] })
+  assert.ok(readPlan(summary, 15).plan)
 })
 
 test('a placeholder in the refusal field is not a refusal, and a sentence still is', () => {
@@ -387,10 +531,10 @@ test('the lines that say which picture is which come from the app\'s list, in it
     references: [{ role: 'product' }, { role: 'character' }, { role: 'character_extra' }, { role: 'location' }],
   })
   assert.deepEqual(referenceLines(input, 'tea cup'), [
-    "@Image1: the tea cup (the product being advertised). Keep its exact shape, colour, material and finish in every shot. Use only the product from this image and ignore the image's background.",
-    '@Image2: Mia, the main character. Keep her face, hair and outfit identical in every shot.',
+    '@Image1: the tea cup, the product being advertised. Reproduce it exactly as pictured: same shape, colour, material, finish and any label or logo, the same object in every shot, never swapped or redesigned. Take only the product from this image; its background, lighting and any person in it do not carry over. Whenever it is on screen its label or logo faces the camera and stays legible.',
+    '@Image2: Mia, the main character. Her face, hair, skin tone and outfit are identical in every shot, with no drift, and there is only ever one Mia in the frame. Take only the person and the outfit from this image; its background and lighting do not carry over.',
     '@Image3: another view of the same character. Use it only to keep the face, body and outfit consistent.',
-    '@Image4: the location. Use it as the setting, layout and lighting reference.',
+    '@Image4: the location. Use it as the setting, layout and lighting reference; nobody in it carries over.',
   ])
 })
 
@@ -400,11 +544,25 @@ test('names and pronouns follow what is known about the character; a second prod
     character: { gender: 'Male' },
     references: [{ role: 'character' }, { role: 'product' }, { role: 'product' }, { role: 'character' }],
   }), null)
-  assert.equal(lines[0], '@Image1: the person, the main character. Keep his face, hair and outfit identical in every shot.')
-  assert.match(lines[1], /^@Image2: the product \(the product being advertised\)/)
+  assert.match(lines[0], /^@Image1: the person, the main character\. His face, hair, skin tone and outfit are identical in every shot, with no drift, and there is only ever one main character in the frame\./)
+  assert.match(lines[1], /^@Image2: the product, the product being advertised\./)
   assert.match(lines[2], /^@Image3: another product to show\./)
-  assert.match(lines[3], /^@Image4: another picture of the main character\./)
-  assert.match(referenceLines(cleanInput({ idea: 'an ad', references: [{ role: 'character' }] }), null)[0], /Keep their face, hair and outfit/)
+  assert.match(lines[3], /^@Image4: another picture of the main character: the same face, hair and outfit\./)
+  assert.match(referenceLines(cleanInput({ idea: 'an ad', references: [{ role: 'character' }] }), null)[0], /Their face, hair, skin tone and outfit are identical/)
+})
+
+test('every picture says what it brings into the video and what it does not, so one does not bleed into another', () => {
+  const lines = referenceLines(cleanInput({
+    idea: 'an ad',
+    character: { name: 'Mia', gender: 'Female' },
+    references: [{ role: 'product' }, { role: 'product' }, { role: 'character' }, { role: 'location' }],
+  }), 'tea cup')
+  assert.match(lines[0], /Take only the product from this image; its background, lighting and any person in it do not carry over/)
+  assert.match(lines[0], /label or logo faces the camera and stays legible/)
+  assert.match(lines[1], /take only the product from this image/)
+  assert.match(lines[2], /Take only the person and the outfit from this image; its background and lighting do not carry over/)
+  assert.match(lines[2], /only ever one Mia in the frame/)
+  assert.match(lines[3], /nobody in it carries over/)
 })
 
 test('the finished prompt: pictures, summary, shots with timings, style, consistency and the closing rules', () => {
@@ -418,6 +576,7 @@ test('the finished prompt: pictures, summary, shots with timings, style, consist
   const { plan } = readPlan(JSON.stringify({
     product: 'tea cup',
     summary: 'A relatable ad filmed on a phone.',
+    voice: 'A warm, relaxed voice in her late twenties',
     shots: SHOTS,
     style: 'Shot on iPhone, vertical 9:16.',
     consistency: 'Same cup, same girl, same kitchen.',
@@ -429,30 +588,71 @@ test('the finished prompt: pictures, summary, shots with timings, style, consist
   assert.ok(lines[1].startsWith('@Image2: Mia, the main character'))
   assert.ok(lines[2].startsWith('@Image3: the location'))
   assert.equal(lines[3], '')
-  assert.equal(lines[4], 'Summary: A relatable ad filmed on a phone.')
-  assert.ok(prompt.includes('SHOT 1 [0-3s] (HOOK): Selfie close-up. She lifts the cup to the lens.'))
-  assert.ok(prompt.includes('Dialogue (Mia, excited, casual): "Okay, I need to show you my new favorite cup."'))
-  assert.ok(prompt.includes('SFX: soft kitchen room tone'))
-  assert.ok(prompt.includes('SHOT 2 [3-9s] (PRODUCT REVEAL): She turns the cup to show the handle.'))
+  assert.equal(lines[4], 'Format: 30 seconds, vertical 9:16, 3 shots joined by hard cuts.')
+  assert.equal(lines[5], 'Summary: A relatable ad filmed on a phone.')
+  assert.equal(lines[6], '')
+  assert.ok(prompt.includes(
+    'SHOT 1 [0-3s] (HOOK)\nCamera: MCU, 28mm, handheld, slight sway.\nAction: Selfie close-up. She lifts the cup to the lens.\n' +
+    'Dialogue (Mia, excited, casual): "Okay, I need to show you my new favorite cup."\nSFX: soft kitchen room tone\n',
+  ), 'a shot is a block: camera, action, speech, sound (one full stop after the camera, however the model left it)')
+  assert.ok(prompt.includes('SHOT 2 [3-9s] (PRODUCT REVEAL)\nAction: She turns the cup to show the handle.'), 'no camera written: no camera line')
   assert.ok(prompt.includes('Dialogue (Mia): "Look at this."'), 'no tone: no comma')
-  assert.ok(prompt.includes('SHOT 3 [9-30s] (CTA): Back to selfie framing, she smiles.'))
+  assert.ok(prompt.includes('SHOT 3 [9-30s] (CTA)\nAction: Back to selfie framing, she smiles.'))
+  assert.equal(prompt.split('Camera:').length - 1, 1, 'only the shot that has a camera has a line for it')
   assert.equal(prompt.split('Dialogue (').length - 1, 2, 'a shot with no speech has no dialogue line')
   assert.equal(prompt.split('SFX:').length - 1, 2)
   assert.ok(prompt.includes('Style: Shot on iPhone, vertical 9:16.'))
   assert.ok(prompt.includes('Consistency: Same cup, same girl, same kitchen.'))
-  assert.equal(lines.at(-1), 'No subtitles. No on-screen text. No background music: natural sounds only. Spoken language: English.')
+  assert.ok(prompt.includes('Voice: A warm, relaxed voice in her late twenties. The same voice in every shot.'))
   assert.ok(prompt.indexOf('Style:') > prompt.indexOf('SHOT 3'))
+  assert.ok(prompt.indexOf('Voice:') > prompt.indexOf('Consistency:'))
+  assert.equal(
+    lines.at(-3),
+    "Rules: The shots are joined by hard cuts, with no transitions, fades or effects. Hand gestures vary naturally and never loop. No phone or camera is visible in anyone's hands unless it is the advertised product. No subtitles. No on-screen text. No background music: natural sounds only.",
+  )
+  assert.equal(lines.at(-2), 'Ending: in the last second Mia holds a final pose, mouth closed, nothing else moving.')
+  assert.equal(lines.at(-1), 'Spoken language: English.')
 })
 
-test('with no pictures the prompt starts at the summary; with no style or consistency from the model, sensible ones are written', () => {
+test('with no pictures and no one in the video the prompt starts at the format line, and the rules fit a product film', () => {
   const input = cleanInput({ idea: 'a tea cup ad', seconds: 8, aspect: '16:9', language: 'Hindi' })
-  const { plan } = readPlan(JSON.stringify({ shots: [{ visual: 'She sips.' }, { visual: 'She smiles.' }] }), 8)
+  const { plan } = readPlan(JSON.stringify({ shots: [{ visual: 'The cup steams.' }, { visual: 'The cup turns.' }] }), 8)
   const prompt = composePrompt(input, plan)
-  assert.ok(prompt.startsWith('SHOT 1 [0-4s] (SHOT): She sips.'), prompt.slice(0, 60))
-  assert.ok(prompt.includes('Style: Shot on a smartphone, vertical 16:9'))
-  assert.ok(prompt.includes('Consistency: The character looks identical in every shot'))
+  assert.ok(prompt.startsWith('Format: 8 seconds, horizontal 16:9, 2 shots joined by hard cuts.\n\nSHOT 1 [0-4s] (SHOT)\nAction: The cup steams.'), prompt.slice(0, 120))
+  assert.ok(prompt.includes('Style: Horizontal 16:9, clean natural light, realistic materials'), 'no UGC phone look for a film with nobody in it')
+  assert.ok(prompt.includes('Consistency: The same product and the same place in every shot.'))
+  assert.ok(!prompt.includes('Voice:'), 'nobody speaks, so there is no voice')
+  assert.ok(!prompt.includes('Hand gestures') && !prompt.includes('anyone'), 'nobody is in it, so no rule about hands')
+  assert.ok(prompt.includes('Rules: The shots are joined by hard cuts, with no transitions, fades or effects. No subtitles.'))
+  assert.ok(prompt.endsWith('Ending: the last frame holds still.\nNo speech.'))
+  assert.ok(!prompt.includes('Summary:') && !prompt.includes('Spoken language'))
+})
+
+test('a person with no style, consistency or voice from the model gets sensible ones, and "one shot" is said as such', () => {
+  const input = cleanInput({
+    idea: 'a tea cup ad', seconds: 4, language: 'Hindi',
+    character: { name: 'Mia', gender: 'Female' }, references: [{ role: 'character' }],
+  })
+  const { plan } = readPlan(JSON.stringify({ shots: [{ visual: 'She sips.', dialogue: 'Yeh dekhiye.' }] }), 4)
+  const prompt = composePrompt(input, plan)
+  assert.ok(prompt.includes('Format: 4 seconds, vertical 9:16, one shot.'))
+  assert.ok(prompt.includes('Style: Phone footage, vertical 9:16: front-camera look, 28mm'))
+  assert.ok(prompt.includes('Consistency: Mia looks identical in every shot: same face, same hair, same outfit.'))
+  assert.ok(prompt.includes('Voice: A natural female voice of a native Hindi speaker, relaxed conversational pace. The same voice in every shot.'))
   assert.ok(prompt.endsWith('Spoken language: Hindi.'))
-  assert.ok(!prompt.includes('Summary:'))
+  const male = composePrompt(cleanInput({ idea: 'an ad', character: { gender: 'Male' }, references: [{ role: 'character' }] }), plan)
+  assert.ok(male.includes('A natural male voice of a native English speaker'))
+  assert.ok(male.includes('Ending: in the last second the character holds a final pose'))
+})
+
+test('the wait is named: a minute, some minutes, or the rest of the day', () => {
+  for (const seconds of [1, 30, 60, 90]) assert.match(limitMessage(seconds), /wait a minute/, String(seconds))
+  assert.match(limitMessage(91), /about 2 minutes/)
+  assert.match(limitMessage(300), /about 5 minutes/)
+  assert.match(limitMessage(3 * 3600), /for today\. Please try again in about 3 hours/)
+  assert.match(limitMessage(20 * 3600 + 5), /about 21 hours/)
+  for (const odd of [0, -5, NaN, undefined, null, 'x']) assert.match(limitMessage(odd), /wait a minute/, String(odd))
+  for (const seconds of [1, 90, 91, 7000, 7200, 86400]) assert.ok(!/undefined|NaN/.test(limitMessage(seconds)))
 })
 
 test('whatever the model writes, the prompt holds no tag the app did not list', () => {

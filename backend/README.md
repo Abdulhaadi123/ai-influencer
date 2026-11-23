@@ -472,10 +472,11 @@ working (reviewers, staff) credits from the panel.
 
 ## Director Mode
 
-The app's Director Mode makes a UGC-style ad of up to 30 seconds with Seedance 2.5. `POST /api/director-prompt`
+The app's Director Mode makes a UGC-style ad of up to 30 seconds with Seedance (2.0 up to 15 seconds, 2.5 above). `POST /api/director-prompt`
 (`api/director-prompt.js`; the pure part, tested on its own, is `api/_lib/director.js`) is its writer: an idea in, a
-finished prompt out — which reference picture is what (`@Image1: the tea cup…`), a summary, the clip shot by shot with
-timings, speech and sound, a style line and a consistency line. It is **not** the prompt assistant (`/api/prompt-assist`),
+finished prompt out — which reference picture is what and what it may bring into the video (`@Image1: the tea cup…`), a
+summary, the clip shot by shot (camera, action, speech, sound, with timings), a style line, a consistency line, the voice and
+the rules that close it. It is **not** the prompt assistant (`/api/prompt-assist`),
 which rewrites one line the person typed in one cheap call: this writes a whole plan, with a model that may search the web
 first, and costs real money.
 
@@ -486,11 +487,29 @@ POST /api/director-prompt   (signed in)
 → { prompt: string|null, searched: boolean, sources: number, seconds, shots, notice?: { code: 'REVIEW'|'DECLINED', message } }
 ```
 
-- **What the model writes and what code does.** The model writes the creative parts (summary, each shot's picture, speech
-  and sound, the style) and answers in JSON. Code does everything that has to be exactly right: the lines that say which
-  `@ImageN` is which are written from the app's own list of pictures (never by the model), the shots are re-timed to follow
-  each other from 0 to the clip's length with no gap, and the layout and the closing rules (no subtitles, no music) are fixed.
-  A model that wrote a hole in its timings, or an extra tag, cannot break the prompt.
+- **What the model writes and what code does.** The model writes the creative parts (summary, each shot's camera, picture,
+  speech and sound, the style, the voice) and answers in JSON. Code does everything that has to be exactly right: the lines
+  that say which `@ImageN` is which, and what each picture may and may not bring in, are written from the app's own list of
+  pictures (never by the model); the cut of the ad is ours (below); the shots are re-timed to follow each other from 0 to the
+  clip's length with no gap; speech that cannot be said in a shot's seconds is cut back to whole sentences; and the layout and
+  the closing rules (hard cuts, no phone in a hand, no subtitles, no music, a still last frame) are fixed. A model that wrote a
+  hole in its timings, or an extra tag, cannot break the prompt.
+- **How the prompt is written (rewritten 2026-11-23, `api/_lib/director.js`).** The standing instructions are a short course in
+  writing for Seedance, in the same order a director thinks: the beats of an ad at this length and their seconds (`beatSheet`:
+  hook, product reveal, use, benefit, lifestyle, call to action, each shot at least two seconds), a word range of speech per
+  shot (about 1.6 to 2.6 words a second: the first real run of the watch idea wrote 15 words for a 30 second ad), and how each shot reads: one
+  action, facts and not mood words, one framing + one lens + one movement in `camera`, MCU or closer where the face matters,
+  the product large with its label toward the lens, the light as a physical source, no phone or camera in anyone's hand,
+  concrete sounds. The practices come from the field guide kept in `docs/seedance-influencer-guide.md` (a third party's work,
+  all rights reserved: its ideas are used here in our own words, its text is not copied into the product). The finished prompt
+  has a `Format:` line, shots written as blocks (`SHOT 1 [0-3s] (HOOK)` then `Camera:`, `Action:`, `Dialogue (…):`, `SFX:`), then
+  `Style:`, `Consistency:`, `Voice:` (the same voice in every shot), `Rules:`, `Ending:` (the last second holds still: Seedance
+  otherwise drifts back to an earlier pose) and `Spoken language:`. Each picture's line says what it brings and what does not
+  carry over (the product's background, a person in a product photo), so one reference does not bleed into another.
+- **Speech that does not fit.** A shot's speech is cut only above `speechCap` (3.3 words a second, a little over the 2.6 the model is
+  asked for), in whole sentences, never mid-sentence unless one sentence is far too long (`fitSpeech`).
+- **The child check no longer reads everyday phrases as a child** ("baby blue", "baby-soft skin", "kid gloves", "baby stroller",
+  "kids' lunch box", "perfect for kids"); "a baby reaches for it" and "her kids play" still hold a plan back.
 - **The model call** is OpenAI's Responses API (`POST {base}/responses`) with the `web_search` tool (`max_tool_calls` 3),
   `store: false` and the plan asked for as JSON. A request the upstream refuses (not every model or account takes the tool,
   and it has had two names) is asked again the next way: `web_search_preview`, then **no search at all**. An answer that
@@ -499,7 +518,9 @@ POST /api/director-prompt   (signed in)
 - **Cost.** A few cents a prompt: the tokens (small) plus OpenAI's fee for each search call, at most three. This is an
   estimate to check against OpenAI's usage page after the first real day. It is not charged to the person in credits;
   it is limited instead — `DIRECTOR_PER_MINUTE` (4) and `DIRECTOR_PER_DAY` (30) per account, in memory like the other
-  limits (a restart resets them). The video itself is charged as usual by the generation proxy (Seedance 2.5, per second).
+  limits (a restart resets them). Every try counts, a declined or failed one too. The `429` message names the wait (a minute,
+  some minutes, or "used the director's prompts for today, try again in about N hours": it used to say "wait a moment" for
+  a day-long wait). The video itself is charged as usual by the generation proxy (Seedance 2.0 or 2.5, per second).
 - **Failures** answer `{ error, code }`: `501 NOT_CONFIGURED` (no `OPENAI_API_KEY`), `400 IDEA_REQUIRED` / `BAD_REFERENCES`,
   `413 TOO_LONG`, `400 CONTENT_BLOCKED`, `429 RATE_LIMITED`, `502 DIRECTOR_FAILED` (nothing the model said was a plan) and
   `502 ASSISTANT_UNAVAILABLE`. A model that will not write the idea is a `200` with `prompt: null` and `notice: DECLINED`.
@@ -518,8 +539,11 @@ POST /api/director-prompt   (signed in)
 - **Environment** (all optional but the key): `OPENAI_API_KEY`, `DIRECTOR_MODEL` (default `gpt-4o-mini`), `DIRECTOR_SEARCH`
   (`false` turns web search off), `DIRECTOR_PER_MINUTE`, `DIRECTOR_PER_DAY`. `DIRECTOR_OPENAI_BASE_URL` exists only so tests
   can stand in for OpenAI.
+- **A stronger writer is one setting away.** `DIRECTOR_MODEL` takes any model the Responses API offers (the web search tool
+  needs one that supports it): a plan costs a fraction of a cent on `gpt-4o-mini` and about a cent on a larger one such as
+  `gpt-4.1`, next to a video that costs dollars. Not tried here: do not set a reasoning model without a try.
 - **Checked only against a stand-in.** `test/integration/director-prompt.test.js` runs the whole endpoint against a fake
-  Responses API; nothing has been asked of the real one yet. After deploying, ask it once with a real session (the answer
+  Responses API; nothing has been asked of the real one since the 2026-11-23 rewrite (the 2026-11-19 runs were the old prompt). After deploying, ask it once with a real session (the answer
   should have `searched: true` and a prompt that starts with the `@Image1:` lines) and look at the server log line
   `[director] user=… searched=… sources=…`.
 

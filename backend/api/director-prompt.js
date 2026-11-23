@@ -1,8 +1,8 @@
 /**
  * POST /api/director-prompt
  *
- * Director Mode's writer: an idea in, a finished Seedance 2.5 prompt out — which reference picture is what, a
- * summary, then the clip shot by shot with timings, speech and sound. The model that writes it may search the
+ * Director Mode's writer: an idea in, a finished Seedance prompt out — which reference picture is what, a
+ * summary, then the clip shot by shot with timings, camera, speech and sound. The model that writes it may search the
  * web first (what works in this kind of ad, how Seedance prompts are best written), the way a person asking a
  * chat assistant for a UGC ad prompt would have it do.
  *
@@ -13,7 +13,7 @@
  *
  * Body: {
  *   idea: string,                         what the video should show (required)
- *   seconds?: number,                     the clip's length; moved to one Seedance 2.5 takes (default 15)
+ *   seconds?: number,                     the clip's length; moved to one Seedance takes (default 15)
  *   aspect?: '9:16'|'16:9'|'1:1',
  *   language?: string,                    the language spoken in the video (default English)
  *   character?: { name?, gender?: 'Female'|'Male', description? },
@@ -38,12 +38,12 @@
  *   DIRECTOR_OPENAI_BASE_URL   only so tests can stand in for OpenAI; production leaves it unset
  */
 
-import { userRoute, HttpError, noStore, enforceLimit } from './_lib/http.js'
+import { userRoute, HttpError, noStore } from './_lib/http.js'
 import { screenText, ModerationRefusal, MESSAGES } from './_lib/moderation/service.js'
 import { createRateLimiter } from '../lib/rateLimit.js'
 import {
   cleanInput, DirectorInputError, DirectorOutputError,
-  systemPrompt, userMessage, extractOutput, readPlan, composePrompt,
+  systemPrompt, userMessage, extractOutput, readPlan, composePrompt, limitMessage,
 } from './_lib/director.js'
 
 const apiKey = () => process.env.OPENAI_API_KEY || ''
@@ -193,7 +193,11 @@ export default userRoute(async (req, res, user) => {
     throw e
   }
 
-  enforceLimit(limiter, `director:${user.id}`, 'You have asked the director a lot just now. Please wait a moment and try again.')
+  // The wait can be a minute or the rest of the day (the per-day cap), and the message says which.
+  const allowed = limiter(`director:${user.id}`)
+  if (!allowed.ok) {
+    throw new HttpError(429, limitMessage(allowed.retryAfter), 'RATE_LIMITED', { 'Retry-After': String(allowed.retryAfter) })
+  }
 
   let verdict
   try {
