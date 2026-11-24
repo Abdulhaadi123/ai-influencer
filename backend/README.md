@@ -494,19 +494,36 @@ POST /api/director-prompt   (signed in)
   clip's length with no gap; speech that cannot be said in a shot's seconds is cut back to whole sentences; and the layout and
   the closing rules (hard cuts, no phone in a hand, no subtitles, no music, a still last frame) are fixed. A model that wrote a
   hole in its timings, or an extra tag, cannot break the prompt.
-- **How the prompt is written (rewritten 2026-11-23, `api/_lib/director.js`).** The standing instructions are a short course in
-  writing for Seedance, in the same order a director thinks: the beats of an ad at this length and their seconds (`beatSheet`:
-  hook, product reveal, use, benefit, lifestyle, call to action, each shot at least two seconds), a word range of speech per
-  shot (about 1.6 to 2.6 words a second: the first real run of the watch idea wrote 15 words for a 30 second ad), and how each shot reads: one
-  action, facts and not mood words, one framing + one lens + one movement in `camera`, MCU or closer where the face matters,
-  the product large with its label toward the lens, the light as a physical source, no phone or camera in anyone's hand,
-  concrete sounds. The practices come from the field guide kept in `docs/seedance-influencer-guide.md` (a third party's work,
-  all rights reserved: its ideas are used here in our own words, its text is not copied into the product). The finished prompt
-  has a `Format:` line, shots written as blocks (`SHOT 1 [0-3s] (HOOK)` then `Camera:`, `Action:`, `Dialogue (…):`, `SFX:`), then
-  `Style:`, `Consistency:`, `Voice:` (the same voice in every shot), `Rules:`, `Ending:` (the last second holds still: Seedance
-  otherwise drifts back to an earlier pose) and `Spoken language:`. Each picture's line says what it brings and what does not
-  carry over (the product's background, a person in a product photo), so one reference does not bleed into another.
-- **Speech that does not fit.** A shot's speech is cut only above `speechCap` (3.3 words a second, a little over the 2.6 the model is
+- **How the prompt is written (rewritten 2026-11-23, audited against Seedance's prompt guide and short-video ad practice
+  2026-11-25, `api/_lib/director.js`).** The standing instructions are a short course in writing for Seedance, in the order a
+  director thinks: the beats of an ad at this length and their seconds (`beatSheet`: hook, problem, product, demo, result, call to
+  action, the shape short-video ads are built on; the model may rename them for an unboxing, a review, a routine or a day in a life,
+  and keeps the times), a word range of speech per shot (about 1.8 to 2.7 words a second: about 33 words in 15 seconds and 66 in
+  30; the first real run of the watch idea wrote 15 words for a 30 second ad), and how each shot reads: one action, facts and not
+  mood words, one framing written in words + one lens + one small movement in `camera`, a medium close-up or closer where the face
+  matters and never an extreme close-up while speaking (lip-sync slips), the product large with its label toward the lens, the
+  light as a physical source, no phone or camera in anyone's hand, concrete sounds, first-person specific speech in one language,
+  a soft call to action, the last line ending before the final second. The practices come from the field guide kept in
+  `docs/seedance-influencer-guide.md` (a third party's work, all rights reserved: its ideas are used here in our own words, its
+  text is not copied into the product) and from the prompt guide ByteDance publishes for Seedance 2.0 and 2.5, as quoted by
+  several write-ups (its own page did not load for us).
+- **The finished prompt follows Seedance's own layout.** The pictures first, each saying what it brings and what does not carry
+  over (one line per kind: further product photos are more photos of the one product, never a second product, which is how two
+  copies of the same cup got onto the screen; thirty pictures take three to five lines); one sentence on the clip ("A 30-second
+  vertical 9:16 ad, 6 shots joined by hard cuts. Speech and natural sounds only; no BGM.") and the summary; then
+  `Shot 1 [0-3s]: Medium close-up, 28mm, locked.` blocks (2.0 follows the shot numbers, 2.5 the seconds too), each with the action,
+  the speech as `Mia says, warm and amused: {English: "…"}` and the sound as `<a ceramic clink>`; then `Style:`, `Consistency:`,
+  `Voice:`, the cuts, and the two constraints the guide documents in the negative (no BGM with its synonyms, no subtitles), and a
+  still last frame. Braces are speech and angle brackets sound to Seedance; round brackets are music, so none reach it (the
+  model's own are turned into commas), and the beat names stay out of the video prompt. Camera shorthand (MCU, CU, WS) is written
+  out. Past about 950 words the summary goes, then the consistency line: the guide says a prompt past about a thousand words
+  scatters the model's attention.
+- **Still to try on the real models:** none of this has been run against OpenAI or Seedance since the rewrite. Seedance lists its
+  speech languages as Chinese, English, Spanish, Indonesian, Malay, Thai, Arabic, Portuguese, Vietnamese, Japanese and Korean
+  (per the 2.5 guide as quoted): Hindi, Urdu and French, which the app offers, are not on it, so try one clip in each before
+  promising them. The guide also says reference images showing real human faces are refused, and that multi-view character
+  sheets are discouraged on 2.0 (clips up to 15 seconds here).
+- **Speech that does not fit.** A shot's speech is cut only above `speechCap` (3.3 words a second, a little over the 2.7 the model is
   asked for), in whole sentences, never mid-sentence unless one sentence is far too long (`fitSpeech`).
 - **The child check no longer reads everyday phrases as a child** ("baby blue", "baby-soft skin", "kid gloves", "baby stroller",
   "kids' lunch box", "perfect for kids"); "a baby reaches for it" and "her kids play" still hold a plan back.

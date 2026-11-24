@@ -165,41 +165,44 @@ export function shotRange(seconds) {
 }
 
 /**
- * The beats of a short ad at each length, in order, with how many seconds each runs: the hook first, the call to action
- * last, the product shown and used in between. The times are ours and not the model's: an ad that is cut the same way
- * every time reads the same way every time, and no shot is left too short to show anything (never under two seconds).
- * The model may rename a beat if its idea needs another one; it keeps the times. Every row adds up to its clip's length
- * and has a number of shots `shotRange` allows (both checked in the tests).
+ * The beats of a short ad at each length, in order, with how many seconds each runs. They follow the shape that sells in
+ * short social video (hook, problem, product, demo, result, call to action): the hook first and alone, the problem early,
+ * the product shown and used, one honest result, a soft call to action last. The times are ours and not the model's: an ad
+ * that is cut the same way every time reads the same way every time, and no shot is left too short to show anything (never
+ * under two seconds). The model may rename a beat when the idea follows another proven shape (an unboxing, a routine, a day
+ * in a life); it keeps the times. Every row adds up to its clip's length and has a number of shots `shotRange` allows (both
+ * checked in the tests).
  */
 const BEATS = Object.freeze({
   4: [['HOOK', 4]],
   5: [['HOOK', 2], ['CTA', 3]],
   6: [['HOOK', 3], ['CTA', 3]],
-  8: [['HOOK', 3], ['PRODUCT REVEAL', 3], ['CTA', 2]],
-  10: [['HOOK', 3], ['PRODUCT REVEAL', 4], ['CTA', 3]],
-  12: [['HOOK', 3], ['PRODUCT REVEAL', 3], ['USE', 3], ['CTA', 3]],
-  15: [['HOOK', 3], ['PRODUCT REVEAL', 4], ['USE', 5], ['CTA', 3]],
-  20: [['HOOK', 3], ['PRODUCT REVEAL', 4], ['USE', 5], ['BENEFIT', 4], ['CTA', 4]],
-  25: [['HOOK', 3], ['PRODUCT REVEAL', 4], ['USE', 5], ['BENEFIT', 5], ['LIFESTYLE', 4], ['CTA', 4]],
-  30: [['HOOK', 3], ['PRODUCT REVEAL', 5], ['USE', 6], ['BENEFIT', 6], ['LIFESTYLE', 5], ['CTA', 5]],
+  8: [['HOOK', 3], ['PRODUCT', 3], ['CTA', 2]],
+  10: [['HOOK', 3], ['PRODUCT', 4], ['CTA', 3]],
+  12: [['HOOK', 3], ['PROBLEM', 3], ['PRODUCT', 3], ['CTA', 3]],
+  15: [['HOOK', 3], ['PROBLEM', 3], ['DEMO', 5], ['CTA', 4]],
+  20: [['HOOK', 3], ['PROBLEM', 3], ['PRODUCT', 4], ['DEMO', 6], ['CTA', 4]],
+  25: [['HOOK', 3], ['PROBLEM', 4], ['PRODUCT', 4], ['DEMO', 6], ['RESULT', 4], ['CTA', 4]],
+  30: [['HOOK', 3], ['PROBLEM', 4], ['PRODUCT', 5], ['DEMO', 7], ['RESULT', 6], ['CTA', 5]],
 })
 
 /** What each beat is for, as the model is told it. */
 const BEAT_JOBS = Object.freeze({
-  HOOK: 'the scroll-stopper, with energy from the first frame: the person speaks straight to the camera, or the product is shown at once. It makes sense with the sound off.',
-  'PRODUCT REVEAL': 'the product enters the frame on purpose and is seen clearly, its label toward the camera.',
-  USE: 'the product in use: one concrete action.',
-  BENEFIT: 'what the person gets from it, shown or said in plain words (no health, weight-loss or income claims).',
-  LIFESTYLE: 'the product in an everyday moment: looser and observational, the person at ease.',
-  CTA: 'a friendly call to action with the product in view; the shot ends calm, the person settled.',
+  HOOK: 'stops the scroll in the first second, on its own: the person says one bold, specific line straight into the lens (a surprising fact, a question, a confession), or the product or its result is shown at once. It works with the sound off.',
+  PROBLEM: 'the everyday frustration the product answers, shown and said in the person\'s own specific words ("my tea is cold before I finish it", not "drinks get cold"). If the idea has no problem, a relatable moment instead.',
+  PRODUCT: 'the product enters the frame on purpose and is seen clearly, its label toward the camera, while the person says what it is in plain words.',
+  DEMO: 'the product in use: one or two concrete steps a camera can see, never a list of features. If the product has not been shown yet, it enters here.',
+  RESULT: 'what changes for the person, shown and said honestly in their own words; no claim the idea did not give.',
+  CTA: 'one soft, friendly call to action in the person\'s own words, the product in view; no hard sell and no invented offer. The last line ends before the final second, and the shot ends calm and settled.',
 })
 
 /**
  * What a person can say in `seconds` and still sound like a person: the fewest words a talking shot should carry, and the
- * most. About 1.6 to 2.6 words a second, with room for a breath before and a look after.
+ * most. About 1.8 to 2.7 words a second, with room for a breath before and a look after: a 15 second ad carries about 33
+ * words and a 30 second one about 66, the range short-video scripts are written to.
  */
 export function speechWords(seconds) {
-  return [Math.round(seconds * 1.6), Math.floor(seconds * 2.6)]
+  return [Math.round(seconds * 1.8), Math.floor(seconds * 2.7)]
 }
 
 /**
@@ -253,9 +256,9 @@ export function systemPrompt({ seconds, language }) {
     '  "voice": "...",                        // the speaker\'s voice in one line: age range, pitch, pace, energy; null if nobody speaks',
     '  "shots": [',
     '    {',
-    '      "label": "HOOK",                   // HOOK, PRODUCT REVEAL, USE, BENEFIT, LIFESTYLE or CTA',
+    '      "label": "HOOK",                   // HOOK, PROBLEM, PRODUCT, DEMO, RESULT or CTA',
     '      "start": 0, "end": 3,              // seconds',
-    '      "camera": "MCU, 28mm, handheld, slight sway",   // one framing, one lens, one movement',
+    '      "camera": "medium close-up, 28mm, handheld with a slight sway",   // one framing, one lens, one movement',
     '      "visual": "...",                   // what happens in front of the camera: the one action, and where the product is in the frame',
     '      "dialogue": "...",                 // what the character says in this shot, or null',
     '      "tone": "excited, casual",         // how it is said, two or three words, or null',
@@ -268,8 +271,11 @@ export function systemPrompt({ seconds, language }) {
     '',
     'THE SHOTS',
     `- The clip is ${seconds} seconds long and has exactly ${beats.length} ${beats.length === 1 ? 'shot' : 'shots'}. They follow each other with hard cuts and no gap: the first starts at 0 and the last ends at ${end}. ` +
-      'Keep these times and word counts; rename a label only if the idea needs a different beat.',
+      'Keep these times and word counts.',
     ...shotLines,
+    '- These beats are the problem-and-solution shape, the default. When the idea is plainly another proven UGC shape (a testimonial or ' +
+      'review, an unboxing or first impression, a routine such as get ready with me, a day in a life, a quick how-to), rename the beats to ' +
+      'fit it and keep the times and word ranges.',
     `- Together the speech is about ${Math.round((fewest + most) / 2)} words (${fewest} to ${most}) in a talking ad. A cinematic or luxury film that asks for little talking may carry less, even none.`,
     '',
     'HOW EACH SHOT READS',
@@ -277,25 +283,31 @@ export function systemPrompt({ seconds, language }) {
       'Facts, not mood: "she turns the cup so the handle faces the lens", never "she gracefully shows off the stunning cup". ' +
       'Leave out adjectives that carry no picture (stunning, elegant, perfect, beautiful).',
     '- Decide everything. One place, one light, one hand, one move: never "or", "maybe" or "something like".',
-    '- "camera" is one framing (ECU, CU, MCU, MS or WS), one lens (24 to 28mm for phone footage, 35mm, 50mm or 85mm) and one movement ' +
-      '(locked, slow push-in, slow pull-back, tracking, or handheld with a slight sway). Whenever the face matters use MCU or closer: ' +
-      'faces in wide shots turn waxy. Do not call a movement "cinematic" unless the idea asks for that look.',
+    '- "camera" is one framing written in full words (extreme close-up, close-up, medium close-up, medium shot or wide shot), one lens ' +
+      '(24 to 28mm for phone footage, 35mm, 50mm or 85mm) and one movement (locked, slow push-in, slow pull-back, tracking, or handheld ' +
+      'with a slight sway). Small, slow, continuous movement renders best. Whenever the face matters use a medium close-up or closer: faces ' +
+      'in wide shots turn waxy. While the person speaks, use a medium close-up or a medium shot, never an extreme close-up (the lips ' +
+      'stop matching the words). Do not call a movement "cinematic" unless the idea asks for that look.',
     '- The product, whenever it is on screen: large enough to read at phone size, its label or logo toward the lens, held at chest height ' +
-      'or resting where the camera sees it, never tucked into a corner.',
-    '- A short shot opens with the person already in position and then does its one action. Gestures are natural and conversational, never ' +
-      'choreographed: one gesture and one expression per shot at most.',
+      'or resting where the camera sees it, never tucked into a corner. Call it by the same words every time.',
+    '- Call the character by their name in every shot they are in. A short shot opens with them already in position and then does its one ' +
+      'action. Gestures are natural and conversational, never choreographed: one gesture and one expression per shot at most.',
     '- Never write that anyone holds, films with or puts down a phone or a camera (unless a phone or camera is the advertised product): the ' +
       'frame is the viewpoint. For a selfie shot write that the person looks into the lens.',
     '- Light is a physical source, not a mood: "soft window light from camera-left, warm". Say it once in "style" and keep it the same in every shot.',
+    '- Write no round brackets anywhere: the video model reads text in round brackets as music.',
     '- Sound is natural and concrete: a spoon on ceramic, a zip, steps on a floor. Never "ambient sound", "background noise" or music. ' +
       'No background music.',
     '',
     'SPEECH',
     `- Speech is in ${language}${language === 'English' ? '' : ", written in that language's own script (never transliterated into Latin letters)"}, ` +
-      'as a real person talks: contractions, short sentences, one idea per line, a strong first line. It never sounds like an advertisement.',
+      'one language only, never mixed, as a real person talks: contractions, short sentences, one idea per line, a strong first line. ' +
+      'It never sounds like an advertisement.',
+    '- First person and specific, like someone telling a friend about a thing they use: what they noticed, what changed, one detail only ' +
+      'someone who used it would know. No list of features, no slogans, no hard sell.',
     '- Keep to each shot\'s word range: the words must fit the seconds, and a line that is too long is cut. A shot that shows only the ' +
       'product may have no speech, or one short voice-over line. At most two short lines per shot. The same person speaks in every shot, ' +
-      'in the same voice ("voice" says what it sounds like).',
+      'in the same voice ("voice" says what it sounds like). The last line ends before the final second.',
     '- Never put speech or text on screen: no subtitles, captions or titles. Do not invent prices, discounts, ratings or claims the ' +
       'person did not give.',
     '',
@@ -307,7 +319,7 @@ export function systemPrompt({ seconds, language }) {
       'describe the person from the description given, or an ordinary adult who fits the idea, and keep them identical ' +
       'in every shot they are in. If the idea is a product film with no person, do not invent one. If there is no ' +
       'product reference, describe the product in words from the idea. Never invent a logo, a brand name, text on the ' +
-      'product, or an extra product.',
+      'product, or an extra product. Several product pictures are photos of the one product from other sides.',
     '- A "location" reference is the setting: use its place and light. Without one, choose a setting that fits the idea.',
     '',
     'SAFETY: ADAPT, NEVER DECLINE',
@@ -586,6 +598,12 @@ export function retime(shots, seconds) {
 }
 
 // ── The prompt itself ────────────────────────────────────────────────────────
+//
+// Laid out the way Seedance's own prompt guide reads a clip: the pictures first and what each one brings, one sentence on the
+// whole clip, then "Shot 1 [0-3s]: ..." blocks in order (2.0 follows the shot numbers, 2.5 the seconds as well), then what holds
+// for the whole clip, constraints last. Inside a shot, speech goes in braces with its language ({English: "..."}) and sounds in
+// angle brackets (<a cup set on wood>), the marks the model reads as "say this" and "make this sound"; round brackets mean music
+// to it, so none are used. Only the two constraints the guide documents are said as "no": no BGM, no subtitles.
 
 const POSSESSIVE = { Female: 'her', Male: 'his' }
 const capital = text => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
@@ -593,38 +611,79 @@ const capital = text => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
 /** A sentence ends with one full stop, however the model left it. */
 const closed = text => `${String(text).replace(/[\s.]+$/, '')}.`
 
-/** The lines that say which picture is which, and what it may and may not bring. Written here, from the app's own list, never by the model. */
-export function referenceLines(input, product) {
-  const who = input.character.name || 'the person'
-  const possessive = POSSESSIVE[input.character.gender] ?? 'their'
-  const only = input.character.name ? `one ${input.character.name}` : 'one main character'
-  let products = 0
-  let characters = 0
+/**
+ * "@Image2, @Image3 and @Image4": one line for many pictures of one kind, each tag still named. Never a range ("@Image2 to
+ * @Image9"): Seedance ties a picture to its role by the tag written out, and the tags inside a range are never written.
+ */
+export function tagList(tags) {
+  return tags.length === 1 ? tags[0] : `${tags.slice(0, -1).join(', ')} and ${tags.at(-1)}`
+}
 
-  return input.references.map(({ role, tag }) => {
-    if (role === 'product') {
-      products += 1
-      if (products > 1) {
-        return `${tag}: another product to show. Reproduce it exactly as pictured, the same object in every shot where it appears, and take only the product from this image.`
-      }
-      return `${tag}: the ${product || 'product'}, the product being advertised. Reproduce it exactly as pictured: same shape, colour, material, finish and any label or logo, the same object in every shot, never swapped or redesigned. Take only the product from this image; its background, lighting and any person in it do not carry over. Whenever it is on screen its label or logo faces the camera and stays legible.`
+/**
+ * The lines that say which picture is which, and what it may and may not bring: one for the product, one for the character,
+ * one for the place, and one for each group of further pictures of the same kind, so thirty pictures do not become thirty
+ * lines (the video model reads a prompt of up to about a thousand words well, and the shots need most of them). Further
+ * product photos are what the app asks for, more photos of the one product, so they are never called a second product: a
+ * second "product" in the prompt is how two copies of the same cup end up on screen. Written here, from the app's own list,
+ * never by the model.
+ */
+export function referenceLines(input, product) {
+  const name = input.character.name
+  const who = name || 'the person'
+  const possessive = POSSESSIVE[input.character.gender] ?? 'their'
+  const tagsOf = role => input.references.filter(r => r.role === role).map(r => r.tag)
+  const products = tagsOf('product')
+  const people = tagsOf('character')
+  const views = [...people.slice(1), ...tagsOf('character_extra')]
+  const places = tagsOf('location')
+  const lines = []
+
+  if (products.length) {
+    lines.push(`${products[0]}: the ${product || 'product'}, the product being advertised. Keep the product and its label unchanged: same shape, colour, material and finish, the same single object in every shot. Take only the product from this image; its background, lighting and any person in it do not carry over. When it is on screen, its label or logo faces the camera.`)
+    if (products.length > 1) {
+      lines.push(`${tagList(products.slice(1))}: more photos of the same product from other sides, only to keep it exact. It is still one object: never show two copies of it.`)
     }
-    if (role === 'character') {
-      characters += 1
-      return characters === 1
-        ? `${tag}: ${who}, the main character. ${capital(possessive)} face, hair, skin tone and outfit are identical in every shot, with no drift, and there is only ever ${only} in the frame. Take only the person and the outfit from this image; its background and lighting do not carry over.`
-        : `${tag}: another picture of the main character: the same face, hair and outfit.`
-    }
-    if (role === 'character_extra') {
-      return `${tag}: another view of the same character. Use it only to keep the face, body and outfit consistent.`
-    }
-    return `${tag}: the location. Use it as the setting, layout and lighting reference; nobody in it carries over.`
-  })
+  }
+  if (people.length) {
+    lines.push(`${people[0]}: ${who}, the main character. ${capital(possessive)} face, hair, skin tone and outfit stay the same in every shot. Only one ${name || 'main character'} appears in any shot; no duplicated people. Take only the person and the outfit from this image; its background and lighting do not carry over.`)
+  }
+  if (views.length) {
+    lines.push(`${tagList(views)}: more pictures of ${name || 'the main character'}, only to keep the face, body and outfit the same.`)
+  }
+  if (places.length) {
+    lines.push(`${tagList(places)}: the location. Use it for the setting and the light; nobody in it carries over.`)
+  }
+  return lines
 }
 
 const stamp = (start, end) => `${start}-${end}s`
 
 const SHAPES = { '9:16': 'vertical 9:16', '16:9': 'horizontal 16:9', '1:1': 'square 1:1' }
+
+/** Shot sizes in words: "MCU" is film-crew shorthand, and the video model reads words. */
+const FRAMINGS = [
+  [/\bECU\b/g, 'extreme close-up'], [/\bMCU\b/g, 'medium close-up'], [/\bCU\b/g, 'close-up'], [/\bMWS\b/g, 'medium wide shot'],
+  [/\bMS\b/g, 'medium shot'], [/\bWS\b/g, 'wide shot'], [/\bOTS\b/g, 'over-the-shoulder'],
+]
+export function cameraWords(text) {
+  let out = String(text ?? '')
+  for (const [pattern, words] of FRAMINGS) out = out.replace(pattern, words)
+  return out
+}
+
+/** "excited, casual" as it is said: "excited and casual". */
+const toneWords = tone => String(tone).replace(/,\s*([^,]+)$/, ' and $1')
+
+/**
+ * The model's own round brackets, turned into commas: to Seedance a parenthesis is music ("(soft piano plays)"), and a stray
+ * "(her favourite)" is no reason for a melody to start. Text without one comes back exactly as it was.
+ */
+export function withoutRoundBrackets(text) {
+  const source = String(text ?? '')
+  if (!/[()]/.test(source)) return source
+  return source.replace(/\s*\(\s*/g, ', ').replace(/\s*\)/g, ',')
+    .replace(/,\s*,+/g, ',').replace(/,\s*([.;:!?])/g, '$1').replace(/^,\s*/, '').replace(/,\s*$/, '').replace(/\s{2,}/g, ' ').trim()
+}
 
 /** A person is in the video when the app sent one (a picture or a description). A product film has none. */
 function hasPerson(input) {
@@ -632,59 +691,83 @@ function hasPerson(input) {
     Boolean(input.character.name || input.character.description)
 }
 
+/** Who says the lines: the character by name, else the woman, the man or the person, and a voice-over when nobody is in the film. */
+function speakerOf(input, person) {
+  if (input.character.name) return input.character.name
+  if (!person) return 'A voice-over'
+  return { Female: 'The woman', Male: 'The man' }[input.character.gender] ?? 'The person'
+}
+
+/** The language as the prompt names it: "Portuguese (Brazil)" loses its round brackets, which the video model reads as music. */
+const languageName = input => input.language.replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim()
+
 /** How the voice is described when the model gave none: the same one in every shot, a native speaker of the language. */
 function fallbackVoice(input) {
   const kind = { Female: 'female ', Male: 'male ' }[input.character.gender] ?? ''
-  return `A natural ${kind}voice of a native ${input.language} speaker, relaxed conversational pace.`
+  return `A natural ${kind}voice of a native ${languageName(input)} speaker, relaxed conversational pace.`
 }
 
+/** The most words the prompt should hold: past about a thousand the video model's attention scatters and parts of it go missing. */
+export const PROMPT_MAX_WORDS = 950
+
 /**
- * The finished prompt: the reference lines, the format, the summary, the shots (camera, action, speech, sound), the style,
- * the consistency line and the voice, then the rules that close it.
+ * The finished prompt: the reference lines, one sentence on the clip and the summary, the shots, then what holds for the whole
+ * clip (style, consistency, voice) and the constraints. If it runs past PROMPT_MAX_WORDS, the summary goes first, then the
+ * consistency line: the shots and the pictures are what the video is made of.
  */
 export function composePrompt(input, plan) {
-  const speaker = input.character.name || 'the character'
   const person = hasPerson(input)
   const talks = plan.shots.some(shot => shot.dialogue)
-  const lines = []
+  const speaker = speakerOf(input, person)
+  const shape = SHAPES[input.aspect] ?? input.aspect
+  const tongue = languageName(input)
+  const article = /^(8|11|18)\b/.test(String(input.seconds)) ? 'An' : 'A'
 
-  const refs = referenceLines(input, plan.product)
-  if (refs.length) lines.push(...refs, '')
+  const references = referenceLines(input, plan.product)
+  const cut = plan.shots.length === 1 ? 'one continuous shot' : `${plan.shots.length} shots joined by hard cuts`
+  const opening = `${article} ${input.seconds}-second ${shape} ad, ${cut}. ${talks ? 'Speech and natural sounds only' : 'Natural sounds only'}; no BGM.`
 
-  const cut = plan.shots.length === 1 ? 'one shot' : `${plan.shots.length} shots joined by hard cuts`
-  lines.push(`Format: ${input.seconds} seconds, ${SHAPES[input.aspect] ?? input.aspect}, ${cut}.`)
-  if (plan.summary) lines.push(`Summary: ${plan.summary}`)
-  lines.push('')
-
-  plan.shots.forEach((shot, i) => {
-    lines.push(`SHOT ${i + 1} [${stamp(shot.start, shot.end)}] (${shot.label})`)
-    if (shot.camera) lines.push(`Camera: ${closed(shot.camera)}`)
-    lines.push(`Action: ${shot.visual}`)
-    if (shot.dialogue) lines.push(`Dialogue (${speaker}${shot.tone ? `, ${shot.tone}` : ''}): "${shot.dialogue}"`)
-    if (shot.sfx) lines.push(`SFX: ${shot.sfx}`)
-    lines.push('')
+  const shots = plan.shots.map((shot, i) => {
+    const block = [
+      `Shot ${i + 1} [${stamp(shot.start, shot.end)}]:${shot.camera ? ` ${capital(closed(cameraWords(withoutRoundBrackets(shot.camera))))}` : ''}`,
+      withoutRoundBrackets(shot.visual),
+    ]
+    if (shot.dialogue) {
+      const how = shot.tone ? `, ${toneWords(withoutRoundBrackets(shot.tone))}` : ''
+      block.push(`${speaker} says${how}: {${tongue}: "${withoutRoundBrackets(shot.dialogue).replace(/[{}]/g, '')}"}`)
+    }
+    if (shot.sfx) block.push(`<${withoutRoundBrackets(shot.sfx).replace(/[<>]/g, '')}>`)
+    return block.join('\n')
   })
 
-  const style = plan.style || (person
-    ? `Phone footage, ${SHAPES[input.aspect] ?? input.aspect}: front-camera look, 28mm, soft natural light from a window, everything in focus, realistic skin texture, slight handheld sway. Authentic UGC, not a polished commercial.`
-    : `${capital(SHAPES[input.aspect] ?? input.aspect)}, clean natural light, realistic materials and textures, a steady camera, the product in sharp focus.`)
-  lines.push(`Style: ${style}`)
-
+  const style = withoutRoundBrackets(plan.style) || (person
+    ? `Phone footage, ${shape}: front-camera look, 28mm, soft natural light from a window, everything in focus, realistic skin texture, slight handheld sway. Authentic UGC, not a polished commercial.`
+    : `${capital(shape)}, clean natural light, realistic materials and textures, a steady camera, the product in sharp focus.`)
   const alike = person
-    ? `${capital(speaker)} looks identical in every shot: same face, same hair, same outfit. The same product and the same place in every shot.`
+    ? `${speaker} looks identical in every shot: same face, same hair, same outfit. The same product and the same place in every shot.`
     : 'The same product and the same place in every shot.'
-  lines.push(`Consistency: ${plan.consistency || alike}`)
-  if (talks) lines.push(`Voice: ${closed(plan.voice || fallbackVoice(input))} The same voice in every shot.`)
-
-  const rules = [
-    'The shots are joined by hard cuts, with no transitions, fades or effects.',
-    ...(person ? ['Hand gestures vary naturally and never loop.', 'No phone or camera is visible in anyone\'s hands unless it is the advertised product.'] : []),
-    'No subtitles. No on-screen text. No background music: natural sounds only.',
+  const closing = [
+    `Style: ${style}`,
+    `Consistency: ${withoutRoundBrackets(plan.consistency) || alike}`,
+    ...(talks ? [`Voice: ${closed(withoutRoundBrackets(plan.voice) || fallbackVoice(input))} ${speaker} speaks only ${tongue}, in the same voice in every shot.`] : []),
+    `Hard cuts between the shots, no transitions or effects.${person ? ' Hand movements are natural and different in every shot.' : ''}`,
+    `${talks ? '' : 'No dialogue. '}No BGM, no music, no score, no melody: only ${talks ? 'the voice, ' : ''}environmental sounds and action sounds. No subtitles, no captions, no text overlays.`,
+    person && speaker !== 'A voice-over'
+      ? `The clip ends on a still frame: in the last second ${speaker.startsWith('The ') ? `the ${speaker.slice(4)}` : speaker} holds the pose, mouth closed.`
+      : 'The clip ends on a still frame.',
   ]
-  lines.push(`Rules: ${rules.join(' ')}`)
-  lines.push(person ? `Ending: in the last second ${speaker} holds a final pose, mouth closed, nothing else moving.` : 'Ending: the last frame holds still.')
-  lines.push(talks ? `Spoken language: ${input.language}.` : 'No speech.')
-  return lines.join('\n')
+
+  const assemble = ({ summary, consistency }) => [
+    ...references, ...(references.length ? [''] : []),
+    opening, ...(summary && plan.summary ? [withoutRoundBrackets(plan.summary)] : []), '',
+    ...shots.flatMap(block => [block, '']),
+    ...closing.filter(line => consistency || !line.startsWith('Consistency:')),
+  ].join('\n')
+
+  let prompt = assemble({ summary: true, consistency: true })
+  if (countWords(prompt) > PROMPT_MAX_WORDS) prompt = assemble({ summary: false, consistency: true })
+  if (countWords(prompt) > PROMPT_MAX_WORDS) prompt = assemble({ summary: false, consistency: false })
+  return prompt
 }
 
 // ── Asking too often ─────────────────────────────────────────────────────────

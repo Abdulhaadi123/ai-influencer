@@ -175,18 +175,19 @@ test('an idea becomes a finished prompt: the pictures named from our list, the s
 
   const lines = prompt.split('\n')
   assert.match(lines[0], /^@Image1: the tea cup, the product being advertised\./)
-  assert.match(lines[1], /^@Image2: Mia, the main character\. Her face, hair, skin tone and outfit are identical in every shot/)
+  assert.match(lines[1], /^@Image2: Mia, the main character\. Her face, hair, skin tone and outfit stay the same in every shot/)
   assert.match(lines[2], /^@Image3: the location\./)
-  assert.ok(prompt.includes('Format: 15 seconds, vertical 9:16, 3 shots joined by hard cuts.'))
-  assert.ok(prompt.includes('SHOT 1 [0-3s] (HOOK)\nCamera: MCU, 28mm, handheld, slight sway.\nAction: Selfie close-up. She lifts the cup toward the lens.'))
-  assert.ok(prompt.includes('Dialogue (Mia, excited, casual): "Okay, I need to show you my new favorite cup."'))
-  assert.ok(prompt.includes('SHOT 3 [9-15s] (CTA)'), 'the last shot ends where the clip does')
+  assert.ok(prompt.includes('A 15-second vertical 9:16 ad, 3 shots joined by hard cuts. Speech and natural sounds only; no BGM.'))
+  assert.ok(prompt.includes('Shot 1 [0-3s]: Medium close-up, 28mm, handheld, slight sway.\nSelfie close-up. She lifts the cup toward the lens.'))
+  assert.ok(prompt.includes('Mia says, excited and casual: {English: "Okay, I need to show you my new favorite cup."}'))
+  assert.ok(prompt.includes('<soft kitchen room tone>'))
+  assert.ok(prompt.includes('Shot 3 [9-15s]:'), 'the last shot ends where the clip does')
   assert.ok(prompt.includes('Style: Shot on iPhone, vertical 9:16, natural window light.'))
   assert.ok(prompt.includes('Consistency: Same cup, same girl, same kitchen in all shots.'))
-  assert.ok(prompt.includes('Voice: A warm, relaxed voice in her late twenties. The same voice in every shot.'))
-  assert.match(prompt, /\nRules: The shots are joined by hard cuts[^\n]*No subtitles\. No on-screen text\. No background music: natural sounds only\.\n/)
-  assert.equal(lines.at(-2), 'Ending: in the last second Mia holds a final pose, mouth closed, nothing else moving.')
-  assert.equal(lines.at(-1), 'Spoken language: English.')
+  assert.ok(prompt.includes('Voice: A warm, relaxed voice in her late twenties. Mia speaks only English, in the same voice in every shot.'))
+  assert.match(prompt, /\nNo BGM, no music, no score, no melody: only the voice, environmental sounds and action sounds\. No subtitles, no captions, no text overlays\.\n/)
+  assert.doesNotMatch(prompt, /[()]/, 'no round brackets: the video model reads them as music')
+  assert.equal(lines.at(-1), 'The clip ends on a still frame: in the last second Mia holds the pose, mouth closed.')
 })
 
 test('the model is asked once, with the key, the search tool, nothing stored, and plain data — never the person\'s account', async () => {
@@ -305,12 +306,13 @@ test('"searched" is only what the answer shows: asking for the tool does not mak
   assert.equal(res.body.sources, 0)
 })
 
-test('no pictures and no character: the prompt starts at the format line, and the model is told there is nothing to refer to', async () => {
+test('no pictures and no character: the prompt starts at the clip line, and the model is told there is nothing to refer to', async () => {
   const u = await stack.createUser()
   const res = await ask(u.token, { idea: IDEA, seconds: 8, language: 'Hindi' })
   assert.equal(res.status, 200)
-  assert.ok(res.body.prompt.startsWith('Format: 8 seconds, vertical 9:16, 3 shots joined by hard cuts.\nSummary: '), res.body.prompt.slice(0, 90))
-  assert.ok(res.body.prompt.endsWith('Spoken language: Hindi.'))
+  assert.ok(res.body.prompt.startsWith('An 8-second vertical 9:16 ad, 3 shots joined by hard cuts. Speech and natural sounds only; no BGM.\nA relatable UGC-style ad'), res.body.prompt.slice(0, 140))
+  assert.ok(res.body.prompt.includes('{Hindi: "'), 'each line is tagged with its language')
+  assert.ok(res.body.prompt.includes('speaks only Hindi'))
   const data = JSON.parse(fake.requests[0].body.input)
   assert.deepEqual(data.references, [])
   assert.equal(data.seconds, 8)
@@ -323,8 +325,8 @@ test('the model\'s times are fitted to the clip: whatever it wrote, the last sho
   fake.script.push({ status: 200, json: answer(crooked) })
   const res = await ask(u.token, { ...FULL, seconds: 30 })
   assert.equal(res.status, 200)
-  assert.ok(res.body.prompt.includes('SHOT 1 [0-10s]'), res.body.prompt)
-  assert.ok(res.body.prompt.includes('SHOT 3 [20-30s]'))
+  assert.ok(res.body.prompt.includes('Shot 1 [0-10s]'), res.body.prompt)
+  assert.ok(res.body.prompt.includes('Shot 3 [20-30s]'))
 })
 
 // ── When the model or its search tool misbehave ──────────────────────────────
@@ -367,7 +369,7 @@ test('JSON wrapped in a code fence, or in a sentence, is still read', async () =
     fake.script.push({ status: 200, json: answer(PLAN, { text: wrapped }) })
     const res = await ask(u.token, FULL)
     assert.equal(res.status, 200, res.text)
-    assert.ok(res.body.prompt.includes('SHOT 1 [0-3s]'))
+    assert.ok(res.body.prompt.includes('Shot 1 [0-3s]'))
   }
 })
 
