@@ -506,6 +506,10 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '<formats>',
     `Choose the ONE format that sells this idea best, and put its beats into the ${shotWord} in this order. The beats are already ` +
       `fitted to ${count} ${shotWord}. If the idea itself asks for a format (an unboxing, a review, a routine, a tutorial), use it.`,
+    'When the request has a character (a picture of them, or a name or a description), the person paid for an ad with that ' +
+      'character in it: they are its face, seen clearly in it. Then choose hands_only only when the idea asks for no face or ' +
+      'only hands, and product_film only when it asks for a cinematic, luxury or studio film (and even then they appear in it). ' +
+      'With no character and no person in the idea, product_film or hands_only is the natural choice.',
     ...formatLines,
     'What each beat does:',
     ...jobLines,
@@ -637,6 +641,7 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '- Does every shot give the viewer one concrete thing to remember: a texture, an object, a gesture, a sound?',
     '- Does the first second stop the scroll with the sound off, and does the first line make them need the second?',
     '- Is the product clearly on screen by the end of the second shot, unless the format is a slow reveal?',
+    '- If the request has a character, is their face seen clearly in the ad, unless the idea asked for no face?',
     '- In hands_only, is there no face anywhere? In product_film, does the last shot show the product alone?',
     '- Would a real person say every line out loud, exactly like that? Is one benefit shown, not only said?',
     `- Exactly ${count} ${shotWord}, the slot times, the word budgets, no mood adjectives, no round brackets.`,

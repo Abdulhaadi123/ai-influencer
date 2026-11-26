@@ -1012,6 +1012,9 @@ test('the brief teaches the films and the faceless clips of the reference ads: a
   assert.match(text, /No face anywhere; a voice-over or no speech/)
   assert.match(text, /A UGC ad stays in one place; a film may move once \(see film_craft\)/)
   assert.match(text, /In hands_only, is there no face anywhere\? In product_film, does the last shot show the product alone\?/)
+  // A character the person chose is the face of the ad: a faceless format is chosen only when the idea asks for one.
+  assert.match(text, /When the request has a character .* they are its face, seen clearly in it\. Then choose hands_only only when the idea asks for no face or only hands, and product_film only when it asks for a cinematic, luxury or studio film/)
+  assert.match(text, /If the request has a character, is their face seen clearly in the ad, unless the idea asked for no face\?/)
 })
 
 test('in a hands-only clip or a film, speech is a voice-over, and a hands-only clip asks no face to hold still', () => {
