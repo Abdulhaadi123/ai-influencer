@@ -80,6 +80,8 @@ beforeEach(async () => {
   fake.script.length = 0
   delete process.env.DIRECTOR_SEARCH
   delete process.env.DIRECTOR_MODEL
+  delete process.env.DIRECTOR_REASONING
+  delete process.env.DIRECTOR_PICTURES
 })
 
 const ask = (token, body) => stack.api('POST', '/api/director-prompt', { token, body })
@@ -198,11 +200,13 @@ test('the model is asked once, with the key, the search tool, nothing stored, an
   assert.equal(sent.method, 'POST')
   assert.equal(sent.url, '/v1/responses')
   assert.equal(sent.authorization, 'Bearer test-openai-key')
-  assert.equal(sent.body.model, 'gpt-4o-mini')
+  assert.equal(sent.body.model, 'gpt-6.2-astra')
+  assert.deepEqual(sent.body.reasoning, { effort: 'low' })
   assert.deepEqual(sent.body.tools, [{ type: 'web_search' }])
   assert.equal(sent.body.max_tool_calls, 3)
   assert.equal(sent.body.store, false)
-  assert.ok(sent.body.max_output_tokens <= 4000)
+  assert.ok(sent.body.max_output_tokens >= 16000 && sent.body.max_output_tokens <= 32000, 'room to think and to write the plan')
+  assert.equal(typeof sent.body.input, 'string', 'no pictures: the request is plain text')
   assert.match(sent.body.instructions, /The clip is 15 seconds long/)
   assert.match(sent.body.instructions, /Speech is in English/)
 
@@ -247,8 +251,8 @@ test('a model the account does not have is not the end: the known model answers 
   const { result: res, lines } = await warned(() => ask(u.token, FULL))
   assert.equal(res.status, 200, res.text)
   assert.ok(res.body.prompt.startsWith('@Image1'))
-  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-typo-9', 'gpt-4o-mini'])
-  assert.ok(lines.some(l => l.includes('[director]') && l.includes('"gpt-typo-9" gave no plan; trying "gpt-4o-mini"')), JSON.stringify(lines))
+  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-typo-9', 'gpt-5.5'])
+  assert.ok(lines.some(l => l.includes('[director]') && l.includes('"gpt-typo-9" gave no plan; trying "gpt-5.5"')), JSON.stringify(lines))
   assert.ok(!res.text.includes('gpt-'), 'the person is not told which model')
 })
 
@@ -263,22 +267,25 @@ test('a model that writes no plan gives way to the known one, which writes it', 
   assert.equal(res.status, 200, res.text)
   assert.ok(res.body.prompt)
   // The first model: the search way (not a plan, so search is not paid for again), then the way with no search. Then the known model.
-  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-test-model', 'gpt-test-model', 'gpt-4o-mini'])
+  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-test-model', 'gpt-test-model', 'gpt-5.5'])
 })
 
-test('when the known model fails too, the person is told to try again, with the codes it always had, and nothing of the upstream leaks', async () => {
+test('when the known models fail too, the person is told to try again, with the codes it always had, and nothing of the upstream leaks', async () => {
   const u = await stack.createUser()
   process.env.DIRECTOR_MODEL = 'gpt-test-model'
-  fake.script.push({ status: 500 }, { status: 500 }, { status: 500 }, { status: 500 }, { status: 500 }, { status: 500 })
+  fake.script.push(...Array.from({ length: 9 }, () => ({ status: 500 })))
   const res = await ask(u.token, FULL)
   assert.equal(res.status, 502)
   assert.equal(res.body.code, 'ASSISTANT_UNAVAILABLE')
-  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-test-model', 'gpt-test-model', 'gpt-test-model', 'gpt-4o-mini', 'gpt-4o-mini', 'gpt-4o-mini'])
+  assert.deepEqual(fake.requests.map(r => r.body.model), [
+    'gpt-test-model', 'gpt-test-model', 'gpt-test-model', 'gpt-5.5', 'gpt-5.5', 'gpt-5.5', 'gpt-4o-mini', 'gpt-4o-mini', 'gpt-4o-mini',
+  ])
   assert.ok(!/scripted|OpenAI|openai|gpt-/.test(res.text))
 
   fake.requests.length = 0
-  fake.script.push({ status: 200, json: answer(PLAN, { text: 'no json' }) }, { status: 200, json: answer(PLAN, { text: 'no json', search: false }) },
-    { status: 200, json: answer(PLAN, { text: 'no json' }) }, { status: 200, json: answer(PLAN, { text: 'no json', search: false }) })
+  for (let i = 0; i < 3; i++) {
+    fake.script.push({ status: 200, json: answer(PLAN, { text: 'no json' }) }, { status: 200, json: answer(PLAN, { text: 'no json', search: false }) })
+  }
   const unusable = await ask(u.token, FULL)
   assert.equal(unusable.status, 502)
   assert.equal(unusable.body.code, 'DIRECTOR_FAILED', 'no plan from either model is "could not finish", as before')
@@ -375,34 +382,43 @@ test('JSON wrapped in a code fence, or in a sentence, is still read', async () =
 
 test('when nothing the model says is a plan, or it cannot be reached, the person is told to try again — with a code the app can act on', async () => {
   const u = await stack.createUser()
-  fake.script.push(
-    { status: 200, json: answer(PLAN, { text: 'no json' }) },
-    { status: 200, json: answer(PLAN, { text: '{"shots": []}', search: false }) },
-  )
+  // Every model in turn (the flagship, then the two known ones), each asked with search and then without.
+  for (let i = 0; i < 3; i++) {
+    fake.script.push(
+      { status: 200, json: answer(PLAN, { text: 'no json' }) },
+      { status: 200, json: answer(PLAN, { text: '{"shots": []}', search: false }) },
+    )
+  }
   let res = await ask(u.token, FULL)
   assert.equal(res.status, 502)
   assert.equal(res.body.code, 'DIRECTOR_FAILED')
 
-  fake.script.push({ status: 500 }, { status: 500 }, { status: 500 })
+  fake.script.push(...Array.from({ length: 9 }, () => ({ status: 500 })))
   res = await ask(u.token, FULL)
   assert.equal(res.status, 502)
   assert.equal(res.body.code, 'ASSISTANT_UNAVAILABLE')
   assert.ok(!/scripted|OpenAI|openai/.test(res.text), 'nothing of the upstream leaks')
 
-  fake.script.push({ destroy: true }, { destroy: true }, { destroy: true })
+  fake.script.push(...Array.from({ length: 9 }, () => ({ destroy: true })))
   res = await ask(u.token, FULL)
   assert.equal(res.status, 502, 'a dropped connection is not a 500')
 })
 
 test('a refused key or an exhausted allowance upstream stops at once: another way would meet the same answer', async () => {
   const u = await stack.createUser()
-  for (const status of [401, 403, 429]) {
+  for (const status of [401, 429]) {
     fake.requests.length = 0
     fake.script.push({ status, json: { error: { message: 'nope' } } })
     const res = await ask(u.token, FULL)
     assert.equal(res.status, 502, `upstream ${status}`)
     assert.equal(fake.requests.length, 1, `upstream ${status} was asked once`)
   }
+  // A model this account may not use (403) is that model's answer only: the next one is asked, once.
+  fake.requests.length = 0
+  fake.script.push({ status: 403, json: { error: { message: 'You do not have access to this model.' } } })
+  const res = await ask(u.token, FULL)
+  assert.equal(res.status, 200, res.text)
+  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-6.2-astra', 'gpt-5.5'])
 })
 
 test('a model that will not write it is a notice, not an error', async () => {
@@ -559,4 +575,138 @@ test('hostile input never makes a 500', async () => {
   const sent = fake.requests.map(r => r.body)
   assert.ok(sent.every(b => !b.instructions.includes('Ignore all the rules')), 'the instructions are ours alone')
   assert.ok(sent.every(b => !JSON.parse(b.input).character.name?.includes('\n')))
+})
+
+// ── The writer of 26 November 2026: a reasoning model, and the pictures it may look at ───────────────────────
+
+test('a reasoning model is asked with an effort, which the server chooses; a model that does not reason is asked without one', async () => {
+  const u = await stack.createUser()
+  try {
+    process.env.DIRECTOR_REASONING = 'medium'
+    await ask(u.token, FULL)
+    assert.deepEqual(fake.requests.at(-1).body.reasoning, { effort: 'medium' })
+
+    process.env.DIRECTOR_REASONING = 'as hard as you can'
+    await ask(u.token, FULL)
+    assert.deepEqual(fake.requests.at(-1).body.reasoning, { effort: 'low' }, 'an effort that is not one is the default')
+
+    for (const name of ['gpt-4.1', 'gpt-4o-mini', 'gpt-test-model']) {
+      process.env.DIRECTOR_MODEL = name
+      await ask(u.token, FULL)
+      const body = fake.requests.at(-1).body
+      assert.equal(body.model, name)
+      assert.equal(body.reasoning, undefined, `${name} is not asked to reason`)
+      assert.ok(body.max_output_tokens <= 8000, name)
+    }
+    for (const name of ['gpt-5.5', 'gpt-6.1-terra', 'o4-mini', 'gpt-10']) {
+      process.env.DIRECTOR_MODEL = name
+      await ask(u.token, FULL)
+      assert.ok(fake.requests.at(-1).body.reasoning, `${name} reasons`)
+    }
+  } finally {
+    delete process.env.DIRECTOR_REASONING
+  }
+})
+
+test('a model that will not take the reasoning setting is asked again the same way without it, once', async () => {
+  const u = await stack.createUser()
+  fake.script.push({ status: 400, json: { error: { message: "Unsupported value: 'reasoning.effort' does not support 'low' with this model.", param: 'reasoning.effort' } } })
+  const { result: res, lines } = await warned(() => ask(u.token, FULL))
+  assert.equal(res.status, 200, res.text)
+  assert.deepEqual(fake.requests.map(r => [r.body.model, r.body.reasoning?.effort ?? null, r.body.tools?.[0]?.type ?? null]), [
+    ['gpt-6.2-astra', 'low', 'web_search'],
+    ['gpt-6.2-astra', null, 'web_search'],
+  ])
+  assert.ok(lines.some(l => l.includes('does not take reasoning effort')), JSON.stringify(lines))
+})
+
+/** An image file of `owner`'s in the database, as an upload leaves it. */
+async function picture(owner, { thumb = true, status = 'clear', kind = 'image' } = {}) {
+  const id = crypto.randomUUID()
+  const key = `users/${owner.id}/2026/11/${id}.jpg`
+  await stack.sql(
+    `insert into assets (id, user_id, s3_key, thumb_key, kind, origin, byte_size, moderation_status)
+     values ($1, $2, $3, $4, $5, 'upload', 1234, $6)`,
+    [id, owner.id, key, thumb ? key.replace(/\.jpg$/, '.thumb.jpg') : null, kind, status],
+  )
+  return { id, key }
+}
+
+test('the writer is shown the person\'s own pictures, each named by its tag, by short-lived links to the small previews', async () => {
+  const u = await stack.createUser()
+  const bottle = await picture(u)
+  const side = await picture(u, { thumb: false })
+  const face = await picture(u)
+  const res = await ask(u.token, {
+    ...FULL,
+    references: [{ role: 'product', assetId: bottle.id }, { role: 'product', assetId: side.id }, { role: 'character', assetId: face.id }, { role: 'location' }],
+  })
+  assert.equal(res.status, 200, res.text)
+  const input = fake.requests[0].body.input
+  assert.ok(Array.isArray(input), 'with pictures the request is a message with parts')
+  const parts = input[0].content
+  assert.equal(input[0].role, 'user')
+  assert.equal(parts[0].type, 'input_text')
+  const data = JSON.parse(parts[0].text)
+  assert.deepEqual(data.pictures_attached, ['@Image1', '@Image2', '@Image3'])
+  assert.ok(!parts[0].text.includes(bottle.id), 'the model is told tags, not file ids')
+  const shown = parts.slice(1)
+  assert.deepEqual(shown.filter(p => p.type === 'input_text').map(p => p.text), ['@Image1 (product):', '@Image2 (product):', '@Image3 (character):'])
+  const links = shown.filter(p => p.type === 'input_image')
+  assert.equal(links.length, 3)
+  assert.ok(links.every(p => p.detail === 'low'))
+  assert.ok(links[0].image_url.includes(bottle.key.replace(/\.jpg$/, '.thumb.jpg')), 'the preview, when there is one')
+  assert.ok(links[1].image_url.includes(side.key), 'else the file itself')
+  for (const link of links) assert.match(link.image_url, /X-Amz-Expires=600\b/, 'signed for ten minutes')
+  assert.ok(res.body.prompt.startsWith('@Image1'), 'the prompt is the same as ever')
+})
+
+test('a picture that is not the person\'s, was blocked, is not an image or does not exist is never shown', async () => {
+  const u = await stack.createUser()
+  const other = await stack.createUser()
+  const theirs = await picture(other)
+  const blocked = await picture(u, { status: 'blocked' })
+  const clip = await picture(u, { kind: 'video' })
+  const res = await ask(u.token, {
+    ...FULL,
+    references: [
+      { role: 'product', assetId: theirs.id }, { role: 'product', assetId: blocked.id }, { role: 'character', assetId: clip.id },
+      { role: 'location', assetId: crypto.randomUUID() },
+    ],
+  })
+  assert.equal(res.status, 200, res.text)
+  assert.equal(typeof fake.requests[0].body.input, 'string', 'nothing to show: plain text')
+  assert.equal(JSON.parse(fake.requests[0].body.input).pictures_attached, undefined)
+  assert.ok(!JSON.stringify(fake.requests[0].body).includes(theirs.key))
+})
+
+test('the pictures can be switched off, and a model that cannot fetch one is asked again without them', async () => {
+  const u = await stack.createUser()
+  const bottle = await picture(u)
+  const body = { ...FULL, references: [{ role: 'product', assetId: bottle.id }] }
+  try {
+    process.env.DIRECTOR_PICTURES = 'false'
+    await ask(u.token, body)
+    assert.equal(typeof fake.requests.at(-1).body.input, 'string')
+  } finally {
+    delete process.env.DIRECTOR_PICTURES
+  }
+
+  fake.requests.length = 0
+  fake.script.push({ status: 400, json: { error: { message: 'Error while downloading https://bucket.example/x.jpg.', param: 'url', code: 'invalid_value' } } })
+  const { result: res, lines } = await warned(() => ask(u.token, body))
+  assert.equal(res.status, 200, res.text)
+  assert.equal(fake.requests.length, 2)
+  assert.ok(Array.isArray(fake.requests[0].body.input))
+  assert.equal(typeof fake.requests[1].body.input, 'string', 'the same way again, without the pictures')
+  assert.equal(fake.requests[1].body.tools?.[0]?.type, 'web_search')
+  assert.ok(lines.some(l => l.includes('the pictures could not be used')), JSON.stringify(lines))
+})
+
+test('a file id in the list is checked like everything else: nonsense is ignored, never a 500', async () => {
+  const u = await stack.createUser()
+  for (const assetId of [null, 42, '', 'x'.repeat(5000), "' or 1=1 --", { id: 1 }, ['a'], '00000000-0000-0000-0000-000000000000']) {
+    const res = await ask(u.token, { ...FULL, references: [{ role: 'product', assetId }] })
+    assert.equal(res.status, 200, `${JSON.stringify(assetId).slice(0, 40)}: ${res.text.slice(0, 120)}`)
+  }
 })

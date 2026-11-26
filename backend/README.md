@@ -553,17 +553,39 @@ POST /api/director-prompt   (signed in)
   that the idea's own look wins, and that anything unsafe is adapted (an adult for a child, an invented character for a real
   person, a health or income claim left out). Safety is the content check before and after the writing, plus the child check.
   A health claim is only softened by the model, not enforced in code. A `"refusal": "none"` placeholder is read as no refusal.
-- **Environment** (all optional but the key): `OPENAI_API_KEY`, `DIRECTOR_MODEL` (default `gpt-4o-mini`), `DIRECTOR_SEARCH`
-  (`false` turns web search off), `DIRECTOR_PER_MINUTE`, `DIRECTOR_PER_DAY`. `DIRECTOR_OPENAI_BASE_URL` exists only so tests
-  can stand in for OpenAI.
-- **A stronger writer is one setting away, and a wrong name cannot take the director down.** `DIRECTOR_MODEL` takes a model the
-  Responses API offers (one that supports the web search tool). It is tried first; if the account has no such model (404), may not use it (403),
-  or the model writes no plan, `gpt-4o-mini` (the model the real runs used) is asked after it, and the log says
-  `"…" gave no plan; trying "gpt-4o-mini"`. A key that is refused or an allowance used up (401, 429) stops at once. **`gpt-4.1` is the one to
-  try**, not a reasoning model (`gpt-5…`, `o…`): those spend the 3,000-token output limit here on thinking and can cut the plan short. It costs
-  about a cent a plan against a fraction of one, and it really uses web search (up to 3 searches: a few cents and 10 to 20 seconds more), which
-  `gpt-4o-mini` never did. A link a search leaves in the writing is taken out before the prompt is built (`withoutLinks`). Not run against the real
-  API: after changing the setting, try one idea and read `docker compose logs api | grep "\[director\]"`.
+- **The brief of 2026-11-26 ("the output is very basic", the owner's sir).** The instructions were a form to fill in, and the model
+  filled it in with the safest generic thing. They are now a director's brief in tagged sections, written to Anthropic's and OpenAI's
+  prompting guides: a role, why the plan matters, seven steps of work (the product and buyer, the angle, three hooks and keep the
+  best, the creator and their world, the script as one take, each shot, a check), the cut, the formats, the craft of UGC (front
+  camera at arm's length, jump cuts, a lived-in place named precisely, micro-expressions, speech that starts mid-thought, proof
+  shown), the craft of a product film (a story that may move once, the product's ingredients around it, a splash or mist in
+  slow motion, commercial light, an editorial look, the product alone at the end), what Seedance renders well and why, speech,
+  pictures, safety, a quality bar and two complete example plans (a pour-over dripper, 15 s, honest review; an orange juice
+  studio film, 10 s; the tests read both with `readPlan`). The film craft and the hands-only format come from the reference
+  ads the owner's sir sent; in those two formats speech is a voice-over and nobody talks to the lens. **Eight formats** (`FORMATS`: problem and solution, honest
+  review, unboxing, routine, how-to, reasons, hands only, product film) each fill the same fixed slots of a length with their own beats; the
+  model picks one. Each shot now carries `action`, `performance` and `delivery` (the old `visual` and `tone` are still read), the
+  plan a `setting` (the place, named objects, the light) and a `look` (a described person, written once before the shots when no
+  picture shows them), and the answer opens with an `angle` and three `hooks`, so even a model that does not reason decides the
+  idea before the shots. Past about 950 words the performance notes go after the summary and the consistency line.
+- **The writer sees the product.** References may carry `assetId`; the first two product photos, the main character picture and
+  the location (`writerPictures`, four at most) that are the caller's own image files and not blocked are shown to the model by
+  ten-minute links to their previews, each named by its tag (`pictures_attached` in the request). A model that cannot fetch one
+  is asked again without them; anything going wrong there costs only the pictures. `DIRECTOR_PICTURES=false` turns it off. The
+  app sends the ids from its next build.
+- **Environment** (all optional but the key): `OPENAI_API_KEY`, `DIRECTOR_MODEL` (default `gpt-6.2-astra`), `DIRECTOR_REASONING`
+  (`low` by default; `none`, `minimal`, `medium`, `high`, `xhigh`, `max`), `DIRECTOR_SEARCH` (`false` turns web search off; the
+  model is told to search only for a brand it does not know), `DIRECTOR_PICTURES`, `DIRECTOR_PER_MINUTE`, `DIRECTOR_PER_DAY`.
+  `DIRECTOR_OPENAI_BASE_URL` exists only so tests can stand in for OpenAI.
+- **The model, and a wrong name cannot take the director down.** OpenAI's flagship reasoning model, `gpt-6.2-astra` (its models
+  page, read 2026-11-26), with reasoning effort `low`: the app waits 130 s for the whole answer and a reasoning model's thinking
+  is most of its time (`medium` is worth trying once the real times are known). `reasoning` is sent only to a model that reasons
+  (o-series, GPT-5 onwards); a model that refuses the setting (`400` naming reasoning) is asked again the same way without it.
+  `max_output_tokens` is 24,000 for a reasoning model (its thinking counts too), 6,000 otherwise. If the account has no such model
+  (404), may not use it (403) or it writes no plan, `gpt-5.5` and then `gpt-4o-mini` are asked, and the log says
+  `"…" gave no plan; trying "…"`. A refused key or an allowance used up (401, 429) stops at once. `gpt-4.1`, which the server was
+  set to, is deprecated by OpenAI (shut down 14 January 2027): set `DIRECTOR_MODEL=gpt-6.2-astra` or leave it out. Per try 95 s,
+  all tries 118 s. A link a search leaves in the writing is taken out before the prompt is built (`withoutLinks`).
 - **Checked only against a stand-in.** `test/integration/director-prompt.test.js` runs the whole endpoint against a fake
   Responses API; nothing has been asked of the real one since the 2026-11-23 rewrite (the 2026-11-19 runs were the old prompt). After deploying, ask it once with a real session (the answer
   should have `searched: true` and a prompt that starts with the `@Image1:` lines) and look at the server log line

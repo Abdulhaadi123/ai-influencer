@@ -31,9 +31,14 @@
  *
  * Environment (all optional but the key, which is the one the prompt assistant and the moderation use):
  *   OPENAI_API_KEY          without it: 501 NOT_CONFIGURED, and the app hides Director Mode's writer
- *   DIRECTOR_MODEL          default gpt-4o-mini. Tried first; if the account has no such model, or it gives no plan, gpt-4o-mini is tried
- *                           after it (a line in the log says so), so a mistyped or unavailable name cannot take the director down
- *   DIRECTOR_SEARCH         false turns web search off altogether (default on)
+ *   DIRECTOR_MODEL          default gpt-6.2-astra. Tried first; if the account has no such model, or it gives no plan, gpt-5.5 and then
+ *                           gpt-4o-mini are tried after it (a line in the log says so), so a mistyped or unavailable name cannot take
+ *                           the director down
+ *   DIRECTOR_REASONING      how hard a reasoning model thinks: none, minimal, low (default), medium, high, xhigh, max. Only sent
+ *                           to a model that reasons; dropped for one try if the model refuses it
+ *   DIRECTOR_SEARCH         false turns web search off altogether (default on; the model searches only to learn a brand it
+ *                           does not know)
+ *   DIRECTOR_PICTURES       false stops the writer being shown the product, character and location pictures (default on)
  *   DIRECTOR_PER_MINUTE     default 4
  *   DIRECTOR_PER_DAY        default 30
  *   DIRECTOR_OPENAI_BASE_URL   only so tests can stand in for OpenAI; production leaves it unset
@@ -42,19 +47,46 @@
 import { userRoute, HttpError, noStore } from './_lib/http.js'
 import { screenText, ModerationRefusal, MESSAGES } from './_lib/moderation/service.js'
 import { createRateLimiter } from '../lib/rateLimit.js'
+import { many } from './_lib/db.js'
+import { presignGet } from './_lib/s3.js'
 import {
   cleanInput, DirectorInputError, DirectorOutputError,
-  systemPrompt, userMessage, extractOutput, readPlan, composePrompt, limitMessage,
+  systemPrompt, userMessage, extractOutput, readPlan, composePrompt, limitMessage, writerPictures,
 } from './_lib/director.js'
 
 const apiKey = () => process.env.OPENAI_API_KEY || ''
-/** The model the real runs of 2026-11-19 used: the one that is known to answer. What DIRECTOR_MODEL names is tried before it. */
-const FALLBACK_MODEL = 'gpt-4o-mini'
-const model = () => (process.env.DIRECTOR_MODEL || '').trim() || FALLBACK_MODEL
-/** The models to try, in order: the one asked for, then the known one (only once when they are the same). */
-const models = () => [...new Set([model(), FALLBACK_MODEL])]
+
+/**
+ * The writer. A plan is creative work under many constraints, which is what OpenAI's reasoning models are for: its flagship
+ * (developers.openai.com/api/docs/models, read 26 November 2026: "GPT-6.2 Astra, our flagship model for complex reasoning").
+ * gpt-4.1, which the server was set to, is deprecated (shut down 14 January 2027) and wrote thin, template-like plans.
+ */
+export const DEFAULT_MODEL = 'gpt-6.2-astra'
+/**
+ * Tried in turn after the one asked for when it does not exist for the account or writes no plan: the previous flagship, then
+ * the model the real runs of 2026-11-19 used, known to answer. A wrong name never takes the director down.
+ */
+export const FALLBACK_MODELS = Object.freeze(['gpt-5.5', 'gpt-4o-mini'])
+const model = () => (process.env.DIRECTOR_MODEL || '').trim() || DEFAULT_MODEL
+/** The models to try, in order: the one asked for, then the fallbacks (each once). */
+const models = () => [...new Set([model(), ...FALLBACK_MODELS])]
+
+/** Whether a model thinks before it answers (takes `reasoning`): OpenAI's o-series and GPT-5 onwards. */
+export const reasons = name => /^(o\d|gpt-([5-9]|\d{2,}))/i.test(String(name))
+const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+/**
+ * How hard a reasoning model thinks: `low` by default. The app waits 130 s for the whole answer, and thinking is most of
+ * the time a reasoning model takes; the plan's quality comes from the instructions' own steps. `medium` is worth trying.
+ */
+const effort = () => {
+  const named = String(process.env.DIRECTOR_REASONING ?? '').trim().toLowerCase()
+  return EFFORTS.has(named) ? named : 'low'
+}
+
 const baseUrl = () => (process.env.DIRECTOR_OPENAI_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '')
 const searchOn = () => String(process.env.DIRECTOR_SEARCH ?? 'true').toLowerCase() !== 'false'
+/** DIRECTOR_PICTURES=false stops the writer being shown the product and character pictures (default on). */
+const picturesOn = () => String(process.env.DIRECTOR_PICTURES ?? 'true').toLowerCase() !== 'false'
 
 const DAY_MS = 24 * 60 * 60_000
 const limiter = createRateLimiter([
@@ -62,9 +94,14 @@ const limiter = createRateLimiter([
   { windowMs: DAY_MS, max: Number(process.env.DIRECTOR_PER_DAY) || 30 },
 ])
 
-/** A search and a written plan take a while. Per try, and for all of them together. */
-const TRY_MS = 60_000
-const ALL_MS = 110_000
+/**
+ * A plan takes a while. Per try, and for all of them together: the whole stays under the 130 s the app waits
+ * (mobile/core/services/director.js), so the server's own answer is the one the person sees.
+ */
+const TRY_MS = 95_000
+const ALL_MS = 118_000
+/** How long a link to a picture shown to the writer lasts: long enough for the model to fetch it, no longer. */
+const PICTURE_TTL_SECONDS = 600
 
 const DECLINED = Object.freeze({
   code: 'DECLINED',
@@ -101,16 +138,37 @@ function ways() {
   ]
 }
 
+/**
+ * What the model is given: the request as data and, when there are any, the pictures it may look at, each named by its tag
+ * just before it. Without pictures it is the plain text, as it always was.
+ */
+export function writerInput(text, pictures = []) {
+  if (!pictures.length) return text
+  return [{
+    role: 'user',
+    content: [
+      { type: 'input_text', text },
+      ...pictures.flatMap(p => [
+        { type: 'input_text', text: `${p.tag} (${p.role}):` },
+        // "low" is enough to see what a product is and how it is held, at a fraction of the cost and time.
+        { type: 'input_image', image_url: p.url, detail: 'low' },
+      ]),
+    ],
+  }]
+}
+
 /** One request to OpenAI's Responses API. Resolves with the Response; throws on a network failure or a timeout. */
-function ask({ system, text, way, ms, modelName }) {
+function ask({ system, text, way, ms, modelName, pictures, thinking }) {
   const body = {
     model: modelName,
     instructions: system,
-    input: text,
-    max_output_tokens: 3000,
+    input: writerInput(text, pictures),
+    // A reasoning model's thinking counts against this too, so it gets room for both; the plan itself is ~2,000 tokens.
+    max_output_tokens: thinking ? 24_000 : 6_000,
     // What a person typed is not kept at OpenAI to be looked at later.
     store: false,
   }
+  if (thinking) body.reasoning = { effort: thinking }
   if (way.tools) {
     body.tools = way.tools
     body.tool_choice = 'auto'
@@ -129,31 +187,52 @@ function ask({ system, text, way, ms, modelName }) {
  * Get a usable plan out of the model, trying the ways in turn, and the known model after the one asked for.
  * @returns {Promise<{refusal: string}|{plan: object, searched: boolean, sources: number}>}
  */
-async function writePlan(input) {
+async function writePlan(input, pictures = []) {
   const system = systemPrompt(input)
-  const text = userMessage(input)
   const deadline = Date.now() + ALL_MS
 
   let unusable = false          // the last answer arrived but was not a plan
+  let shown = pictures          // dropped for good if the model cannot fetch or read them
   const tried = models()
   for (const [index, modelName] of tried.entries()) {
     let skipSearch = false      // an answer that cost a search and was not a plan: do not pay for another
     let halt = false            // our key is refused, or we are being limited: another model would meet the same answer
+    let thinking = reasons(modelName) ? effort() : null
     unusable = false
 
     for (const way of ways()) {
       if (skipSearch && way.tools) continue
-      const left = deadline - Date.now()
+      let left = deadline - Date.now()
       if (left < 5_000) break
 
       let upstream
-      try {
-        upstream = await ask({ system, text, way, ms: Math.min(TRY_MS, left), modelName })
-      } catch (e) {
-        console.error('[director] upstream did not answer:', e?.name || e?.message || e)
-        unusable = false
-        continue
+      // The same way is asked again, at most twice, without what the model said it cannot take: the pictures (it could not
+      // fetch or read one) or the reasoning setting (a model or an effort it does not have). Each is dropped only once.
+      for (let again = 0; ; again++) {
+        try {
+          upstream = await ask({
+            system, text: userMessage(input, shown.map(p => p.tag)), way, ms: Math.min(TRY_MS, left), modelName, pictures: shown, thinking,
+          })
+        } catch (e) {
+          console.error('[director] upstream did not answer:', e?.name || e?.message || e, `(${modelName})`)
+          upstream = null
+          break
+        }
+        if (upstream.ok || upstream.status !== 400 || again >= 2) break
+        const detail = await upstream.clone().text().catch(() => '')
+        if (shown.length && /image|url|download|fetch/i.test(detail)) {
+          console.warn(`[director] the pictures could not be used (${modelName}); asking without them:`, detail.slice(0, 160))
+          shown = []
+        } else if (thinking && /reasoning|effort/i.test(detail)) {
+          console.warn(`[director] "${modelName}" does not take reasoning effort "${thinking}"; asking without it`)
+          thinking = null
+        } else {
+          break
+        }
+        left = deadline - Date.now()
+        if (left < 5_000) break
       }
+      if (!upstream) { unusable = false; continue }
 
       if (!upstream.ok) {
         const detail = await upstream.text().catch(() => '')
@@ -186,6 +265,35 @@ async function writePlan(input) {
   throw unusable
     ? new HttpError(502, 'The director could not finish this one. Please try again.', 'DIRECTOR_FAILED')
     : new HttpError(502, 'The director is unavailable right now. Please try again in a moment.', 'ASSISTANT_UNAVAILABLE')
+}
+
+/**
+ * Links to the pictures the writer may look at (api/_lib/director.js writerPictures): only the caller's own image files, never one
+ * content moderation blocked, signed for a few minutes. The small preview when there is one: the writer needs to see what the
+ * product is, not every pixel. Anything that goes wrong here costs only the pictures: the plan is still written, from words.
+ */
+async function picturesFor(user, input) {
+  if (!picturesOn()) return []
+  const wanted = writerPictures(input.references)
+  if (!wanted.length) return []
+  try {
+    const rows = await many(
+      `select id, s3_key, thumb_key from assets
+        where user_id = $1 and id = any($2::uuid[]) and kind = 'image' and moderation_status <> 'blocked'`,
+      [user.id, wanted.map(r => r.assetId)],
+    )
+    const byId = new Map(rows.map(row => [String(row.id).toLowerCase(), row]))
+    const shown = []
+    for (const ref of wanted) {
+      const row = byId.get(ref.assetId)
+      if (!row) continue
+      shown.push({ tag: ref.tag, role: ref.role, url: await presignGet({ key: row.thumb_key || row.s3_key, expiresIn: PICTURE_TTL_SECONDS }) })
+    }
+    return shown
+  } catch (e) {
+    console.warn('[director] the pictures could not be prepared; writing from words:', e?.message ?? e)
+    return []
+  }
 }
 
 /** A moderation refusal as the HttpError the route wrapper answers with. */
@@ -226,7 +334,8 @@ export default userRoute(async (req, res, user) => {
   }
   const review = verdict === 'review' ? { code: 'REVIEW', message: MESSAGES.suggestionReview } : undefined
 
-  const written = await writePlan(input)
+  const pictures = await picturesFor(user, input)
+  const written = await writePlan(input, pictures)
   noStore(res)
   if (written.refusal) {
     // The model's own words go to the server log, for whoever runs it, and are not passed on: the person is told only
