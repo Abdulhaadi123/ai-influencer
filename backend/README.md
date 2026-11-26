@@ -573,18 +573,19 @@ POST /api/director-prompt   (signed in)
   ten-minute links to their previews, each named by its tag (`pictures_attached` in the request). A model that cannot fetch one
   is asked again without them; anything going wrong there costs only the pictures. `DIRECTOR_PICTURES=false` turns it off. The
   app sends the ids from its next build.
-- **Environment** (all optional but the key): `OPENAI_API_KEY`, `DIRECTOR_MODEL` (default `gpt-6.2-astra`), `DIRECTOR_REASONING`
+- **Environment** (all optional but the key): `OPENAI_API_KEY`, `DIRECTOR_MODEL` (default `gpt-6.2-sol`), `DIRECTOR_REASONING`
   (`low` by default; `none`, `minimal`, `medium`, `high`, `xhigh`, `max`), `DIRECTOR_SEARCH` (`false` turns web search off; the
   model is told to search only for a brand it does not know), `DIRECTOR_PICTURES`, `DIRECTOR_PER_MINUTE`, `DIRECTOR_PER_DAY`.
   `DIRECTOR_OPENAI_BASE_URL` exists only so tests can stand in for OpenAI.
-- **The model, and a wrong name cannot take the director down.** OpenAI's flagship reasoning model, `gpt-6.2-astra` (its models
-  page, read 2026-11-26), with reasoning effort `low`: the app waits 130 s for the whole answer and a reasoning model's thinking
+- **The model, and a wrong name cannot take the director down.** `gpt-6.2-sol`, chosen from real runs on 2026-11-26 (five models,
+  six ideas: it wrote as well as the flagship `gpt-6.2-astra` at a quarter of the price, about $0.02 to $0.04 a plan, in 15 to
+  27 s; Astra about $0.09 to $0.16; `gpt-4.1` invented what an unknown product was), with reasoning effort `low`: the app waits 130 s for the whole answer and a reasoning model's thinking
   is most of its time (`medium` is worth trying once the real times are known). `reasoning` is sent only to a model that reasons
   (o-series, GPT-5 onwards); a model that refuses the setting (`400` naming reasoning) is asked again the same way without it.
   `max_output_tokens` is 24,000 for a reasoning model (its thinking counts too), 6,000 otherwise. If the account has no such model
-  (404), may not use it (403) or it writes no plan, `gpt-5.5` and then `gpt-4o-mini` are asked, and the log says
+  (404), may not use it (403) or it writes no plan, `gpt-6.1-terra` and then `gpt-5.5` are asked, and the log says
   `"…" gave no plan; trying "…"`. A refused key or an allowance used up (401, 429) stops at once. `gpt-4.1`, which the server was
-  set to, is deprecated by OpenAI (shut down 14 January 2027): set `DIRECTOR_MODEL=gpt-6.2-astra` or leave it out. Per try 95 s,
+  set to, is deprecated by OpenAI (shut down 14 January 2027): set `DIRECTOR_MODEL=gpt-6.2-sol` or leave it out. Per try 95 s,
   all tries 118 s. A link a search leaves in the writing is taken out before the prompt is built (`withoutLinks`).
 - **Checked only against a stand-in.** `test/integration/director-prompt.test.js` runs the whole endpoint against a fake
   Responses API; nothing has been asked of the real one since the 2026-11-23 rewrite (the 2026-11-19 runs were the old prompt). After deploying, ask it once with a real session (the answer

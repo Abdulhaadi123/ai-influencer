@@ -607,9 +607,14 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '</speech>',
     '',
     '<pictures>',
-    '- The reference images are listed in the request, each with its tag (@Image1, @Image2…). Refer to a picture only by its ' +
-      'exact tag, never invent another tag, and do not describe what an image looks like: the video model sees it. Use what ' +
-      'you see in attached pictures to choose real actions (how it opens, how it is held), not to describe its looks.',
+    '- The reference images are listed in the request, each with its tag (@Image1, @Image2…). Code writes the lines that say ' +
+      'which picture is which, so never write a tag in your plan: call the product by its name and the character by theirs ' +
+      '("the bottle", "Mia"). A tag in a shot ("the bottle from @Image4") tells the video model that shot holds a different ' +
+      'object. Do not describe what an image looks like: the video model sees it. Use what you see in attached pictures to ' +
+      'choose real actions (how it opens, how it is held), not to describe its looks.',
+    '- If you cannot tell what kind of thing the product is (no picture is attached and the idea does not say), never guess ' +
+      'one (a stick, a cream, a spray): call it by its name, and show it held, turned and looked at, never used in a way you ' +
+      'made up.',
     '- Whenever a person is in a shot it is the character, the person in the character reference; a shot may show only the ' +
       'product (a close-up, for instance) with no person in it. If there is no character reference, write "look" from the ' +
       'description given, or an ordinary adult who fits the idea, and keep them identical in every shot. If the idea is a ' +
@@ -790,6 +795,16 @@ export function withoutLinks(text) {
 }
 
 const sentence = (value, max) => oneLine(withoutLinks(typeof value === 'string' ? value : ''), max)
+
+/**
+ * "the bottle from @Image4" → "the bottle": a tag the model wrote into what a shot shows. Code writes which picture is which;
+ * a tag in a shot tells the video model that shot holds another object (real runs, 26 November 2026: gpt-6.1-terra and
+ * gpt-5.5 named a different product photo in every shot of one bottle). Only the phrase that points at a picture goes; a
+ * sentence with none is returned as it was.
+ */
+const TAG_PHRASE = /\s*,?\s*\b(?:as )?(?:shown |seen )?(?:from|in|of|like)\s+@Image\d+\b/gi
+export const withoutTagPhrases = text => String(text ?? '').replace(TAG_PHRASE, '')
+const seen = (value, max) => withoutTagPhrases(sentence(value, max))
 const orNull = text => (text ? text : null)
 
 /**
@@ -898,7 +913,7 @@ export function readPlan(text, seconds) {
 
   const shots = Array.isArray(raw.shots) ? raw.shots : []
   // A shot's picture is its "action" (what the writer is asked for since 26 November 2026), or "visual" (before then).
-  const pictureOf = shot => sentence(shot.action, 700) || sentence(shot.visual, 700)
+  const pictureOf = shot => seen(shot.action, 700) || seen(shot.visual, 700)
   const kept = shots
     .filter(shot => shot && typeof shot === 'object' && pictureOf(shot))
     .slice(0, 10)
@@ -907,7 +922,7 @@ export function readPlan(text, seconds) {
       span: Math.max(0.5, Number(shot.end) - Number(shot.start)) || 1,
       camera: orNull(sentence(shot.camera, 140)),
       visual: pictureOf(shot),
-      performance: orNull(sentence(shot.performance, 240)),
+      performance: orNull(seen(shot.performance, 240)),
       dialogue: orNull(sentence(shot.dialogue, 260).replace(/["“”]/g, '')),
       tone: orNull(sentence(shot.delivery, 60) || sentence(shot.tone, 60)),
       sfx: orNull(sentence(shot.sfx, 200)),
@@ -920,9 +935,9 @@ export function readPlan(text, seconds) {
   const plan = {
     format,
     product: orNull(sentence(raw.product, 60)),
-    summary: sentence(raw.summary, 600),
-    setting: orNull(sentence(raw.setting, 400)),
-    look: orNull(sentence(raw.look, 400)),
+    summary: seen(raw.summary, 600),
+    setting: orNull(seen(raw.setting, 400)),
+    look: orNull(seen(raw.look, 400)),
     voice: orNull(sentence(raw.voice, 200)),
     style: sentence(raw.style, 500),
     consistency: sentence(raw.consistency, 400),

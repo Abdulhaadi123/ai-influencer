@@ -200,7 +200,7 @@ test('the model is asked once, with the key, the search tool, nothing stored, an
   assert.equal(sent.method, 'POST')
   assert.equal(sent.url, '/v1/responses')
   assert.equal(sent.authorization, 'Bearer test-openai-key')
-  assert.equal(sent.body.model, 'gpt-6.2-astra')
+  assert.equal(sent.body.model, 'gpt-6.2-sol')
   assert.deepEqual(sent.body.reasoning, { effort: 'low' })
   assert.deepEqual(sent.body.tools, [{ type: 'web_search' }])
   assert.equal(sent.body.max_tool_calls, 3)
@@ -251,8 +251,8 @@ test('a model the account does not have is not the end: the known model answers 
   const { result: res, lines } = await warned(() => ask(u.token, FULL))
   assert.equal(res.status, 200, res.text)
   assert.ok(res.body.prompt.startsWith('@Image1'))
-  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-typo-9', 'gpt-5.5'])
-  assert.ok(lines.some(l => l.includes('[director]') && l.includes('"gpt-typo-9" gave no plan; trying "gpt-5.5"')), JSON.stringify(lines))
+  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-typo-9', 'gpt-6.1-terra'])
+  assert.ok(lines.some(l => l.includes('[director]') && l.includes('"gpt-typo-9" gave no plan; trying "gpt-6.1-terra"')), JSON.stringify(lines))
   assert.ok(!res.text.includes('gpt-'), 'the person is not told which model')
 })
 
@@ -267,7 +267,7 @@ test('a model that writes no plan gives way to the known one, which writes it', 
   assert.equal(res.status, 200, res.text)
   assert.ok(res.body.prompt)
   // The first model: the search way (not a plan, so search is not paid for again), then the way with no search. Then the known model.
-  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-test-model', 'gpt-test-model', 'gpt-5.5'])
+  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-test-model', 'gpt-test-model', 'gpt-6.1-terra'])
 })
 
 test('when the known models fail too, the person is told to try again, with the codes it always had, and nothing of the upstream leaks', async () => {
@@ -278,7 +278,7 @@ test('when the known models fail too, the person is told to try again, with the 
   assert.equal(res.status, 502)
   assert.equal(res.body.code, 'ASSISTANT_UNAVAILABLE')
   assert.deepEqual(fake.requests.map(r => r.body.model), [
-    'gpt-test-model', 'gpt-test-model', 'gpt-test-model', 'gpt-5.5', 'gpt-5.5', 'gpt-5.5', 'gpt-4o-mini', 'gpt-4o-mini', 'gpt-4o-mini',
+    'gpt-test-model', 'gpt-test-model', 'gpt-test-model', 'gpt-6.1-terra', 'gpt-6.1-terra', 'gpt-6.1-terra', 'gpt-5.5', 'gpt-5.5', 'gpt-5.5',
   ])
   assert.ok(!/scripted|OpenAI|openai|gpt-/.test(res.text))
 
@@ -418,7 +418,7 @@ test('a refused key or an exhausted allowance upstream stops at once: another wa
   fake.script.push({ status: 403, json: { error: { message: 'You do not have access to this model.' } } })
   const res = await ask(u.token, FULL)
   assert.equal(res.status, 200, res.text)
-  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-6.2-astra', 'gpt-5.5'])
+  assert.deepEqual(fake.requests.map(r => r.body.model), ['gpt-6.2-sol', 'gpt-6.1-terra'])
 })
 
 test('a model that will not write it is a notice, not an error', async () => {
@@ -614,8 +614,8 @@ test('a model that will not take the reasoning setting is asked again the same w
   const { result: res, lines } = await warned(() => ask(u.token, FULL))
   assert.equal(res.status, 200, res.text)
   assert.deepEqual(fake.requests.map(r => [r.body.model, r.body.reasoning?.effort ?? null, r.body.tools?.[0]?.type ?? null]), [
-    ['gpt-6.2-astra', 'low', 'web_search'],
-    ['gpt-6.2-astra', null, 'web_search'],
+    ['gpt-6.2-sol', 'low', 'web_search'],
+    ['gpt-6.2-sol', null, 'web_search'],
   ])
   assert.ok(lines.some(l => l.includes('does not take reasoning effort')), JSON.stringify(lines))
 })

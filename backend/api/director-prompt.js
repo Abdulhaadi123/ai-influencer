@@ -31,8 +31,8 @@
  *
  * Environment (all optional but the key, which is the one the prompt assistant and the moderation use):
  *   OPENAI_API_KEY          without it: 501 NOT_CONFIGURED, and the app hides Director Mode's writer
- *   DIRECTOR_MODEL          default gpt-6.2-astra. Tried first; if the account has no such model, or it gives no plan, gpt-5.5 and then
- *                           gpt-4o-mini are tried after it (a line in the log says so), so a mistyped or unavailable name cannot take
+ *   DIRECTOR_MODEL          default gpt-6.2-sol. Tried first; if the account has no such model, or it gives no plan, gpt-6.1-terra and
+ *                           then gpt-5.5 are tried after it (a line in the log says so), so a mistyped or unavailable name cannot take
  *                           the director down
  *   DIRECTOR_REASONING      how hard a reasoning model thinks: none, minimal, low (default), medium, high, xhigh, max. Only sent
  *                           to a model that reasons; dropped for one try if the model refuses it
@@ -57,16 +57,18 @@ import {
 const apiKey = () => process.env.OPENAI_API_KEY || ''
 
 /**
- * The writer. A plan is creative work under many constraints, which is what OpenAI's reasoning models are for: its flagship
- * (developers.openai.com/api/docs/models, read 26 November 2026: "GPT-6.2 Astra, our flagship model for complex reasoning").
- * gpt-4.1, which the server was set to, is deprecated (shut down 14 January 2027) and wrote thin, template-like plans.
+ * The writer: OpenAI's gpt-6.2-sol. Chosen on 26 November 2026 from real runs of five models on six ideas (a UGC ad at 15
+ * and 30 s, a hands-only clip, a perfume film, a chosen influencer, Urdu): it wrote as well as the flagship gpt-6.2-astra
+ * (specific places and props, strong hooks, the right format every time) at a quarter of the price ( / 0 per million
+ * tokens against  / 0; about /usr/bin/bash.02 to /usr/bin/bash.04 a plan) and faster (15 to 27 s). gpt-4.1, which the server was set to, is
+ * deprecated (shut down 14 January 2027) and invented what an unknown product was.
  */
-export const DEFAULT_MODEL = 'gpt-6.2-astra'
+export const DEFAULT_MODEL = 'gpt-6.2-sol'
 /**
- * Tried in turn after the one asked for when it does not exist for the account or writes no plan: the previous flagship, then
- * the model the real runs of 2026-11-19 used, known to answer. A wrong name never takes the director down.
+ * Tried in turn after the one asked for when it does not exist for the account or writes no plan: gpt-6.1-terra (cheaper, also
+ * wrote every plan in the real runs), then gpt-5.5. A wrong name never takes the director down.
  */
-export const FALLBACK_MODELS = Object.freeze(['gpt-5.5', 'gpt-4o-mini'])
+export const FALLBACK_MODELS = Object.freeze(['gpt-6.1-terra', 'gpt-5.5'])
 const model = () => (process.env.DIRECTOR_MODEL || '').trim() || DEFAULT_MODEL
 /** The models to try, in order: the one asked for, then the fallbacks (each once). */
 const models = () => [...new Set([model(), ...FALLBACK_MODELS])]

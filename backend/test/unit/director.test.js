@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import {
   SECONDS, DEFAULT_SECONDS, MAX_IDEA_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS,
   DirectorInputError, DirectorOutputError,
-  cleanInput, shotRange, beatSheet, FORMATS, formatsFor, formatBeats, timed, writerPictures, speechWords, speechCap, countWords, fitSpeech, withoutLinks,
+  cleanInput, shotRange, beatSheet, withoutTagPhrases, FORMATS, formatsFor, formatBeats, timed, writerPictures, speechWords, speechCap, countWords, fitSpeech, withoutLinks,
   systemPrompt, userMessage, extractOutput, parseJsonObject, readPlan, retime,
   referenceLines, composePrompt, limitMessage, tagList, cameraWords, withoutRoundBrackets, PROMPT_MAX_WORDS,
 } from '../../api/_lib/director.js'
@@ -1041,4 +1041,17 @@ test('in a hands-only clip or a film, speech is a voice-over, and a hands-only c
   assert.match(review, /^Mia says, low and intrigued:/m)
   assert.ok(review.endsWith('in the last second Mia holds the pose, mouth closed.'))
   assert.match(review, /Hands look natural, five fingers each, and move differently in every shot\./)
+})
+
+// ── Real runs of 2026-11-26: tags in the shots, and a product the model cannot see ───────────────────────────────
+
+test('a tag the model writes into a shot is taken out, and the brief says why; a product nobody can see is never guessed', () => {
+  assert.equal(withoutTagPhrases('Jay holds the BADBIE product from @Image4 over the console.'), 'Jay holds the BADBIE product over the console.')
+  assert.equal(withoutTagPhrases('The tint from @Image1 sits by the sink.'), 'The tint sits by the sink.')
+  assert.equal(withoutTagPhrases('No tag here, from the shelf.'), 'No tag here, from the shelf.', 'a sentence with no tag is left alone')
+  const { plan } = readPlan(JSON.stringify({ ...RICH, shots: RICH.shots.map((s, i) => ({ ...s, action: `${s.action} from @Image${i + 1}` })) }), 15)
+  assert.ok(plan.shots.every(s => !/@Image/.test(s.visual)), JSON.stringify(plan.shots.map(s => s.visual)))
+  const text = systemPrompt({ seconds: 15, language: 'English' })
+  assert.match(text, /so never write a tag in your plan: call the product by its name/)
+  assert.match(text, /never guess one \(a stick, a cream, a spray\)/)
 })
