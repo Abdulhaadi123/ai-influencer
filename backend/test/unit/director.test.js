@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import {
   SECONDS, DEFAULT_SECONDS, MAX_IDEA_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS,
   DirectorInputError, DirectorOutputError,
-  cleanInput, shotRange, beatSheet, withoutTagPhrases, FORMATS, formatsFor, formatBeats, timed, writerPictures, speechWords, speechCap, countWords, fitSpeech, withoutLinks,
+  cleanInput, shotRange, beatSheet, withoutTagPhrases, withoutSlowMotion, SLOW_MOTION, FORMATS, formatsFor, formatBeats, timed, writerPictures, speechWords, speechCap, countWords, fitSpeech, withoutLinks,
   systemPrompt, userMessage, extractOutput, parseJsonObject, readPlan, retime,
   referenceLines, composePrompt, limitMessage, tagList, cameraWords, withoutRoundBrackets, PROMPT_MAX_WORDS,
 } from '../../api/_lib/director.js'
@@ -765,7 +765,7 @@ test('the finished prompt: pictures, summary, shots with timings, style, consist
   assert.ok(prompt.includes('Voice: A warm, relaxed voice in her late twenties. Mia speaks only English, in the same voice in every shot.'))
   assert.ok(prompt.indexOf('Style:') > prompt.indexOf('Shot 3'))
   assert.ok(prompt.indexOf('Voice:') > prompt.indexOf('Consistency:'))
-  assert.equal(lines.at(-3), 'Hard cuts between the shots, no transitions or effects. Hands look natural, five fingers each, and move differently in every shot.')
+  assert.equal(lines.at(-3), 'Hard cuts between the shots, no transitions or effects. Everything moves at real-time speed, no slow motion. Hands look natural, five fingers each, and move differently in every shot.')
   assert.equal(lines.at(-2), 'No BGM, no music, no score, no melody: only the voice, environmental sounds and action sounds. No subtitles, no captions, no text overlays.')
   assert.equal(lines.at(-1), 'The clip ends on a still frame: in the last second Mia holds the pose, mouth closed.')
   assert.doesNotMatch(prompt, /phone or camera/i, 'a phone is never put in the video model\'s head')
@@ -1006,7 +1006,8 @@ test('the brief teaches the films and the faceless clips of the reference ads: a
   assert.ok(text.includes('<film_craft>') && text.includes('</film_craft>'))
   assert.match(text, /the scent of a perfume takes her from a quiet boutique to a waterfall\. Two places at most/)
   assert.match(text, /only when the idea or the label says so \(halved coconuts and palm leaves around a coconut oil/)
-  assert.match(text, /a slow-motion splash of water around the bottle/)
+  assert.match(text, /a splash of water around the bottle/)
+  assert.match(text, /Slow motion only when the idea asks for it, and then in one shot at most/)
   assert.match(text, /they never talk to the lens/)
   assert.match(text, /Faceless UGC \(hands_only\): only hands and the product/)
   assert.match(text, /No face anywhere; a voice-over or no speech/)
@@ -1054,4 +1055,61 @@ test('a tag the model writes into a shot is taken out, and the brief says why; a
   const text = systemPrompt({ seconds: 15, language: 'English' })
   assert.match(text, /so never write a tag in your plan: call the product by its name/)
   assert.match(text, /never guess one \(a stick, a cream, a spray\)/)
+})
+
+// ── Real time and a music bed (2026-11-26: the first videos of the new brief were slow and had no music) ───────────
+
+test('the brief asks for real-time speed and a music bed, and never steers toward slow motion on its own', () => {
+  const text = systemPrompt({ seconds: 15, language: 'English' })
+  assert.ok(text.includes('<pace_and_sound>') && text.includes('</pace_and_sound>'))
+  assert.match(text, /Real-time speed: people, hands, the product, liquid and mist all move at natural, real-world speed/)
+  assert.match(text, /a new picture every two to four seconds/)
+  assert.match(text, /^- "music": the music bed in one line \(genre, tempo in BPM, energy\), or null when the idea asks for none\.$/m)
+  assert.match(text, /Under speech it stays low so every word is clear/)
+  assert.match(text, /captions, titles and a written call to action are added later in editing/)
+  assert.doesNotMatch(text, /slow push-in|slow pull-back|slow pan|slow orbit|Small, slow/i, 'no camera move is slow by default')
+  // The only "slow motion" left is the rule against it.
+  const mentions = text.match(/slow[- ]?mo(?:tion)?/gi) || []
+  assert.ok(mentions.length >= 1 && mentions.length <= 4, mentions.join(', '))
+  const examples = text.slice(text.indexOf('<examples>'), text.indexOf('</examples>'))
+  assert.doesNotMatch(examples, /slow[- ]?mo/i, 'neither example uses slow motion')
+  assert.match(examples, /"music":"Warm acoustic guitar loop, about 95 BPM/)
+})
+
+test('a plan with music gets a music bed under the voice; without one the prompt stays silent as before', () => {
+  const input = cleanInput({ idea: 'perfume ad', seconds: 15, character: { name: 'Zain' }, references: [{ role: 'product' }, { role: 'character' }] })
+  const withMusic = composePrompt(input, readPlan(JSON.stringify({ ...RICH, music: 'Upbeat modern pop beat, about 110 BPM, bright' }), 15).plan)
+  assert.match(withMusic, /^A 15-second vertical 9:16 ad, 4 shots joined by hard cuts\. Speech, a music bed and natural sounds\.$/m)
+  assert.match(withMusic, /^Music: Upbeat modern pop beat, about 110 BPM, bright\. Kept low under the voice, so every word is clear\. No subtitles, no captions, no text overlays\.$/m)
+  assert.doesNotMatch(withMusic, /no BGM|No BGM/)
+  const silent = composePrompt(input, readPlan(JSON.stringify(RICH), 15).plan)
+  assert.match(silent, /Speech and natural sounds only; no BGM\./)
+  assert.match(silent, /^No BGM, no music, no score, no melody/m)
+  // A film with no speech gets the music without the words about a voice.
+  const film = composePrompt(cleanInput({ idea: 'perfume film', seconds: 15, references: [{ role: 'product' }] }),
+    readPlan(JSON.stringify({ ...RICH, format: 'product_film', music: 'Dark minimal beat, about 90 BPM', shots: RICH.shots.map(s => ({ ...s, dialogue: null })) }), 15).plan)
+  assert.match(film, /A music bed and natural sounds\./)
+  assert.match(film, /^Music: Dark minimal beat, about 90 BPM\. No subtitles, no captions, no text overlays\.$/m)
+})
+
+test('slow motion the model writes is taken out unless the idea asks for it, and the prompt says real time', () => {
+  assert.equal(withoutSlowMotion('A slow-motion splash of water around the bottle.'), 'A splash of water around the bottle.')
+  assert.equal(withoutSlowMotion('Extreme close-up, macro lens, locked, slow motion'), 'Extreme close-up, macro lens, locked')
+  assert.equal(withoutSlowMotion('Juice bursts outward in slow motion against the slate.'), 'Juice bursts outward against the slate.')
+  assert.equal(withoutSlowMotion('He nods slowly.'), 'He nods slowly.', 'other words are left alone')
+  const slowPlan = {
+    ...RICH,
+    style: 'Commercial look, slow motion for the liquid.',
+    shots: RICH.shots.map((s, i) => (i === 1 ? { ...s, camera: 'Close-up, macro, slow motion', action: 'Mist drifts in slow motion across the bottle.' } : s)),
+  }
+  const input = cleanInput({ idea: 'perfume ad', seconds: 15, character: { name: 'Zain' }, references: [{ role: 'product' }] })
+  const prompt = composePrompt(input, readPlan(JSON.stringify(slowPlan), 15).plan)
+  assert.doesNotMatch(prompt, /slow[- ]?mo(?:tion)?(?! motion\.)/i.test(prompt) ? /slow motion for|in slow motion|macro, slow/ : /$^/)
+  assert.match(prompt, /Shot 2 \[3-6s\]: Close-up, macro\.\nMist drifts across the bottle\./)
+  assert.match(prompt, /Everything moves at real-time speed, no slow motion\./)
+  // An idea that asks for slow motion keeps it, and is not told the opposite.
+  const asked = composePrompt(cleanInput({ idea: 'a slow motion perfume film', seconds: 15, references: [{ role: 'product' }] }), readPlan(JSON.stringify(slowPlan), 15).plan)
+  assert.match(asked, /Mist drifts in slow motion across the bottle\./)
+  assert.doesNotMatch(asked, /real-time speed/)
+  assert.ok(SLOW_MOTION.test('make it slow-mo') && !SLOW_MOTION.test('a lively perfume ad'))
 })

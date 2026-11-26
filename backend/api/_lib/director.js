@@ -339,7 +339,8 @@ const EXAMPLE_PLAN = Object.freeze({
   summary: 'Sam, a relaxed man in his early thirties, films himself at his small kitchen counter on a sunny morning. He admits a simple ceramic dripper beat his machine, and shows the slow pour that makes the difference.',
   setting: 'A narrow apartment kitchen counter at eight in the morning: a gooseneck kettle, a glass carafe, a paper bag of coffee beans, a chipped blue mug; low sun from a window on camera-left.',
   look: 'A man in his early thirties, medium build, short curly dark hair, light stubble, olive skin, a faded grey t-shirt.',
-  voice: 'Early thirties, low and warm, unhurried, a dry sense of humour.',
+  voice: 'Early thirties, low and warm, easy pace, a dry sense of humour.',
+  music: 'Warm acoustic guitar loop, about 95 BPM, relaxed and bright.',
   shots: [
     {
       beat: 'HOOK', start: 0, end: 3,
@@ -361,7 +362,7 @@ const EXAMPLE_PLAN = Object.freeze({
     },
     {
       beat: 'FAVOURITE DETAIL', start: 6, end: 11,
-      camera: 'Close-up, phone rear camera close to the dripper, slow push-in',
+      camera: 'Close-up, phone rear camera close to the dripper, push-in',
       action: 'The gooseneck kettle pours a thin spiral of water over the grounds; the coffee swells and bubbles, then dark coffee threads down into the carafe.',
       performance: null,
       dialogue: 'Watch it bloom. That\'s the secret. Tastes like my café\'s.',
@@ -390,26 +391,27 @@ const EXAMPLE_FILM = Object.freeze({
   format: 'product_film',
   angle: 'Freshness you can see: the juice looks cold and just pressed before a word is said.',
   hooks: [
-    'A halved orange hits wet slate and bursts in slow motion.',
+    'A halved orange hits wet slate and bursts into droplets.',
     'Cold droplets run down the bottle in a beam of light.',
     'The cap twists off with a crisp crack.',
   ],
   product: 'orange juice bottle',
-  summary: 'A short studio film: a halved orange bursts on wet slate in slow motion, then the chilled bottle stands beaded with cold droplets in a warm rim light and settles as the hero.',
+  summary: 'A short studio film: a halved orange bursts on wet slate, then the chilled bottle stands beaded with cold droplets in a warm rim light and settles as the hero.',
   setting: 'A studio tabletop of wet dark slate with three halved oranges and a few green leaves; a soft key light from camera-left, a warm rim light from behind, a deep charcoal background.',
   look: null,
-  voice: 'A woman in her thirties, warm and low, unhurried, close to the microphone.',
+  voice: 'A woman in her thirties, warm and low, close to the microphone.',
+  music: 'Minimal electronic beat, about 105 BPM, fresh and bright.',
   shots: [
     {
       beat: 'OPENING', start: 0, end: 3,
-      camera: 'Extreme close-up, macro lens, locked, slow motion',
+      camera: 'Extreme close-up, macro lens, locked',
       action: 'A halved orange drops onto the wet slate and its juice bursts outward in glistening droplets against the charcoal background.',
       performance: null, dialogue: null, delivery: null,
       sfx: 'a wet thud, droplets pattering on stone',
     },
     {
       beat: 'REVEAL', start: 3, end: 7,
-      camera: 'Close-up, 85mm, slow push-in',
+      camera: 'Close-up, 85mm, push-in',
       action: 'The glass bottle of orange juice stands among the halved oranges, cold droplets running down its sides as the rim light traces its edge, its label facing the lens.',
       performance: null,
       dialogue: 'Cold-pressed, the way oranges should taste.',
@@ -424,7 +426,7 @@ const EXAMPLE_FILM = Object.freeze({
       sfx: 'a last droplet tapping the slate',
     },
   ],
-  style: 'Commercial studio film, vertical 9:16: a soft key light from camera-left and a warm rim light from behind on a deep charcoal background, saturated orange and green against dark slate, crisp macro detail, shallow depth of field, slow motion for the liquid.',
+  style: 'Commercial studio film, vertical 9:16: a soft key light from camera-left and a warm rim light from behind on a deep charcoal background, saturated orange and green against dark slate, crisp macro detail, shallow depth of field.',
   consistency: 'The same wet slate, the same halved oranges and the same studio light in every shot.',
 })
 
@@ -552,13 +554,14 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '- An arc, not a list of angles: discovery, first touch, the feeling, where it takes them, the product alone at the end. A ' +
       'sensory moment may carry the person to a second place: the scent of a perfume takes her from a quiet boutique to a ' +
       'waterfall. Two places at most; name the place in every shot.',
-    '- Feeling is shown in a close-up of the face: the eyes closing, a slow inhale, a small smile. The person acts; they never ' +
+    '- Feeling is shown in a close-up of the face: the eyes closing, an inhale, a small smile. The person acts; they never ' +
       'talk to the lens. Speech is at most one short voice-over line, or none.',
     '- The product\'s world around it: what it is made of or from, only when the idea or the label says so (halved coconuts ' +
       'and palm leaves around a coconut oil, citrus slices around a citrus scent), and a surface that suits it (wet stone, ' +
       'polished marble, dark glass, linen).',
-    '- Motion that sells, one per shot: a slow-motion splash of water around the bottle, mist drifting through a beam of light, ' +
-      'droplets running down glass, a light sweep along the label, a slow orbit or push-in on the product.',
+    '- Motion that sells, one per shot, at real speed: a splash of water around the bottle, mist through a beam of light, ' +
+      'droplets running down glass, a light sweep along the label, an orbit or push-in on the product. Slow motion only when ' +
+      'the idea asks for it, and then in one shot at most.',
     '- Light like a commercial: a soft key with a rim light that outlines the product on a dark ground, or golden-hour and ' +
       'overcast daylight outdoors. Shallow depth of field, macro for textures.',
     '- An editorial, high-fashion look when the idea asks for one: a seamless studio backdrop, one hard key light that sculpts ' +
@@ -566,6 +569,17 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
       'part of the outfit.',
     '- The end frame: the product alone, centred, its label facing the lens, still.',
     '</film_craft>',
+    '',
+    '<pace_and_sound>',
+    'A proper ad has energy and a sound bed:',
+    '- Pace: UGC is quick and lively, like a real creator\'s post: speech at a natural, brisk pace, every action at real speed, ' +
+      'a new picture every two to four seconds. A film is confident, not slow: purposeful moves, one still beat at the end.',
+    '- Music: choose a music bed that fits the ad and write it in "music": the genre, the tempo in BPM and the energy ("upbeat ' +
+      'modern pop beat, about 110 BPM, bright and confident"; "dark minimal trap beat, about 90 BPM, confident"). Under speech ' +
+      'it stays low so every word is clear. "music" is null only when the idea asks for no music or for ASMR sound.',
+    '- No words on screen: captions, titles and a written call to action are added later in editing, because a video model ' +
+      'writes text as gibberish. The speech and the pictures carry the message.',
+    '</pace_and_sound>',
     '',
     '<what_renders_well>',
     'Seedance renders what is concrete and loses what is vague. These rules come from what it does with written shots:',
@@ -577,8 +591,10 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
       'ad stays in one place; a film may move once (see film_craft).',
     '- "camera" is one framing in full words (extreme close-up, close-up, medium close-up, medium shot or wide shot), the ' +
       'lens feel (phone front camera, phone rear camera close to the subject, or 35mm, 50mm, 85mm for a film look) and one ' +
-      'movement (locked, slow push-in, slow pull-back, slow pan, tracking, or handheld with a slight sway). Small, slow, ' +
-      'continuous movement renders best.',
+      'movement (locked, push-in, pull-back, pan, tracking, or handheld with a slight sway). Small, continuous movement ' +
+      'renders best.',
+    '- Real-time speed: people, hands, the product, liquid and mist all move at natural, real-world speed. Never write slow ' +
+      'motion, slow-mo or "slowly" unless the idea asks for it: the video model turns those words into an ad that drags.',
     '- Faces: a medium close-up or closer whenever the face matters (faces in wide shots turn waxy). While someone speaks: a ' +
       'medium close-up or a medium shot, never an extreme close-up (the lips stop matching the words).',
     '- The product, whenever it is on screen: large enough to read at phone size, its label or logo toward the lens, at chest ' +
@@ -592,7 +608,7 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '- Light is a physical source with a direction and a colour ("soft window light from camera-left, warm"), said once in ' +
       '"style" and the same in every shot.',
     '- Sounds are concrete and tied to an action: the cap clicks, a spray hisses, a mug is set on wood. Never "ambient sound" ' +
-      'or "background noise", and no music.',
+      'or "background noise". Music is its own line ("music"), never one of a shot\'s sounds.',
     '- Write no round brackets anywhere: the video model reads text in round brackets as music.',
     '</what_renders_well>',
     '',
@@ -647,6 +663,7 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '- Does the first second stop the scroll with the sound off, and does the first line make them need the second?',
     '- Is the product clearly on screen by the end of the second shot, unless the format is a slow reveal?',
     '- If the request has a character, is their face seen clearly in the ad, unless the idea asked for no face?',
+    '- Does everything move at real-time speed, with nothing written as slow motion unless the idea asked for it? Is there a music bed?',
     '- In hands_only, is there no face anywhere? In product_film, does the last shot show the product alone?',
     '- Would a real person say every line out loud, exactly like that? Is one benefit shown, not only said?',
     `- Exactly ${count} ${shotWord}, the slot times, the word budgets, no mood adjectives, no round brackets.`,
@@ -664,6 +681,7 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '- "look": the person as the camera sees them (age, build, hair, skin, outfit), from the description given and ' +
       'completed where it is silent; null if nobody is in the video.',
     '- "voice": the speaker\'s voice in one line (age range, pitch, pace, energy), or null if nobody speaks.',
+    '- "music": the music bed in one line (genre, tempo in BPM, energy), or null when the idea asks for none.',
     `- "shots": exactly ${count}, in order, each with "beat" (its name from the format), "start" and "end" (the slot's seconds), ` +
       '"camera", "action" (15 to 40 words: the one action, where the product is in the frame, how it is held), "performance" ' +
       '(face, eyes, gesture, energy in this shot; null in a shot with no person), "dialogue" (the words said in this shot, or ' +
@@ -939,6 +957,7 @@ export function readPlan(text, seconds) {
     setting: orNull(seen(raw.setting, 400)),
     look: orNull(seen(raw.look, 400)),
     voice: orNull(sentence(raw.voice, 200)),
+    music: orNull(sentence(raw.music, 160)),
     style: sentence(raw.style, 500),
     consistency: sentence(raw.consistency, 400),
     // Timed first (the slots of this length when the count is right, else in proportion), then each line of speech is
@@ -1091,6 +1110,25 @@ const toneWords = tone => String(tone).replace(/,\s*([^,]+)$/, ' and $1')
  * The model's own round brackets, turned into commas: to Seedance a parenthesis is music ("(soft piano plays)"), and a stray
  * "(her favourite)" is no reason for a melody to start. Text without one comes back exactly as it was.
  */
+/** Whether an idea asks for slow motion: only then may the prompt hold any. */
+export const SLOW_MOTION = /\bslow[- ]?mo(?:tion)?\b|\bslowed down\b/i
+
+/**
+ * Slow motion taken out of what the model wrote ("a slow-motion splash" → "a splash", "locked, slow motion" → "locked",
+ * "bursts in slow motion" → "bursts"), for an idea that did not ask for it: the first real videos of the new brief came out
+ * slow from end to end. A sentence with none is returned as it was.
+ */
+export function withoutSlowMotion(text) {
+  const source = String(text ?? '')
+  if (!/slow[- ]?mo/i.test(source)) return source
+  return source
+    .replace(/\s*,?\s*\bin slow[- ]?mo(?:tion)?\b/gi, '')
+    .replace(/\s*,\s*slow[- ]?mo(?:tion)?\b/gi, '')
+    .replace(/\bslow[- ]?mo(?:tion)?\s+/gi, '')
+    .replace(/\bslow[- ]?mo(?:tion)?\b/gi, '')
+    .replace(/\s{2,}/g, ' ').replace(/\s+([,.;:!?])/g, '$1').trim()
+}
+
 export function withoutRoundBrackets(text) {
   const source = String(text ?? '')
   if (!/[()]/.test(source)) return source
@@ -1141,7 +1179,13 @@ export function composePrompt(input, plan) {
 
   const references = referenceLines(input, plan.product)
   const cut = plan.shots.length === 1 ? 'one continuous shot' : `${plan.shots.length} shots joined by hard cuts`
-  const opening = `${article} ${input.seconds}-second ${shape} ad, ${cut}. ${talks ? 'Speech and natural sounds only' : 'Natural sounds only'}; no BGM.`
+  const music = plan.music ? ended(withoutRoundBrackets(plan.music)) : null
+  const opening = music
+    ? `${article} ${input.seconds}-second ${shape} ad, ${cut}. ${talks ? 'Speech, a music bed and natural sounds' : 'A music bed and natural sounds'}.`
+    : `${article} ${input.seconds}-second ${shape} ad, ${cut}. ${talks ? 'Speech and natural sounds only' : 'Natural sounds only'}; no BGM.`
+  // Unless the idea asks for slow motion, none reaches the video model, and the prompt says real time outright.
+  const slowAsked = SLOW_MOTION.test(input.idea)
+  const pace = text => (slowAsked ? text : withoutSlowMotion(text))
 
   // A person with no picture of them is drawn from words alone, so the words are said once, before the shots, and held:
   // left to each shot, the face and the outfit drifted. With a picture, the picture decides, and no words compete with it.
@@ -1152,10 +1196,10 @@ export function composePrompt(input, plan) {
   const setting = plan.setting ? `Setting: ${ended(withoutRoundBrackets(plan.setting))}` : null
 
   const shotBlocks = withPerformance => plan.shots.map((shot, i) => {
-    const picture = [shot.visual, withPerformance ? shot.performance : null]
+    const picture = [pace(shot.visual), withPerformance ? pace(shot.performance) : null]
       .filter(Boolean).map(text => ended(withoutRoundBrackets(text))).join(' ')
     const block = [
-      `Shot ${i + 1} [${stamp(shot.start, shot.end)}]:${shot.camera ? ` ${capital(closed(cameraWords(withoutRoundBrackets(shot.camera))))}` : ''}`,
+      `Shot ${i + 1} [${stamp(shot.start, shot.end)}]:${shot.camera ? ` ${capital(closed(cameraWords(withoutRoundBrackets(pace(shot.camera)))))}` : ''}`,
       picture,
     ]
     if (shot.dialogue) {
@@ -1166,7 +1210,7 @@ export function composePrompt(input, plan) {
     return block.join('\n')
   })
 
-  const style = withoutRoundBrackets(plan.style) || (person
+  const style = withoutRoundBrackets(pace(plan.style)) || (person
     ? `Shot on a phone, ${shape}: the front camera at arm's length for talking shots, natural light from the room's own window, true-to-life colour, natural skin texture, subtle handheld movement. Authentic UGC, not a polished commercial.`
     : `${capital(shape)}, clean natural light, realistic materials and textures, a steady camera, the product in sharp focus.`)
   // What stays the same when the model said nothing: a film may move once, so it promises only the product.
@@ -1181,8 +1225,10 @@ export function composePrompt(input, plan) {
     `Style: ${style}`,
     `Consistency: ${withoutRoundBrackets(plan.consistency) || alike}`,
     ...(talks ? [`Voice: ${closed(withoutRoundBrackets(plan.voice) || fallbackVoice(input))} ${speaker} speaks only ${tongue}, in the same voice in every shot.`] : []),
-    `Hard cuts between the shots, no transitions or effects.${person ? ' Hands look natural, five fingers each, and move differently in every shot.' : ''}`,
-    `${talks ? '' : 'No dialogue. '}No BGM, no music, no score, no melody: only ${talks ? 'the voice, ' : ''}environmental sounds and action sounds. No subtitles, no captions, no text overlays.`,
+    `Hard cuts between the shots, no transitions or effects.${slowAsked ? '' : ' Everything moves at real-time speed, no slow motion.'}${person ? ' Hands look natural, five fingers each, and move differently in every shot.' : ''}`,
+    music
+      ? `Music: ${music}${talks ? ' Kept low under the voice, so every word is clear.' : ''} No subtitles, no captions, no text overlays.`
+      : `${talks ? '' : 'No dialogue. '}No BGM, no music, no score, no melody: only ${talks ? 'the voice, ' : ''}environmental sounds and action sounds. No subtitles, no captions, no text overlays.`,
     person && speaker !== 'A voice-over' && plan.format !== 'hands_only'
       ? `The clip ends on a still frame: in the last second ${speaker.startsWith('The ') ? `the ${speaker.slice(4)}` : speaker} holds the pose, mouth closed.`
       : 'The clip ends on a still frame.',
@@ -1190,7 +1236,7 @@ export function composePrompt(input, plan) {
 
   const assemble = ({ summary, consistency, performance }) => [
     ...references, ...(references.length ? [''] : []),
-    opening, ...(summary && plan.summary ? [withoutRoundBrackets(plan.summary)] : []),
+    opening, ...(summary && plan.summary ? [withoutRoundBrackets(pace(plan.summary))] : []),
     ...(look ? [look] : []), ...(setting ? [setting] : []), '',
     ...shotBlocks(performance).flatMap(block => [block, '']),
     ...closing.filter(line => consistency || !line.startsWith('Consistency:')),
