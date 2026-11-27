@@ -275,6 +275,15 @@ const BEAT_JOBS = Object.freeze({
   'END FRAME': 'a calm closing image of the product, its label readable, a voice-over line at most; the shot ends still.',
 })
 
+/**
+ * How many shots a clip may have when the idea asks for its own cutting: from one to one every two seconds, twelve at most.
+ * A shot shorter than two seconds shows nothing, and past about twelve the video model starts to merge them.
+ */
+export function shotLimits(seconds) {
+  const s = Number(seconds) || DEFAULT_SECONDS
+  return [1, Math.max(1, Math.min(12, Math.floor(s / 2)))]
+}
+
 /** The slots of a clip of this length (the nearest length there is a row for). */
 function slotsOf(seconds) {
   const known = Object.keys(SLOTS).map(Number)
@@ -341,6 +350,10 @@ const EXAMPLE_PLAN = Object.freeze({
   look: 'A man in his early thirties, medium build, short curly dark hair, light stubble, olive skin, a faded grey t-shirt.',
   voice: 'Early thirties, low and warm, easy pace, a dry sense of humour.',
   music: 'Warm acoustic guitar loop, about 95 BPM, relaxed and bright.',
+  speech: 'on_camera',
+  transitions: null,
+  on_screen_text: null,
+  ending: null,
   shots: [
     {
       beat: 'HOOK', start: 0, end: 3,
@@ -401,6 +414,10 @@ const EXAMPLE_FILM = Object.freeze({
   look: null,
   voice: 'A woman in her thirties, warm and low, close to the microphone.',
   music: 'Minimal electronic beat, about 105 BPM, fresh and bright.',
+  speech: 'voice_over',
+  transitions: null,
+  on_screen_text: null,
+  ending: null,
   shots: [
     {
       beat: 'OPENING', start: 0, end: 3,
@@ -442,6 +459,7 @@ const EXAMPLE_FILM = Object.freeze({
 export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
   const slots = slotsOf(seconds)
   const count = slots.length
+  const limits = shotLimits(seconds)
   const shape = CAMERA_SHAPES[aspect] ?? CAMERA_SHAPES[DEFAULT_ASPECT]
   const offered = formatsFor(seconds)
   const sheet = beatSheet(seconds)
@@ -464,6 +482,19 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
       'know exactly how an AI video model renders a written shot. Here you write the shot plan that ByteDance Seedance 2 ' +
       '(reference images to video, with synchronized speech and sound) turns into one finished clip.',
     '</role>',
+    '',
+    '<what_decides>',
+    'The idea is the brief. Do what it says, to the letter. This order decides every conflict:',
+    '1. Safety (below) and the person\'s settings (the length, the shape, the language, the pictures): never changed.',
+    '2. Everything the idea asks for in so many words: its story and the order of its shots, how many cuts or how fast, ' +
+      'the places, the look, the person, what is said and by whom (to the camera, as a voice-over, by nobody), music or ' +
+      'silence, slow motion, words on screen, transitions, how it ends. Do exactly that, even where a default below says ' +
+      'otherwise.',
+    '3. The defaults in this brief: only for what the idea leaves open. Every rule below is a default unless it says it is ' +
+      'safety or a technical limit.',
+    'Technical limits are the few things the video model cannot do well. When the idea asks for one, do it in the closest ' +
+      'way that works, and keep the rest of the idea exactly.',
+    '</what_decides>',
     '',
     '<why_it_matters>',
     '- The video model films what you write, word for word. A vague plan becomes a generic, forgettable video; a specific plan ' +
@@ -498,16 +529,21 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '</how_to_work>',
     '',
     '<the_cut>',
-    `The clip is ${seconds} seconds long and has exactly ${count} ${shotWord}${count === 1 ? '' : ', joined by hard cuts with no gap'}: ` +
-      `the first starts at 0 and the last ends at ${end}. Keep these times and these word budgets.`,
+    `The clip is ${seconds} seconds long. By default it has ${count} ${shotWord} in these slots${count === 1 ? '' : ', joined by hard cuts with no gap'}: ` +
+      `the first starts at 0 and the last ends at ${end}.`,
     ...slotLines,
     `Together the speech is about ${Math.round((fewest + most) / 2)} words (${fewest} to ${most}) in a talking ad. A cinematic or ` +
       'product-only film may say less, even nothing.',
+    `When the idea asks for faster or slower cutting, or lays out its own shots, write ${limits[0]} to ${limits[1]} shots instead, with ` +
+      'your own start and end times: from 0 to the end with no gap, each shot at least 2 seconds, the first at most 3. ' +
+      'Technical limit: a line of speech fits its shot at about 2 to 2.7 words a second; a longer one is cut.',
     '</the_cut>',
     '',
     '<formats>',
-    `Choose the ONE format that sells this idea best, and put its beats into the ${shotWord} in this order. The beats are already ` +
-      `fitted to ${count} ${shotWord}. If the idea itself asks for a format (an unboxing, a review, a routine, a tutorial), use it.`,
+    'If the idea tells its own story or lays out its shots, follow it shot for shot, in its order, and name each beat ' +
+      'yourself. Otherwise choose the ONE format below that sells the idea best and put its beats into the shots in order; ' +
+      `its beats are fitted to the default ${count} ${shotWord}. If the idea names a format (an unboxing, a review, a routine, a ` +
+      'tutorial), use it.',
     'When the request has a character (a picture of them, or a name or a description), the person paid for an ad with that ' +
       'character in it: they are its face, seen clearly in it. Then choose hands_only only when the idea asks for no face or ' +
       'only hands, and product_film only when it asks for a cinematic, luxury or studio film (and even then they appear in it). ' +
@@ -518,16 +554,28 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '</formats>',
     '',
     '<ugc_craft>',
-    'Unless the idea asks for another look, the ad is authentic UGC: a real person\'s own phone video that happens to sell.',
+    'Unless the idea asks for another look, the ad is premium UGC: a real person\'s own phone video that happens to sell, at ' +
+      'the level of a top creator\'s best post, never a quick throwaway selfie. However plain the idea, the plan is that good.',
+    '- Premium, still real: the place is tidy and good-looking, its colours chosen to set off the product (warm neutrals ' +
+      'behind a red lipstick, a dark moody corner for a black bottle); the light is soft and directional (a window at their ' +
+      'side, golden hour, a warm lamp); the person is styled as on a good day, clean hair and an outfit whose colour flatters ' +
+      'the product. Shot on a phone, but every frame would look right on the brand\'s own page.',
     `- Camera: shot on a phone, ${shape}. Talking shots: the front camera at arm's length, eye level or a little above, the ` +
       'face slightly off-centre, the person talking straight into the lens as if on a video call with a friend. Product ' +
       'close-ups: the rear camera close to the product in the creator\'s own hand, a point-of-view shot, or the phone propped ' +
       'on a counter for hands-free demos. Subtle natural handheld movement and small reframes; never gimbal-smooth glides, ' +
       'whip pans or fast zooms.',
     '- Editing: talking parts may run as jump cuts, two shots in a row with the same framing where the person has shifted a ' +
-      'little and carries on mid-thought. Alternate talking shots with close-ups of the product to keep the eye moving.',
-    '- Place: real and lived-in, named precisely. Not "a modern kitchen" but "a small kitchen counter with a dented kettle, a ' +
-      'fruit bowl and morning sun across the tiles". Natural window light or a lamp in the room; a little mixed colour is fine.',
+      'little and carries on mid-thought.',
+    '- Shot mix: alternate the person talking to the lens with close product shots from the rear camera: the texture, the ' +
+      'mechanism, the swatch, the pour, the colour on skin, the product working. At least one such shot in a clip of up to 15 ' +
+      'seconds and two in a longer one; an ad made only of talking heads shows nothing.',
+    '- Place: where this product is really used and looks its best, named precisely: a vanity or a bathroom counter in soft ' +
+      'daylight for beauty and skincare, a dressing area or a car at golden hour for fragrance, a gym or a park path for ' +
+      'fitness, a kitchen or café counter for food and drink, a desk for tech. Not "a modern kitchen" but "a small kitchen ' +
+      'counter with a ceramic kettle, a bowl of lemons and morning sun across the tiles". Never fall back on a hallway or an ' +
+      'entryway with keys and a tote bag unless the idea is about leaving the house: it is the first place every writer ' +
+      'thinks of, and it makes every ad look the same.',
     '- People: natural skin with pores and fine lines, a little asymmetry, everyday clothes with creases, hair as it really is, ' +
       'never airbrushed. Real micro-expressions: a half-smile, raised ' +
       'eyebrows, a quick laugh, a shrug, eyes going to the product and back to the lens. The energy of a creator, not a ' +
@@ -539,7 +587,11 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
       'clicking shut, the stain gone.',
     '- The call to action is soft and in their own words ("Link\'s right there if you want one"), the product in view.',
     '- Hooks that work: a confession, a strong opinion ("Stop buying…"), the result first, a question nobody answers, a ' +
-      'point-of-view situation, a genuine reaction as the product works, the start of a short list.',
+      'point-of-view situation, a genuine reaction as the product works, the start of a short list. The first line makes ' +
+      'clear what the ad is about (the product, the problem or the result) with something specific; a vague teaser ("wait ' +
+      'for the good part", "I\'m late") stops nobody.',
+    '- The benefit, said plainly once: somewhere the creator says in their own words what the product does for them, with ' +
+      'one sensory detail (the finish, the texture, the scent, the taste, the sound, the feel).',
     '- Faceless UGC (hands_only): only hands and the product, the phone close to them. The hook is an action (a seal peeled, a ' +
       'cap twisted off, the first swatch), then the texture in macro and the product used on the back of a hand or on a real ' +
       'surface; natural nails and skin, one hand doing one thing at a time. No face anywhere; a voice-over or no speech.',
@@ -553,9 +605,11 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
       'product is the hero:',
     '- An arc, not a list of angles: discovery, first touch, the feeling, where it takes them, the product alone at the end. A ' +
       'sensory moment may carry the person to a second place: the scent of a perfume takes her from a quiet boutique to a ' +
-      'waterfall. Two places at most; name the place in every shot.',
-    '- Feeling is shown in a close-up of the face: the eyes closing, an inhale, a small smile. The person acts; they never ' +
-      'talk to the lens. Speech is at most one short voice-over line, or none.',
+      'waterfall. By default two places at most; the idea may ask for more. Name the place in every shot.',
+    '- Feeling is shown in a close-up of the face: the eyes closing, an inhale, a small smile. By default the person acts and does not ' +
+      'talk to the lens unless the idea asks them to. Speech is a voice-over over the music: by default one short line near the end; when the idea asks ' +
+      'for narration, a few short, low, intimate lines across the film (about one line every two shots), the brand named in ' +
+      'the last one.',
     '- The product\'s world around it: what it is made of or from, only when the idea or the label says so (halved coconuts ' +
       'and palm leaves around a coconut oil, citrus slices around a citrus scent), and a surface that suits it (wet stone, ' +
       'polished marble, dark glass, linen).',
@@ -577,8 +631,10 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '- Music: choose a music bed that fits the ad and write it in "music": the genre, the tempo in BPM and the energy ("upbeat ' +
       'modern pop beat, about 110 BPM, bright and confident"; "dark minimal trap beat, about 90 BPM, confident"). Under speech ' +
       'it stays low so every word is clear. "music" is null only when the idea asks for no music or for ASMR sound.',
-    '- No words on screen: captions, titles and a written call to action are added later in editing, because a video model ' +
-      'writes text as gibberish. The speech and the pictures carry the message.',
+    '- Words on screen, a technical limit: a video model often misspells text, so by default there is none (captions and a ' +
+      'written call to action are added in editing) and the speech and pictures carry the message. When the idea asks for ' +
+      'words on screen, write them in "on_screen_text": the exact words, as few as possible (a brand or product name is ' +
+      'safest), and the shot they appear in.',
     '</pace_and_sound>',
     '',
     '<what_renders_well>',
@@ -587,8 +643,8 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
       'product is in the frame. Order inside a shot with "then". Facts, not mood: "she tilts the bottle so the label catches ' +
       'the window light", never "she elegantly shows off the stunning bottle". Words that carry no picture (stunning, amazing, ' +
       'perfect, elegant, premium, high-quality, cinematic) make generic footage: leave them out.',
-    '- Decide everything. One place per shot, one light, one hand, one move: never "or", "maybe" or "something like". A UGC ' +
-      'ad stays in one place; a film may move once (see film_craft).',
+    '- Decide everything. One place per shot, one light, one hand, one move: never "or", "maybe" or "something like". By ' +
+      'default a UGC ad stays in one place and a film moves once at most; the idea may ask for more places.',
     '- "camera" is one framing in full words (extreme close-up, close-up, medium close-up, medium shot or wide shot), the ' +
       'lens feel (phone front camera, phone rear camera close to the subject, or 35mm, 50mm, 85mm for a film look) and one ' +
       'movement (locked, push-in, pull-back, pan, tracking, or handheld with a slight sway). Small, continuous movement ' +
@@ -601,10 +657,12 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
       'height or near the lens, never tucked into a corner. Say how it is held ("pinched between thumb and two fingers, label ' +
       'out"): vague hands render badly. Call it by the same words every time.',
     '- Name the character in every shot they are in. A short shot opens with them already in position.',
-    '- Never write that anyone holds, films with or puts down a phone or a camera, unless that is the product: the frame is ' +
-      'the viewpoint. For a selfie shot, write that they look into the lens at arm\'s length.',
-    '- Nothing to read on screen besides the product\'s own label: no captions, titles, signs or screens (written text comes ' +
-      'out as gibberish). No mirrors and no other people unless the idea needs them (doubles and extra faces appear).',
+    '- Technical limit: never write that anyone holds, films with or puts down a phone or a camera unless the idea shows one ' +
+      'or it is the product (a second phone appears): the frame is the viewpoint. For a selfie shot, write that they look ' +
+      'into the lens at arm\'s length.',
+    '- Technical limit: by default nothing to read on screen besides the product\'s own label (written text often comes out ' +
+      'misspelled; see "on_screen_text"). No mirrors and no other people unless the idea needs them (doubles and extra faces ' +
+      'appear).',
     '- Light is a physical source with a direction and a colour ("soft window light from camera-left, warm"), said once in ' +
       '"style" and the same in every shot.',
     '- Sounds are concrete and tied to an action: the cap clicks, a spray hisses, a mug is set on wood. Never "ambient sound" ' +
@@ -619,7 +677,7 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
       'lines in a shot. A shot that shows only the product may have no speech, or one short voice-over line. The last line ' +
       'ends before the final second.',
     '- Feelings and everyday experiences are the creator\'s own and welcome. Never invent prices, discounts, ratings, ' +
-      'statistics, awards or results the idea did not give, and never put speech or text on screen.',
+      'statistics, awards or results the idea did not give. Speech is heard, never written on screen.',
     '</speech>',
     '',
     '<pictures>',
@@ -657,16 +715,19 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
     '',
     '<quality_bar>',
     'Before you answer, check every shot and every line:',
+    '- Did you do everything the idea asked for, in its order and in its words? Nothing it asked for left out or changed?',
     '- Could this shot be moved into an ad for another product unchanged? Then it is generic: tie it to this product, this ' +
       'person and this place.',
     '- Does every shot give the viewer one concrete thing to remember: a texture, an object, a gesture, a sound?',
     '- Does the first second stop the scroll with the sound off, and does the first line make them need the second?',
     '- Is the product clearly on screen by the end of the second shot, unless the format is a slow reveal?',
+    '- Premium UGC: is the place right for this product and good-looking, not a generic hallway? Is there a close product ' +
+      'shot? Does the first line say what this is about? Is the benefit said plainly once?',
     '- If the request has a character, is their face seen clearly in the ad, unless the idea asked for no face?',
-    '- Does everything move at real-time speed, with nothing written as slow motion unless the idea asked for it? Is there a music bed?',
-    '- In hands_only, is there no face anywhere? In product_film, does the last shot show the product alone?',
+    '- Does everything move at real-time speed, with nothing written as slow motion unless the idea asked for it? Is there a music bed, unless the idea asked for none?',
+    '- In hands_only, is there no face anywhere? In product_film, does the last shot show the product alone, unless the idea ends otherwise?',
     '- Would a real person say every line out loud, exactly like that? Is one benefit shown, not only said?',
-    `- Exactly ${count} ${shotWord}, the slot times, the word budgets, no mood adjectives, no round brackets.`,
+    `- The shots follow the cut (${count} by default, or the cutting the idea asked for), the word budgets fit, no mood adjectives, no round brackets.`,
     '</quality_bar>',
     '',
     '<answer_format>',
@@ -682,7 +743,16 @@ export function systemPrompt({ seconds, language, aspect = DEFAULT_ASPECT }) {
       'completed where it is silent; null if nobody is in the video.',
     '- "voice": the speaker\'s voice in one line (age range, pitch, pace, energy), or null if nobody speaks.',
     '- "music": the music bed in one line (genre, tempo in BPM, energy), or null when the idea asks for none.',
-    `- "shots": exactly ${count}, in order, each with "beat" (its name from the format), "start" and "end" (the slot's seconds), ` +
+    '- "speech": who is heard: "on_camera" when the person talks to the lens or to someone in the shot, "voice_over" when the ' +
+      'words are heard over the pictures, "none" when nobody speaks. Follow the idea; by default UGC is "on_camera" and a film ' +
+      'or a hands-only clip is "voice_over".',
+    '- "transitions": null for hard cuts (the default), or how the shots join when the idea asks for something else ("a whip ' +
+      'pan from each shot into the next").',
+    '- "on_screen_text": null (the default), or, only when the idea asks for words on screen, the exact words and the shot ' +
+      'they appear in.',
+    '- "ending": null for the default (the last second holds still), or how the clip ends when the idea asks for a different ' +
+      'ending.',
+    `- "shots": in order (${count} by default; see the cut), each with "beat" (its name), "start" and "end" (its seconds), ` +
       '"camera", "action" (15 to 40 words: the one action, where the product is in the frame, how it is held), "performance" ' +
       '(face, eyes, gesture, energy in this shot; null in a shot with no person), "dialogue" (the words said in this shot, or ' +
       'null), "delivery" (how they are said, two to four words, or null) and "sfx" (the concrete sounds of this shot).',
@@ -867,7 +937,7 @@ const NOT_A_CHILD = new RegExp(
  * for an idea about a six year old), so it is checked here, in code.
  */
 function childInPlan(plan) {
-  const seen = [plan.summary, plan.setting, plan.look, ...plan.shots.flatMap(shot => [shot.visual, shot.performance])]
+  const seen = [plan.summary, plan.setting, plan.look, plan.onScreenText, ...plan.shots.flatMap(shot => [shot.visual, shot.performance])]
     .filter(Boolean).join('\n').replace(NOT_A_CHILD, ' ')
   return CHILD.exec(seen)?.[0] ?? null
 }
@@ -934,7 +1004,7 @@ export function readPlan(text, seconds) {
   const pictureOf = shot => seen(shot.action, 700) || seen(shot.visual, 700)
   const kept = shots
     .filter(shot => shot && typeof shot === 'object' && pictureOf(shot))
-    .slice(0, 10)
+    .slice(0, 12)
     .map(shot => ({
       label: (sentence(shot.beat, 28) || sentence(shot.label, 28)).toUpperCase() || 'SHOT',
       span: Math.max(0.5, Number(shot.end) - Number(shot.start)) || 1,
@@ -957,7 +1027,11 @@ export function readPlan(text, seconds) {
     setting: orNull(seen(raw.setting, 400)),
     look: orNull(seen(raw.look, 400)),
     voice: orNull(sentence(raw.voice, 200)),
-    music: orNull(sentence(raw.music, 160)),
+    music: orNull(clipWords(sentence(phrase(raw.music), 600), 320)),
+    speech: SPEECH_MODES.includes(raw.speech) ? raw.speech : null,
+    transitions: orNull(seen(phrase(raw.transitions), 240)),
+    onScreenText: orNull(seen(phrase(raw.on_screen_text), 240)),
+    ending: orNull(seen(phrase(raw.ending), 240)),
     style: sentence(raw.style, 500),
     consistency: sentence(raw.consistency, 400),
     // Timed first (the slots of this length when the count is right, else in proportion), then each line of speech is
@@ -996,7 +1070,7 @@ export function timed(shots, seconds) {
  * With more shots than seconds the last ones are dropped: a shot needs a second to be shown in.
  */
 export function retime(shots, seconds) {
-  const list = shots.slice(0, Math.max(1, Math.min(shots.length, seconds)))
+  const list = shots.slice(0, Math.max(1, Math.min(shots.length, shotLimits(seconds)[1])))
   // A shot with no usable length counts as one second's worth, so no shot can take the whole clip or none of it.
   const weights = list.map(s => (Number.isFinite(s.span) && s.span > 0 ? s.span : 1))
   const total = weights.reduce((sum, w) => sum + w, 0)
@@ -1104,12 +1178,34 @@ export function cameraWords(text) {
 }
 
 /** "excited, casual" as it is said: "excited and casual". */
-const toneWords = tone => String(tone).replace(/,\s*([^,]+)$/, ' and $1')
+const toneWords = tone => String(tone).replace(/^\p{Lu}(?=\p{Ll})/u, c => c.toLowerCase()).replace(/,\s*([^,]+)$/, ' and $1')
 
 /**
  * The model's own round brackets, turned into commas: to Seedance a parenthesis is music ("(soft piano plays)"), and a stray
  * "(her favourite)" is no reason for a melody to start. Text without one comes back exactly as it was.
  */
+/**
+ * A field the model may answer as text or as a small object ({"text": "RED FLAG", "shot": 4, "placement": "lower third"}):
+ * one line either way. Words to show are quoted and called words, so the video model writes them rather than says them.
+ */
+export function phrase(value) {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (Array.isArray(value)) return value.map(phrase).filter(Boolean).join('; ')
+  if (value && typeof value === 'object') {
+    const words = value.text ?? value.words
+    const rest = Object.entries(value)
+      .filter(([key]) => key !== 'text' && key !== 'words')
+      .map(([key, v]) => (key === 'shot' && v !== null && v !== '' ? `in shot ${phrase(v)}` : phrase(v)))
+      .filter(Boolean)
+    return [typeof words === 'string' && words.trim() ? `the words "${words.replace(/"/g, '').trim()}"` : null, ...rest].join(', ').replace(/^, /, '')
+  }
+  return ''
+}
+
+/** Who is heard in a plan: the person on camera, a voice-over, or nobody. */
+const SPEECH_MODES = Object.freeze(['on_camera', 'voice_over', 'none'])
+
 /** Whether an idea asks for slow motion: only then may the prompt hold any. */
 export const SLOW_MOTION = /\bslow[- ]?mo(?:tion)?\b|\bslowed down\b/i
 
@@ -1118,6 +1214,24 @@ export const SLOW_MOTION = /\bslow[- ]?mo(?:tion)?\b|\bslowed down\b/i
  * "bursts in slow motion" → "bursts"), for an idea that did not ask for it: the first real videos of the new brief came out
  * slow from end to end. A sentence with none is returned as it was.
  */
+/**
+ * Whether the idea really asks for slow motion: "no slow motion", "never slow-mo" or "without slow motion" ask for the
+ * opposite (the BADDIE Red Flag idea of 27 November 2026 said "no slow motion" and lost the real-time line for it).
+ */
+export function asksForSlowMotion(idea) {
+  const rest = String(idea ?? '').replace(/\b(?:no|not|never|without|avoid|zero|nothing in|don'?t use|do not use)\s+(?:any\s+)?slow[- ]?mo(?:tion)?\b/gi, ' ')
+  return SLOW_MOTION.test(rest)
+}
+
+/** Text cut to `max` characters at the last whole word, never in the middle of one. */
+function clipWords(text, max) {
+  const t = String(text ?? '')
+  if (t.length <= max) return t
+  const cut = t.slice(0, max + 1)
+  const space = cut.lastIndexOf(' ')
+  return (space > max / 2 ? cut.slice(0, space) : t.slice(0, max)).replace(/[\s,;:]+$/, '')
+}
+
 export function withoutSlowMotion(text) {
   const source = String(text ?? '')
   if (!/slow[- ]?mo/i.test(source)) return source
@@ -1172,19 +1286,20 @@ export function composePrompt(input, plan) {
   // Nobody talks to the lens in a hands-only clip or a film: what is said is a voice-over (lips with no face to move them,
   // or a face that should only feel, made Seedance put a talking head in).
   const faceless = FACELESS_FORMATS.includes(plan.format)
-  const speaker = faceless && talks ? 'A voice-over' : speakerOf(input, person)
+  const voiceOver = plan.speech ? plan.speech === 'voice_over' : faceless
+  const speaker = voiceOver && talks ? 'A voice-over' : speakerOf(input, person)
   const shape = SHAPES[input.aspect] ?? input.aspect
   const tongue = languageName(input)
   const article = /^(8|11|18)\b/.test(String(input.seconds)) ? 'An' : 'A'
 
   const references = referenceLines(input, plan.product)
-  const cut = plan.shots.length === 1 ? 'one continuous shot' : `${plan.shots.length} shots joined by hard cuts`
+  const cut = plan.shots.length === 1 ? 'one continuous shot' : plan.transitions ? `${plan.shots.length} shots` : `${plan.shots.length} shots joined by hard cuts`
   const music = plan.music ? ended(withoutRoundBrackets(plan.music)) : null
   const opening = music
     ? `${article} ${input.seconds}-second ${shape} ad, ${cut}. ${talks ? 'Speech, a music bed and natural sounds' : 'A music bed and natural sounds'}.`
     : `${article} ${input.seconds}-second ${shape} ad, ${cut}. ${talks ? 'Speech and natural sounds only' : 'Natural sounds only'}; no BGM.`
   // Unless the idea asks for slow motion, none reaches the video model, and the prompt says real time outright.
-  const slowAsked = SLOW_MOTION.test(input.idea)
+  const slowAsked = asksForSlowMotion(input.idea)
   const pace = text => (slowAsked ? text : withoutSlowMotion(text))
 
   // A person with no picture of them is drawn from words alone, so the words are said once, before the shots, and held:
@@ -1203,7 +1318,9 @@ export function composePrompt(input, plan) {
       picture,
     ]
     if (shot.dialogue) {
-      const how = shot.tone ? `, ${toneWords(withoutRoundBrackets(shot.tone))}` : ''
+      // A voice-over's delivery that names itself ("low and assured voice-over") would say voice-over twice.
+      const tone = shot.tone && speaker === 'A voice-over' ? shot.tone.replace(/[,\s]*\b(?:as an? )?voice[- ]?over\b/gi, '').trim() : shot.tone
+      const how = tone ? `, ${toneWords(withoutRoundBrackets(tone))}` : ''
       block.push(`${speaker} says${how}: {${tongue}: "${withoutRoundBrackets(shot.dialogue).replace(/[{}]/g, '')}"}`)
     }
     if (shot.sfx) block.push(`<${withoutRoundBrackets(shot.sfx).replace(/[<>]/g, '')}>`)
@@ -1221,15 +1338,21 @@ export function composePrompt(input, plan) {
     : plan.format === 'hands_only'
       ? `The same hands, skin tone and sleeves in every shot. ${sameThings}`
       : `${who} looks identical in every shot: same face, same hair, same outfit. ${sameThings}`
+  // Words on screen only when the plan carries them (the idea asked); otherwise none, as always.
+  const noText = plan.onScreenText
+    ? `On-screen text: ${ended(withoutRoundBrackets(plan.onScreenText))} Only these words appear on screen, spelled exactly; no subtitles or captions.`
+    : 'No subtitles, no captions, no text overlays.'
   const closing = [
     `Style: ${style}`,
     `Consistency: ${withoutRoundBrackets(plan.consistency) || alike}`,
     ...(talks ? [`Voice: ${closed(withoutRoundBrackets(plan.voice) || fallbackVoice(input))} ${speaker} speaks only ${tongue}, in the same voice in every shot.`] : []),
-    `Hard cuts between the shots, no transitions or effects.${slowAsked ? '' : ' Everything moves at real-time speed, no slow motion.'}${person ? ' Hands look natural, five fingers each, and move differently in every shot.' : ''}`,
+    `${plan.transitions ? `Transitions: ${ended(withoutRoundBrackets(plan.transitions))}` : 'Hard cuts between the shots, no transitions or effects.'}${slowAsked ? '' : ' Everything moves at real-time speed, no slow motion.'}${person ? ' Hands look natural, five fingers each, and move differently in every shot.' : ''}`,
     music
-      ? `Music: ${music}${talks ? ' Kept low under the voice, so every word is clear.' : ''} No subtitles, no captions, no text overlays.`
-      : `${talks ? '' : 'No dialogue. '}No BGM, no music, no score, no melody: only ${talks ? 'the voice, ' : ''}environmental sounds and action sounds. No subtitles, no captions, no text overlays.`,
-    person && speaker !== 'A voice-over' && plan.format !== 'hands_only'
+      ? `Music: ${music}${talks ? ' Kept low under the voice, so every word is clear.' : ''} ${noText}`
+      : `${talks ? '' : 'No dialogue. '}No BGM, no music, no score, no melody: only ${talks ? 'the voice, ' : ''}environmental sounds and action sounds. ${noText}`,
+    plan.ending
+      ? `Ending: ${ended(withoutRoundBrackets(plan.ending))}`
+      : person && speaker !== 'A voice-over' && plan.format !== 'hands_only'
       ? `The clip ends on a still frame: in the last second ${speaker.startsWith('The ') ? `the ${speaker.slice(4)}` : speaker} holds the pose, mouth closed.`
       : 'The clip ends on a still frame.',
   ]

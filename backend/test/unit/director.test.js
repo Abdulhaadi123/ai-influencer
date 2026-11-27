@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import {
   SECONDS, DEFAULT_SECONDS, MAX_IDEA_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS,
   DirectorInputError, DirectorOutputError,
-  cleanInput, shotRange, beatSheet, withoutTagPhrases, withoutSlowMotion, SLOW_MOTION, FORMATS, formatsFor, formatBeats, timed, writerPictures, speechWords, speechCap, countWords, fitSpeech, withoutLinks,
+  cleanInput, shotRange, beatSheet, withoutTagPhrases, withoutSlowMotion, SLOW_MOTION, asksForSlowMotion, shotLimits, phrase, FORMATS, formatsFor, formatBeats, timed, writerPictures, speechWords, speechCap, countWords, fitSpeech, withoutLinks,
   systemPrompt, userMessage, extractOutput, parseJsonObject, readPlan, retime,
   referenceLines, composePrompt, limitMessage, tagList, cameraWords, withoutRoundBrackets, PROMPT_MAX_WORDS,
 } from '../../api/_lib/director.js'
@@ -142,7 +142,8 @@ test('the number of shots grows with the length of the clip', () => {
 
 test('the instructions carry the length, the cut of the ad, the formats, the language and the rules — and never the idea', () => {
   const text = systemPrompt({ seconds: 30, language: 'Hindi' })
-  assert.match(text, /The clip is 30 seconds long and has exactly 6 shots/)
+  assert.match(text, /The clip is 30 seconds long\. By default it has 6 shots in these slots/)
+  assert.match(text, /When the idea asks for faster or slower cutting, or lays out its own shots, write 1 to 12 shots instead/)
   assert.match(text, /the first starts at 0 and the last ends at 30/)
   assert.match(text, /^Shot 1: 0-3s, speech 5 to 8 words$/m)
   assert.match(text, /^Shot 2: 3-7s, speech 7 to 10 words$/m)
@@ -158,11 +159,11 @@ test('the instructions carry the length, the cut of the ad, the formats, the lan
   assert.match(text, /Speech is in Hindi, written in that language's own script/)
   assert.match(text, /ONE JSON object/)
   assert.match(text, /no music/i)
-  assert.match(text, /no captions/i)
+  assert.match(text, /captions and a written call to action are added in editing/)
   assert.match(text, /web/i)
   assert.doesNotMatch(text, /"refusal"/, 'the model is not given a way to decline')
-  assert.match(systemPrompt({ seconds: 8, language: 'English' }), /has exactly 3 shots/)
-  assert.match(systemPrompt({ seconds: 4, language: 'English' }), /has exactly 1 shot:/)
+  assert.match(systemPrompt({ seconds: 8, language: 'English' }), /By default it has 3 shots/)
+  assert.match(systemPrompt({ seconds: 4, language: 'English' }), /By default it has 1 shot in these slots:/)
   assert.match(systemPrompt({ seconds: 4, language: 'English' }), /ONE SHOT: the whole ad in one continuous shot/)
   assert.doesNotMatch(systemPrompt({ seconds: 15, language: 'English' }), /own script/, 'English needs no word about scripts')
   // Three reasons need a hook, three reasons and a call to action: not offered below four shots.
@@ -194,7 +195,7 @@ test('the instructions are a director\'s brief: a role, the reasons, the steps, 
   assert.match(text, /never "or", "maybe" or "something like"/)
   assert.match(text, /label or logo toward the lens/)
   assert.match(text, /vague hands render badly/)
-  assert.match(text, /Never write that anyone holds, films with or puts down a phone or a camera, unless that is the product/)
+  assert.match(text, /Technical limit: never write that anyone holds, films with or puts down a phone or a camera unless the idea shows one or it is the product/)
   assert.match(text, /Light is a physical source with a direction and a colour/)
   assert.match(text, /Never "ambient sound"/)
   assert.match(text, /Write no round brackets anywhere/)
@@ -353,7 +354,13 @@ test('the instructions never let the model decline: every idea gets a plan, the 
   assert.match(text, /ALWAYS write the plan\. You never decline, apologise or explain/)
   assert.match(text, /Every idea gets a plan/)
   // A luxury, cinematic or product-only idea is not a reason to decline, and the look it asks for is the look written.
-  assert.match(text, /Unless the idea asks for another look, the ad is authentic UGC/)
+  assert.match(text, /Unless the idea asks for another look, the ad is premium UGC: a real person's own phone video that happens to sell/)
+  // Premium by default, whatever the idea's words: the right place, a close product shot, a hook that says what it is about.
+  assert.match(text, /However plain the idea, the plan is that good/)
+  assert.match(text, /Never fall back on a hallway or an entryway with keys and a tote bag unless the idea is about leaving the house/)
+  assert.match(text, /At least one such shot in a clip of up to 15 seconds and two in a longer one/)
+  assert.match(text, /The first line makes clear what the ad is about/)
+  assert.match(text, /The benefit, said plainly once/)
   assert.match(text, /When the idea asks for another look \(cinematic, luxury, polished, a studio product film, a film with no person/)
   assert.match(text, /Products, brands and luxury items are ordinary/)
   assert.match(text, /Never decline over a brand, a price level, a look or a style/)
@@ -587,9 +594,9 @@ test('an answer with no usable shot is an error, not an empty video', () => {
   }
 })
 
-test('a shot with no picture is left out, and no more than ten shots are kept', () => {
+test('a shot with no picture is left out, and no more than twelve shots are kept', () => {
   const many = Array.from({ length: 14 }, (_, i) => ({ label: 'x', start: i, end: i + 1, visual: `shot ${i}` }))
-  assert.equal(readPlan(JSON.stringify({ shots: many }), 30).plan.shots.length, 10)
+  assert.equal(readPlan(JSON.stringify({ shots: many }), 30).plan.shots.length, 12)
   const mixed = [{ visual: 'a' }, { label: 'no picture' }, { visual: 'b' }]
   assert.equal(readPlan(JSON.stringify({ shots: mixed }), 30).plan.shots.length, 2)
 })
@@ -616,11 +623,12 @@ test('shots follow each other from 0 to the clip length, whatever times the mode
   assert.equal(check([[5, 1], ['a', 'b']].map(([s, e]) => [s, e]), 10).reduce((a, b) => a + b), 10, 'times that are not numbers')
 })
 
-test('more shots than seconds: the last ones are dropped, each kept shot has a second', () => {
+test('more shots than the length can show: the last ones are dropped, each kept shot has two seconds', () => {
   const shots = Array.from({ length: 6 }, (_, i) => ({ label: 'x', visual: String(i), span: 1 }))
   const timed = retime(shots, 4)
-  assert.equal(timed.length, 4)
-  assert.deepEqual(timed.map(s => [s.start, s.end]), [[0, 1], [1, 2], [2, 3], [3, 4]])
+  assert.equal(timed.length, 2)
+  assert.deepEqual(timed.map(s => [s.start, s.end]), [[0, 2], [2, 4]])
+  assert.equal(retime(Array.from({ length: 20 }, () => ({ span: 1 })), 30).length, 12, 'twelve at most')
 })
 
 test('retiming holds for every length the model takes and any number of shots', () => {
@@ -1004,15 +1012,15 @@ test('the brief teaches the films and the faceless clips of the reference ads: a
   assert.match(text, /^- hands_only: HOOK → DETAIL → IN USE → END FRAME\. For faceless UGC/m)
   assert.match(text, /^- product_film: OPENING → REVEAL → DETAIL → END FRAME\. For a cinematic, luxury or studio film with the product as the hero/m)
   assert.ok(text.includes('<film_craft>') && text.includes('</film_craft>'))
-  assert.match(text, /the scent of a perfume takes her from a quiet boutique to a waterfall\. Two places at most/)
+  assert.match(text, /the scent of a perfume takes her from a quiet boutique to a waterfall\. By default two places at most; the idea may ask for more/)
   assert.match(text, /only when the idea or the label says so \(halved coconuts and palm leaves around a coconut oil/)
   assert.match(text, /a splash of water around the bottle/)
   assert.match(text, /Slow motion only when the idea asks for it, and then in one shot at most/)
-  assert.match(text, /they never talk to the lens/)
+  assert.match(text, /does not talk to the lens unless the idea asks them to/)
   assert.match(text, /Faceless UGC \(hands_only\): only hands and the product/)
   assert.match(text, /No face anywhere; a voice-over or no speech/)
-  assert.match(text, /A UGC ad stays in one place; a film may move once \(see film_craft\)/)
-  assert.match(text, /In hands_only, is there no face anywhere\? In product_film, does the last shot show the product alone\?/)
+  assert.match(text, /By default a UGC ad stays in one place and a film moves once at most; the idea may ask for more places/)
+  assert.match(text, /In hands_only, is there no face anywhere\? In product_film, does the last shot show the product alone, unless the idea ends otherwise\?/)
   // A character the person chose is the face of the ad: a faceless format is chosen only when the idea asks for one.
   assert.match(text, /When the request has a character .* they are its face, seen clearly in it\. Then choose hands_only only when the idea asks for no face or only hands, and product_film only when it asks for a cinematic, luxury or studio film/)
   assert.match(text, /If the request has a character, is their face seen clearly in the ad, unless the idea asked for no face\?/)
@@ -1066,11 +1074,11 @@ test('the brief asks for real-time speed and a music bed, and never steers towar
   assert.match(text, /a new picture every two to four seconds/)
   assert.match(text, /^- "music": the music bed in one line \(genre, tempo in BPM, energy\), or null when the idea asks for none\.$/m)
   assert.match(text, /Under speech it stays low so every word is clear/)
-  assert.match(text, /captions, titles and a written call to action are added later in editing/)
+  assert.match(text, /captions and a written call to action are added in editing/)
   assert.doesNotMatch(text, /slow push-in|slow pull-back|slow pan|slow orbit|Small, slow/i, 'no camera move is slow by default')
   // The only "slow motion" left is the rule against it.
   const mentions = text.match(/slow[- ]?mo(?:tion)?/gi) || []
-  assert.ok(mentions.length >= 1 && mentions.length <= 4, mentions.join(', '))
+  assert.ok(mentions.length >= 1 && mentions.length <= 6, mentions.join(', '))
   const examples = text.slice(text.indexOf('<examples>'), text.indexOf('</examples>'))
   assert.doesNotMatch(examples, /slow[- ]?mo/i, 'neither example uses slow motion')
   assert.match(examples, /"music":"Warm acoustic guitar loop, about 95 BPM/)
@@ -1112,4 +1120,107 @@ test('slow motion the model writes is taken out unless the idea asks for it, and
   assert.match(asked, /Mist drifts in slow motion across the bottle\./)
   assert.doesNotMatch(asked, /real-time speed/)
   assert.ok(SLOW_MOTION.test('make it slow-mo') && !SLOW_MOTION.test('a lively perfume ad'))
+})
+
+// ── The real run of the BADDIE Red Flag film (2026-11-27) ────────────────────────────────────────────────────
+
+test('"no slow motion" in an idea is not a request for slow motion: the prompt still says real time', () => {
+  for (const idea of ['Energetic cuts at real-time speed, no slow motion.', 'never slow-mo please', 'without slow motion, fast cuts', "don't use slow motion"]) {
+    assert.equal(asksForSlowMotion(idea), false, idea)
+    const prompt = composePrompt(cleanInput({ idea, seconds: 15, references: [{ role: 'product' }] }), readPlan(JSON.stringify({ ...RICH, style: 'Studio look, slow motion for the mist.' }), 15).plan)
+    assert.match(prompt, /Everything moves at real-time speed, no slow motion\./, idea)
+    assert.doesNotMatch(prompt, /slow motion for the mist/, idea)
+  }
+  for (const idea of ['a slow motion perfume film', 'the spray in slow motion, the rest no slow motion']) assert.equal(asksForSlowMotion(idea), true, idea)
+})
+
+test('a long music line is kept whole up to its last word, and a voice-over is not called a voice-over twice', () => {
+  const music = 'Instrumental electro-pop at about 118 BPM, built on a double-thump heartbeat kick; clipped synth pulses build under the hard cuts, then duck under the final voice-over. No lyrics.'
+  const { plan } = readPlan(JSON.stringify({ ...RICH, music }), 15)
+  assert.equal(plan.music, music, 'a 180-character music line is not cut')
+  const long = readPlan(JSON.stringify({ ...RICH, music: `${'word '.repeat(90)}end` }), 15).plan.music
+  assert.ok(long.length <= 320 && /word$/.test(long), long.slice(-20))
+  const film = composePrompt(cleanInput({ idea: 'perfume film', seconds: 15, character: { name: 'Zayan', gender: 'Male' }, references: [{ role: 'product' }] }),
+    readPlan(JSON.stringify({ ...RICH, format: 'product_film', shots: RICH.shots.map((s, i) => (i === 3 ? { ...s, delivery: 'low and assured voice-over' } : { ...s, dialogue: null })) }), 15).plan)
+  assert.match(film, /^A voice-over says, low and assured: \{English: "Link is right there\."\}$/m)
+  const capital = composePrompt(cleanInput({ idea: 'perfume ad', seconds: 15, character: { name: 'Zayan' }, references: [{ role: 'product' }] }),
+    readPlan(JSON.stringify({ ...RICH, shots: RICH.shots.map((x, i) => (i === 0 ? { ...x, delivery: 'Low and clipped' } : x)) }), 15).plan)
+  assert.match(capital, /^Zayan says, low and clipped: /m, 'a delivery note starts in lower case after the comma')
+})
+
+test('a film may carry a few narrated voice-over lines over the music when the idea asks for narration', () => {
+  const text = systemPrompt({ seconds: 30, language: 'English' })
+  assert.match(text, /by default one short line near the end; when the idea asks for narration, a few short, low, intimate lines across the film/)
+  assert.doesNotMatch(text, /Speech is at most one short voice-over line, or none/)
+})
+
+// ── The idea is the brief (2026-11-27): what the idea asks for beats every default ─────────────────────────────
+
+test('the brief puts the idea above its own defaults, and marks what the video model cannot do as technical limits', () => {
+  const text = systemPrompt({ seconds: 30, language: 'English' })
+  assert.ok(text.indexOf('<what_decides>') > text.indexOf('</role>') && text.indexOf('<what_decides>') < text.indexOf('<why_it_matters>'), 'said first, after the role')
+  assert.match(text, /The idea is the brief\. Do what it says, to the letter\./)
+  assert.match(text, /^1\. Safety \(below\) and the person's settings/m)
+  assert.match(text, /^2\. Everything the idea asks for in so many words: its story and the order of its shots, how many cuts or how fast/m)
+  assert.match(text, /^3\. The defaults in this brief: only for what the idea leaves open\./m)
+  assert.match(text, /If the idea tells its own story or lays out its shots, follow it shot for shot, in its order/)
+  assert.match(text, /Did you do everything the idea asked for, in its order and in its words\?/)
+  for (const key of ['speech', 'transitions', 'on_screen_text', 'ending']) assert.match(text, new RegExp(`^- "${key}": `, 'm'), key)
+  assert.ok((text.match(/Technical limit/g) || []).length >= 3)
+  assert.deepEqual(shotLimits(30), [1, 12])
+  assert.deepEqual(shotLimits(15), [1, 7])
+  assert.deepEqual(shotLimits(4), [1, 2])
+})
+
+test('the plan\'s own choices are followed: who speaks, transitions, words on screen, the ending, its own cutting', () => {
+  const input = cleanInput({ idea: 'perfume film', seconds: 15, character: { name: 'Zayan', gender: 'Male' }, references: [{ role: 'product' }, { role: 'character' }] })
+  // A film in which the idea had him talk to the camera: he speaks, not a voice-over.
+  const talking = composePrompt(input, readPlan(JSON.stringify({ ...RICH, format: 'product_film', speech: 'on_camera' }), 15).plan)
+  assert.match(talking, /^Zayan says, low and intrigued:/m)
+  assert.doesNotMatch(talking, /A voice-over says/)
+  // A UGC format whose idea asked for a narrator: a voice-over.
+  const narrated = composePrompt(input, readPlan(JSON.stringify({ ...RICH, speech: 'voice_over' }), 15).plan)
+  assert.match(narrated, /^A voice-over says, low and intrigued:/m)
+  // Transitions, words on screen and an ending the idea asked for replace the fixed lines.
+  const asked = composePrompt(input, readPlan(JSON.stringify({
+    ...RICH, transitions: 'a whip pan from each shot into the next', on_screen_text: 'RED FLAG, in the last shot', ending: 'Zayan walks out of frame and the bottle stays on the table',
+  }), 15).plan)
+  assert.match(asked, /^A 15-second vertical 9:16 ad, 4 shots\./m)
+  assert.match(asked, /^Transitions: a whip pan from each shot into the next\./m)
+  assert.doesNotMatch(asked, /Hard cuts between the shots/)
+  assert.match(asked, /On-screen text: RED FLAG, in the last shot\. Only these words appear on screen, spelled exactly; no subtitles or captions\./)
+  assert.doesNotMatch(asked, /no text overlays/)
+  assert.match(asked, /\nEnding: Zayan walks out of frame and the bottle stays on the table\.$/)
+  assert.doesNotMatch(asked, /still frame/)
+  // Without them, the defaults as before.
+  const plain = composePrompt(input, readPlan(JSON.stringify(RICH), 15).plan)
+  assert.match(plain, /Hard cuts between the shots, no transitions or effects\./)
+  assert.match(plain, /No subtitles, no captions, no text overlays\./)
+  assert.match(plain, /The clip ends on a still frame/)
+  // An unknown speech mode is no choice at all.
+  assert.equal(readPlan(JSON.stringify({ ...RICH, speech: 'sing' }), 15).plan.speech, null)
+})
+
+test('an idea that asks for fast cutting gets its own shots and times, each at least two seconds', () => {
+  const shots = Array.from({ length: 10 }, (_, i) => ({ beat: `CUT ${i + 1}`, start: i * 3, end: i * 3 + 3, action: `Cut ${i + 1}.` }))
+  const { plan } = readPlan(JSON.stringify({ ...RICH, shots }), 30)
+  assert.equal(plan.shots.length, 10)
+  assert.deepEqual(plan.shots.map(s => s.end - s.start), Array(10).fill(3))
+  assert.equal(plan.shots.at(-1).end, 30)
+  const tooMany = readPlan(JSON.stringify({ ...RICH, shots: Array.from({ length: 12 }, (_, i) => ({ action: `x ${i}` })) }), 15).plan
+  assert.equal(tooMany.shots.length, 7, 'fifteen seconds hold seven shots at most')
+  assert.ok(tooMany.shots.every(s => s.end - s.start >= 2))
+})
+
+test('words on screen are checked for a child like everything the camera sees', () => {
+  assert.equal(readPlan(JSON.stringify({ ...RICH, on_screen_text: 'For my little girl, in the last shot' }), 15).child, true)
+})
+
+test('a field answered as a small object is read as one line: the words on screen the idea asked for are never dropped', () => {
+  assert.equal(phrase({ text: 'RED FLAG', shot: 4, placement: 'centred in the lower third' }), 'the words "RED FLAG", in shot 4, centred in the lower third')
+  assert.equal(phrase('RED FLAG in the last shot'), 'RED FLAG in the last shot')
+  assert.equal(phrase(null), '')
+  const input = cleanInput({ idea: 'end with RED FLAG on screen', seconds: 15, character: { name: 'Zayan' }, references: [{ role: 'product' }] })
+  const prompt = composePrompt(input, readPlan(JSON.stringify({ ...RICH, on_screen_text: { text: 'RED FLAG', shot: 4, placement: 'centred in the lower third' } }), 15).plan)
+  assert.match(prompt, /On-screen text: the words "RED FLAG", in shot 4, centred in the lower third\. Only these words appear on screen, spelled exactly/)
 })
